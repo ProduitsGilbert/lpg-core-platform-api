@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  # Main API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lpg-core-platform-api
+    ports:
+      - "7003:7003"
+    environment:
+      # Database configuration
+      DB_DSN: ${DB_DSN:-mssql+pyodbc://sa:YourStrong!Passw0rd@mssql:1433/BusinessCentral?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes}
+      
+      # Application settings
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
+      
+      # ERP configuration
+      ERP_MODE: ${ERP_MODE:-legacy}
+      ERP_BASE_URL: ${ERP_BASE_URL:-}
+      CANARY_PERCENT: ${CANARY_PERCENT:-0}
+      
+      # External services
+      LOGFIRE_API_KEY: ${LOGFIRE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-2025-08-07}
+      LOCAL_AGENT_BASE_URL: ${LOCAL_AGENT_BASE_URL:-}
+      OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
+      
+      # Feature flags
+      ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-false}
+      ENABLE_OCR: ${ENABLE_OCR:-false}
+      ENABLE_AI_ASSISTANCE: ${ENABLE_AI_ASSISTANCE:-false}
+    volumes:
+      - ./app:/app/app:ro
+      - ./tests:/app/tests:ro
+      - ./logs:/app/logs
+    networks:
+      - lpg-network
+    depends_on:
+      - mssql
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Microsoft SQL Server (for local development)
+  # Comment out if connecting to existing Business Central database
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: lpg-mssql
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: YourStrong!Passw0rd
+      MSSQL_PID: Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+      - ./app/sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - lpg-network
+    healthcheck:
+      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Optional: Local AI Agent (commented out by default)
+  # local-agent:
+  #   image: your-local-agent-image:latest
+  #   container_name: lpg-local-agent
+  #   ports:
+  #     - "8001:8000"
+  #   networks:
+  #     - lpg-network
+  #   restart: unless-stopped
+
+  # Optional: OCR Service (commented out by default)
+  # ocr-service:
+  #   image: tesseract-ocr-service:latest
+  #   container_name: lpg-ocr
+  #   ports:
+  #     - "8002:8000"
+  #   networks:
+  #     - lpg-network
+  #   restart: unless-stopped
+
+  # Optional: Adminer for database management (development only)
+  adminer:
+    image: adminer:latest
+    container_name: lpg-adminer
+    ports:
+      - "8080:8080"
+    networks:
+      - lpg-network
+    environment:
+      ADMINER_DEFAULT_SERVER: mssql
+    depends_on:
+      - mssql
+    profiles:
+      - dev
+
+networks:
+  lpg-network:
+    driver: bridge
+    name: lpg-network
+
+volumes:
+  mssql-data:
+    name: lpg-mssql-data

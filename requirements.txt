@@ -1,0 +1,30 @@
+# Core Dependencies
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Database
+sqlalchemy==2.0.25
+pyodbc==5.0.1
+
+# HTTP Client
+httpx==0.26.0
+
+# Retry Logic
+tenacity==8.2.3
+
+# Observability
+logfire==0.25.0
+
+# Scheduler (optional, disabled by default)
+apscheduler==3.10.4
+
+# Testing
+pytest==7.4.4
+pytest-cov==4.1.0
+pytest-asyncio==0.23.3
+pytest-mock==3.12.0
+
+# Development
+python-dotenv==1.0.0
