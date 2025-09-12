@@ -12,7 +12,9 @@ import logging
 from sqlalchemy import create_engine, text, Engine, event
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.settings import settings
 
@@ -185,15 +187,24 @@ async def verify_database_connection() -> bool:
     Used in health checks and startup validation.
     """
     try:
-        with logfire.span("Database connection check"):
+        # Check if logfire is configured
+        from app.settings import settings
+        if settings.logfire_api_key:
+            with logfire.span("Database connection check"):
+                engine = get_engine()
+                with engine.connect() as conn:
+                    result = conn.execute(text("SELECT 1"))
+                    result.scalar()
+                logfire.info("Database connection verified successfully")
+        else:
             engine = get_engine()
             with engine.connect() as conn:
                 result = conn.execute(text("SELECT 1"))
                 result.scalar()
-            logfire.info("Database connection verified successfully")
-            return True
+        return True
     except Exception as e:
-        logfire.error(f"Database connection failed: {e}")
+        if hasattr(settings, 'logfire_api_key') and settings.logfire_api_key:
+            logfire.error(f"Database connection failed: {e}")
         return False
 
 

@@ -1,17 +1,19 @@
-version: '3.8'
-
 services:
-  # Main API service
+  # Main API service (using existing SQL Server)
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: lpg-core-platform-api
+    working_dir: /app
+    command: ["/opt/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7003", "--log-level", "info"]
     ports:
       - "7003:7003"
+    env_file:
+      - .env
     environment:
-      # Database configuration
-      DB_DSN: ${DB_DSN:-mssql+pyodbc://sa:YourStrong!Passw0rd@mssql:1433/BusinessCentral?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes}
+      # Database configuration - POINT TO YOUR EXISTING SQL SERVER
+      DB_DSN: ${DB_DSN:-mssql+pyodbc://username:password@your-sql-server-host:1433/YourDatabase?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes}
       
       # Application settings
       ENVIRONMENT: ${ENVIRONMENT:-development}
@@ -24,6 +26,7 @@ services:
       
       # External services
       LOGFIRE_API_KEY: ${LOGFIRE_API_KEY:-}
+      LOGFIRE_IGNORE_NO_PROJECT: "1"  # Disable Logfire auto-config when no API key
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-2025-08-07}
       LOCAL_AGENT_BASE_URL: ${LOCAL_AGENT_BASE_URL:-}
@@ -34,13 +37,9 @@ services:
       ENABLE_OCR: ${ENABLE_OCR:-false}
       ENABLE_AI_ASSISTANCE: ${ENABLE_AI_ASSISTANCE:-false}
     volumes:
-      - ./app:/app/app:ro
-      - ./tests:/app/tests:ro
       - ./logs:/app/logs
     networks:
       - lpg-network
-    depends_on:
-      - mssql
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
       interval: 30s
@@ -48,71 +47,10 @@ services:
       retries: 3
       start_period: 40s
     restart: unless-stopped
-
-  # Microsoft SQL Server (for local development)
-  # Comment out if connecting to existing Business Central database
-  mssql:
-    image: mcr.microsoft.com/mssql/server:2019-latest
-    container_name: lpg-mssql
-    environment:
-      ACCEPT_EULA: Y
-      SA_PASSWORD: YourStrong!Passw0rd
-      MSSQL_PID: Developer
-    ports:
-      - "1433:1433"
-    volumes:
-      - mssql-data:/var/opt/mssql
-      - ./app/sql:/docker-entrypoint-initdb.d:ro
-    networks:
-      - lpg-network
-    healthcheck:
-      test: /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "YourStrong!Passw0rd" -Q "SELECT 1" || exit 1
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
-
-  # Optional: Local AI Agent (commented out by default)
-  # local-agent:
-  #   image: your-local-agent-image:latest
-  #   container_name: lpg-local-agent
-  #   ports:
-  #     - "8001:8000"
-  #   networks:
-  #     - lpg-network
-  #   restart: unless-stopped
-
-  # Optional: OCR Service (commented out by default)
-  # ocr-service:
-  #   image: tesseract-ocr-service:latest
-  #   container_name: lpg-ocr
-  #   ports:
-  #     - "8002:8000"
-  #   networks:
-  #     - lpg-network
-  #   restart: unless-stopped
-
-  # Optional: Adminer for database management (development only)
-  adminer:
-    image: adminer:latest
-    container_name: lpg-adminer
-    ports:
-      - "8080:8080"
-    networks:
-      - lpg-network
-    environment:
-      ADMINER_DEFAULT_SERVER: mssql
-    depends_on:
-      - mssql
-    profiles:
-      - dev
+    # Use host network mode if your SQL Server is on the host machine
+    # network_mode: "host"  # Uncomment if SQL Server is on localhost
 
 networks:
   lpg-network:
     driver: bridge
     name: lpg-network
-
-volumes:
-  mssql-data:
-    name: lpg-mssql-data

@@ -15,7 +15,7 @@ httpx==0.26.0
 tenacity==8.2.3
 
 # Observability
-logfire==0.25.0
+logfire[fastapi]==0.25.0
 
 # Scheduler (optional, disabled by default)
 apscheduler==3.10.4

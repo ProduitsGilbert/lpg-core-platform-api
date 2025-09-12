@@ -9,10 +9,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.adapters.erp_client import ERPClient
 from app.adapters.ai_client import AIClient
+from app.ports import ERPClientProtocol, AIClientProtocol
 from app.audit import (
     get_idempotency_record,
     save_idempotency_record,
@@ -41,7 +44,7 @@ class PurchasingService:
     data consistency with idempotency and audit logging.
     """
     
-    def __init__(self, erp_client: Optional[ERPClient] = None, ai_client: Optional[AIClient] = None):
+    def __init__(self, erp_client: Optional[ERPClientProtocol] = None, ai_client: Optional[AIClientProtocol] = None):
         """
         Initialize purchasing service.
         

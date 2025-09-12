@@ -13,7 +13,9 @@ from uuid import uuid4
 
 from fastapi import Depends, Header, Request, HTTPException, status
 from sqlalchemy.orm import Session
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.db import get_session
 from app.errors import ValidationException

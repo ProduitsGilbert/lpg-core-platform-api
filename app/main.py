@@ -12,7 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
-import logfire
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.jobstores.memory import MemoryJobStore
 import uvicorn
@@ -52,17 +51,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # Initialize Logfire
     if settings.logfire_api_key:
-        logfire.configure(
-            service_name=settings.app_name,
-            token=settings.logfire_api_key,
-            environment=settings.environment
-        )
-        logfire.info(f"Logfire initialized for {settings.app_name}")
+        try:
+            import logfire
+            logfire.configure(
+                service_name=settings.app_name,
+                token=settings.logfire_api_key,
+                environment=settings.environment
+            )
+            logfire.info(f"Logfire initialized for {settings.app_name}")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Logfire: {e}")
+            settings.logfire_api_key = None  # Disable for rest of app
     else:
         logger.warning("Logfire API key not configured - using local logging only")
     
     # Verify database connection
-    with logfire.span("Database startup check"):
+    if settings.logfire_api_key:
+        try:
+            import logfire
+            with logfire.span("Database startup check"):
+                db_connected = await verify_database_connection()
+                if not db_connected:
+                    logger.error("Failed to connect to database during startup")
+                    # In production, you might want to fail startup here
+                    # raise RuntimeError("Database connection failed")
+                else:
+                    logger.info("Database connection verified")
+        except:
+            db_connected = await verify_database_connection()
+            if not db_connected:
+                logger.error("Failed to connect to database during startup")
+                # In production, you might want to fail startup here
+                # raise RuntimeError("Database connection failed")
+            else:
+                logger.info("Database connection verified")
+    else:
         db_connected = await verify_database_connection()
         if not db_connected:
             logger.error("Failed to connect to database during startup")
@@ -113,6 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     
     # Flush Logfire
     if settings.logfire_api_key:
+        import logfire
         logfire.flush()
     
     logger.info(f"{settings.app_name} shutdown complete")
@@ -160,15 +184,26 @@ async def add_request_id(request: Request, call_next):
     request.state.request_id = request_id
     request.state.trace_id = trace_id
     
-    # Add to Logfire context
-    with logfire.span(
-        "HTTP Request",
-        request_id=request_id,
-        trace_id=trace_id,
-        method=request.method,
-        path=request.url.path
-    ):
-        # Process request
+    # Process request with optional Logfire context
+    if settings.logfire_api_key:
+        import logfire
+        with logfire.span(
+            "HTTP Request",
+            request_id=request_id,
+            trace_id=trace_id,
+            method=request.method,
+            path=request.url.path
+        ):
+            # Process request
+            response = await call_next(request)
+            
+            # Add headers to response
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Trace-ID"] = trace_id
+            
+            return response
+    else:
+        # Process request without Logfire
         response = await call_next(request)
         
         # Add headers to response
@@ -187,12 +222,23 @@ async def log_requests(request: Request, call_next):
     start_time = time.time()
     
     # Log request
-    logfire.info(
-        f"Request started: {request.method} {request.url.path}",
-        method=request.method,
-        path=request.url.path,
-        client=request.client.host if request.client else None
-    )
+    if settings.logfire_api_key:
+        import logfire
+        logfire.info(
+            f"Request started: {request.method} {request.url.path}",
+            method=request.method,
+            path=request.url.path,
+            client=request.client.host if request.client else None
+        )
+    else:
+        logger.info(
+            f"Request started: {request.method} {request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "client": request.client.host if request.client else None
+            }
+        )
     
     # Process request
     response = await call_next(request)
@@ -201,13 +247,25 @@ async def log_requests(request: Request, call_next):
     duration = time.time() - start_time
     
     # Log response
-    logfire.info(
-        f"Request completed: {request.method} {request.url.path}",
-        method=request.method,
-        path=request.url.path,
-        status_code=response.status_code,
-        duration_ms=round(duration * 1000, 2)
-    )
+    if settings.logfire_api_key:
+        import logfire
+        logfire.info(
+            f"Request completed: {request.method} {request.url.path}",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=round(duration * 1000, 2)
+        )
+    else:
+        logger.info(
+            f"Request completed: {request.method} {request.url.path}",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": round(duration * 1000, 2)
+            }
+        )
     
     # Add duration header
     response.headers["X-Process-Time"] = str(duration)

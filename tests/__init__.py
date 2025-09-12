@@ -1,0 +1,1 @@
+"""Test package for lpg-core-platform-api."""

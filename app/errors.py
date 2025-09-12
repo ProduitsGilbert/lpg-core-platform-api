@@ -10,7 +10,9 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BaseAPIException(Exception):
@@ -49,122 +51,152 @@ class ERPError(BaseAPIException):
     """
     Base exception for ERP-related errors.
     
-    Used when ERP operations fail for any reason.
+    Raised when interactions with ERP systems fail.
     """
     
     def __init__(self, detail: str, context: Optional[Dict[str, Any]] = None):
         super().__init__(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"ERP operation failed: {detail}",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
             error_code="ERP_ERROR",
             context=context
         )
 
 
-class ERPConflict(BaseAPIException):
+class ERPUnavailable(ERPError):
     """
-    Exception for ERP conflict scenarios.
+    Raised when ERP system is unavailable.
     
-    Used when ERP operation cannot proceed due to conflicting state
-    (e.g., PO already posted, line already received).
+    For connection failures, timeouts, etc.
     """
     
-    def __init__(self, detail: str, context: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=detail,
-            error_code="ERP_CONFLICT",
-            context=context
-        )
+    def __init__(self, detail: str = "ERP system unavailable"):
+        super().__init__(detail=detail)
 
 
-class ERPUnavailable(BaseAPIException):
+class ERPNotFound(ERPError):
     """
-    Exception for ERP service unavailability.
+    Raised when resource is not found in ERP.
     
-    Used when ERP system is temporarily unavailable or timeout occurs.
+    For 404-like errors from ERP system.
     """
     
-    def __init__(self, detail: str = "ERP system is temporarily unavailable", context: Optional[Dict[str, Any]] = None):
-        super().__init__(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=detail,
-            error_code="ERP_UNAVAILABLE",
-            context=context
-        )
+    def __init__(self, resource_type: str, resource_id: str):
+        detail = f"{resource_type} {resource_id} not found in ERP"
+        super().__init__(detail=detail, context={"resource_type": resource_type, "resource_id": resource_id})
 
 
-class ERPNotFound(BaseAPIException):
+class ERPConflict(ERPError):
     """
-    Exception for ERP entity not found scenarios.
+    Raised when there's a conflict in ERP.
     
-    Used when requested ERP entity (PO, line, vendor, etc.) doesn't exist.
+    For duplicate resources, conflicts, etc.
     """
     
-    def __init__(self, entity_type: str, entity_id: str, context: Optional[Dict[str, Any]] = None):
+    def __init__(self, detail: str):
+        super().__init__(detail=detail)
+
+
+class PurchaseOrderNotFoundError(BaseAPIException):
+    """
+    Raised when a purchase order is not found.
+    
+    This could be in the database or ERP system.
+    """
+    
+    def __init__(self, po_number: str):
         super().__init__(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"{entity_type} not found: {entity_id}",
-            error_code="ERP_NOT_FOUND",
-            context={"entity_type": entity_type, "entity_id": entity_id, **(context or {})}
+            detail=f"Purchase order {po_number} not found",
+            error_code="PO_NOT_FOUND",
+            context={"po_number": po_number}
+        )
+
+
+class PurchaseOrderExistsError(BaseAPIException):
+    """
+    Raised when attempting to create a purchase order that already exists.
+    
+    Helps maintain data integrity and prevent duplicates.
+    """
+    
+    def __init__(self, po_number: str):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Purchase order {po_number} already exists",
+            error_code="PO_EXISTS",
+            context={"po_number": po_number}
         )
 
 
 class ValidationException(BaseAPIException):
     """
-    Exception for business rule validation failures.
+    Raised when validation fails for API parameters.
     
-    Used when request violates business rules (not schema validation).
+    Used for custom validation logic beyond Pydantic schema validation.
     """
     
-    def __init__(self, detail: str, field: Optional[str] = None, context: Optional[Dict[str, Any]] = None):
-        ctx = context or {}
-        if field:
-            ctx["field"] = field
+    def __init__(self, detail: str, field: Optional[str] = None):
+        context = {"field": field} if field else None
         super().__init__(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
             error_code="VALIDATION_ERROR",
-            context=ctx
+            context=context
         )
 
 
-class IdempotencyException(BaseAPIException):
+class InvalidPurchaseOrderError(BaseAPIException):
     """
-    Exception for idempotency key conflicts.
+    Raised when purchase order data is invalid.
     
-    Used when idempotency key is reused with different request parameters.
+    This covers business logic validation beyond schema validation.
     """
     
-    def __init__(self, key: str, context: Optional[Dict[str, Any]] = None):
+    def __init__(self, detail: str, context: Optional[Dict[str, Any]] = None):
         super().__init__(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Idempotency key conflict: {key}",
-            error_code="IDEMPOTENCY_CONFLICT",
-            context={"idempotency_key": key, **(context or {})}
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+            error_code="INVALID_PO",
+            context=context
         )
 
 
-class AuthenticationException(BaseAPIException):
+class DatabaseError(BaseAPIException):
     """
-    Exception for authentication failures.
+    Raised when database operations fail.
     
-    Used when authentication is required but not provided or invalid.
+    Wraps database-specific exceptions in a consistent API error.
     """
     
-    def __init__(self, detail: str = "Authentication required"):
+    def __init__(self, detail: str = "Database operation failed"):
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
+            error_code="DATABASE_ERROR"
+        )
+
+
+class AuthenticationError(BaseAPIException):
+    """
+    Raised when authentication fails.
+    
+    Used for API key validation and other auth mechanisms.
+    """
+    
+    def __init__(self, detail: str = "Authentication failed"):
         super().__init__(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=detail,
-            error_code="AUTHENTICATION_REQUIRED"
+            error_code="AUTHENTICATION_FAILED"
         )
 
 
-class AuthorizationException(BaseAPIException):
+class AuthorizationError(BaseAPIException):
     """
-    Exception for authorization failures.
+    Raised when user lacks required permissions.
     
-    Used when authenticated user lacks required permissions.
+    Different from authentication - user is known but not authorized.
     """
     
     def __init__(self, detail: str = "Insufficient permissions"):
@@ -175,25 +207,77 @@ class AuthorizationException(BaseAPIException):
         )
 
 
-class ExternalServiceException(BaseAPIException):
+class RateLimitError(BaseAPIException):
     """
-    Exception for external service failures (OCR, AI, etc.).
+    Raised when rate limits are exceeded.
     
-    Used when external services fail or timeout.
+    Helps protect the API from abuse and overload.
     """
     
-    def __init__(self, service: str, detail: str, context: Optional[Dict[str, Any]] = None):
+    def __init__(self, detail: str = "Rate limit exceeded", retry_after: Optional[int] = None):
+        context = {"retry_after": retry_after} if retry_after else None
         super().__init__(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"{service} service error: {detail}",
-            error_code="EXTERNAL_SERVICE_ERROR",
-            context={"service": service, **(context or {})}
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=detail,
+            error_code="RATE_LIMIT_EXCEEDED",
+            context=context
         )
 
 
+class ExternalServiceException(BaseAPIException):
+    """
+    Raised when external service calls fail.
+    
+    Used for failures in OCR, AI services, or other external APIs.
+    """
+    
+    def __init__(self, detail: str = "External service unavailable", service: Optional[str] = None):
+        context = {"service": service} if service else None
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=detail,
+            error_code="EXTERNAL_SERVICE_ERROR",
+            context=context
+        )
+
+
+class IdempotencyException(BaseAPIException):
+    """
+    Raised when idempotency checks fail.
+    
+    Prevents duplicate processing of requests.
+    """
+    
+    def __init__(self, detail: str = "Request already processed", idempotency_key: Optional[str] = None):
+        context = {"idempotency_key": idempotency_key} if idempotency_key else None
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+            error_code="IDEMPOTENCY_CONFLICT",
+            context=context
+        )
+
+
+class IdempotencyError(BaseAPIException):
+    """
+    Raised when idempotency checks fail.
+    
+    Prevents duplicate processing of requests.
+    """
+    
+    def __init__(self, detail: str = "Request already processed"):
+        super().__init__(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+            error_code="IDEMPOTENCY_CONFLICT"
+        )
+
+
+# Exception handlers for FastAPI
+
 async def handle_base_api_exception(request: Request, exc: BaseAPIException) -> JSONResponse:
     """
-    Exception handler for BaseAPIException and its subclasses.
+    Handler for BaseAPIException and its subclasses.
     
     Args:
         request: FastAPI Request object
@@ -202,14 +286,29 @@ async def handle_base_api_exception(request: Request, exc: BaseAPIException) -> 
     Returns:
         JSONResponse with appropriate status code and error details
     """
-    with logfire.span("API exception handled", exc_type=exc.__class__.__name__):
-        logfire.error(
+    # Log the exception
+    from app.settings import settings
+    if settings.logfire_api_key:
+        import logfire
+        with logfire.span("API exception handled", exc_type=exc.__class__.__name__):
+            logfire.error(
+                f"API exception: {exc.error_code}",
+                error_code=exc.error_code,
+                status_code=exc.status_code,
+                detail=exc.detail,
+                context=exc.context,
+                path=str(request.url)
+            )
+    else:
+        logger.error(
             f"API exception: {exc.error_code}",
-            error_code=exc.error_code,
-            status_code=exc.status_code,
-            detail=exc.detail,
-            context=exc.context,
-            path=str(request.url)
+            extra={
+                "error_code": exc.error_code,
+                "status_code": exc.status_code,
+                "detail": exc.detail,
+                "context": exc.context,
+                "path": str(request.url)
+            }
         )
     
     return JSONResponse(
@@ -220,31 +319,43 @@ async def handle_base_api_exception(request: Request, exc: BaseAPIException) -> 
 
 async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
     """
-    Exception handler for Pydantic validation errors.
+    Handler for Pydantic validation errors.
+    
+    Formats validation errors in a consistent way.
     
     Args:
         request: FastAPI Request object
-        exc: RequestValidationError instance
+        exc: Validation exception instance
     
     Returns:
         JSONResponse with 422 status and validation error details
     """
-    with logfire.span("Validation error handled"):
-        logfire.warning(
-            "Request validation failed",
-            errors=exc.errors(),
-            path=str(request.url)
-        )
-    
-    # Format validation errors for cleaner response
     errors = []
     for error in exc.errors():
-        loc = " -> ".join(str(x) for x in error["loc"])
         errors.append({
-            "field": loc,
-            "message": error["msg"],
-            "type": error["type"]
+            "field": ".".join(str(x) for x in error.get("loc", [])),
+            "message": error.get("msg", ""),
+            "type": error.get("type", "")
         })
+    
+    # Log validation errors
+    from app.settings import settings
+    if settings.logfire_api_key:
+        import logfire
+        with logfire.span("Validation error handled"):
+            logfire.warning(
+                "Validation error",
+                error_count=len(errors),
+                errors=errors[:5]  # Log first 5 errors to avoid log bloat
+            )
+    else:
+        logger.warning(
+            "Validation error",
+            extra={
+                "error_count": len(errors),
+                "errors": errors[:5]
+            }
+        )
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -267,16 +378,23 @@ async def handle_generic_exception(request: Request, exc: Exception) -> JSONResp
     Returns:
         JSONResponse with 500 status and generic error message
     """
-    with logfire.span("Unhandled exception", exc_type=type(exc).__name__):
-        logfire.error(
-            f"Unhandled exception: {str(exc)}",
-            exc_type=type(exc).__name__,
-            exc_message=str(exc),
-            path=str(request.url)
-        )
-    
     # Don't expose internal error details in production
     from app.settings import settings
+    
+    # Only use logfire if configured
+    if settings.logfire_api_key:
+        import logfire
+        with logfire.span("Unhandled exception", exc_type=type(exc).__name__):
+            logfire.error(
+                f"Unhandled exception: {str(exc)}",
+                exc_type=type(exc).__name__,
+                exc_message=str(exc),
+                path=str(request.url)
+            )
+    else:
+        # Log to standard logger
+        logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    
     detail = str(exc) if settings.debug else "An internal error occurred"
     
     return JSONResponse(

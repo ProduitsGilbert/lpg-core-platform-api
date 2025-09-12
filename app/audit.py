@@ -13,7 +13,9 @@ from typing import Optional, Dict, Any
 from sqlalchemy import text, Table, MetaData
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.errors import IdempotencyException
 from app.settings import settings

@@ -1,0 +1,7 @@
+# Development and Testing Dependencies
+# Type Checking
+mypy==1.8.0
+types-requests==2.31.0.20240125
+
+# Testing (httpx already in main requirements.txt)
+# Additional dev dependencies for mypy support

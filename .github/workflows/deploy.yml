@@ -1,0 +1,48 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute version
+        id: ver
+        run: echo "TAG=$(bash scripts/version.sh)" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        run: |
+          docker build -t $REGISTRY/${IMAGE_NAME}:latest -t $REGISTRY/${IMAGE_NAME}:${{ steps.ver.outputs.TAG }} .
+
+      - name: Push image
+        run: |
+          docker push $REGISTRY/${IMAGE_NAME}:latest
+          docker push $REGISTRY/${IMAGE_NAME}:${{ steps.ver.outputs.TAG }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ success() && secrets.PORTAINER_WEBHOOK_URL != '' }}
+    steps:
+      - name: Trigger Portainer webhook (optional)
+        run: |
+          curl -sSf -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"

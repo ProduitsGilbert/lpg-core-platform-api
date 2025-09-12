@@ -310,6 +310,21 @@ All write operations support idempotency via the `Idempotency-Key` header:
 
 [Your License Here]
 
+## Working Agreement (Minimal)
+
+- No direct pushes to `main` (open a PR).
+- Write the adapter interface in `app/ports.py` FIRST.
+- Services depend on Protocols, not concrete adapters.
+- If you call a new adapter method, add it to the Protocol and implement it in the adapter; CI will fail if you forget.
+- Run locally:
+  ```bash
+  pip install -r requirements.txt -r requirements-dev.txt
+  mypy app
+  pytest
+  ```
+- CI must be green (mypy + pytest) before merge.
+- Deploy is automatic on merge to main (Docker image to GHCR + Portainer webhook).
+
 ## Support
 
 For issues and questions:

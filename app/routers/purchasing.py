@@ -9,7 +9,9 @@ from typing import Annotated, Optional
 from datetime import date
 from fastapi import APIRouter, Depends, BackgroundTasks, status, Path, Body
 from sqlalchemy.orm import Session
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.deps import (
     get_db,

@@ -15,21 +15,24 @@ import httpx
 from tenacity import (
     retry,
     stop_after_attempt,
-    wait_exponential_multiplier,
+    wait_exponential,
     retry_if_exception_type,
     before_sleep_log
 )
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 import logging
 
 from app.settings import settings, ERPMode
 from app.errors import ERPError, ERPUnavailable, ERPNotFound, ERPConflict
+from app.ports import ERPClientProtocol
 
 
 logger = logging.getLogger(__name__)
 
 
-class ERPClient:
+class ERPClient(ERPClientProtocol):
     """
     Unified ERP client supporting multiple integration modes.
     
@@ -80,7 +83,7 @@ class ERPClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=60),
+        wait=wait_exponential(multiplier=1, max=60),
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
@@ -168,7 +171,7 @@ class ERPClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=60),
+        wait=wait_exponential(multiplier=1, max=60),
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
@@ -271,7 +274,7 @@ class ERPClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=60),
+        wait=wait_exponential(multiplier=1, max=60),
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
@@ -349,7 +352,7 @@ class ERPClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=60),
+        wait=wait_exponential(multiplier=1, max=60),
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )

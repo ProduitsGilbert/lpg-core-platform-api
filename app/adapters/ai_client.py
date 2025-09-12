@@ -12,13 +12,16 @@ import httpx
 from tenacity import (
     retry,
     stop_after_attempt,
-    wait_exponential_multiplier,
+    wait_exponential,
     retry_if_exception_type
 )
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.settings import settings
 from app.errors import ExternalServiceException
+from app.ports import AIClientProtocol
 
 
 class AIProvider(str, Enum):
@@ -27,7 +30,7 @@ class AIProvider(str, Enum):
     LOCAL_AGENT = "local_agent"
 
 
-class AIClient:
+class AIClient(AIClientProtocol):
     """
     AI service client for intelligent processing.
     
@@ -49,11 +52,11 @@ class AIClient:
         self.openai_key = openai_key or settings.openai_api_key
         self.local_agent_url = local_agent_url or settings.local_agent_base_url
         self.openai_model = settings.openai_model
-        self.enabled = settings.enable_ai_assistance
+        self._enabled = settings.enable_ai_assistance
         
         # Initialize OpenAI client if configured
         self.openai_client = None
-        if self.enabled and self.openai_key:
+        if self._enabled and self.openai_key:
             self.openai_client = httpx.Client(
                 base_url="https://api.openai.com/v1",
                 headers={
@@ -65,7 +68,7 @@ class AIClient:
         
         # Initialize local agent client if configured
         self.local_client = None
-        if self.enabled and self.local_agent_url:
+        if self._enabled and self.local_agent_url:
             self.local_client = httpx.Client(
                 base_url=self.local_agent_url,
                 headers={"Content-Type": "application/json"},
@@ -74,14 +77,19 @@ class AIClient:
     
     def __del__(self):
         """Clean up HTTP clients on deletion."""
-        if self.openai_client:
+        if hasattr(self, 'openai_client') and self.openai_client:
             self.openai_client.close()
-        if self.local_client:
+        if hasattr(self, 'local_client') and self.local_client:
             self.local_client.close()
+    
+    @property
+    def enabled(self) -> bool:
+        """Check if AI assistance is enabled."""
+        return self._enabled
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def analyze_purchase_order(
@@ -188,7 +196,7 @@ Identify any compliance issues and required actions."""
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def extract_structured_data(
@@ -248,7 +256,7 @@ Return only valid JSON matching the schema."""
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def suggest_corrections(

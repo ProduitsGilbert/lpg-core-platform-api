@@ -12,10 +12,12 @@ import httpx
 from tenacity import (
     retry,
     stop_after_attempt,
-    wait_exponential_multiplier,
+    wait_exponential,
     retry_if_exception_type
 )
-import logfire
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.settings import settings
 from app.errors import ExternalServiceException
@@ -36,9 +38,9 @@ class OCRClient:
             service_url: Override OCR service URL from settings
         """
         self.service_url = service_url or settings.ocr_service_url
-        self.enabled = settings.enable_ocr and bool(self.service_url)
+        self._enabled = settings.enable_ocr and bool(self.service_url)
         
-        if self.enabled:
+        if self._enabled:
             self.http_client = httpx.Client(
                 base_url=self.service_url,
                 timeout=settings.request_timeout,
@@ -52,12 +54,17 @@ class OCRClient:
     
     def __del__(self):
         """Clean up HTTP client on deletion."""
-        if self.http_client:
+        if hasattr(self, 'http_client') and self.http_client:
             self.http_client.close()
+    
+    @property
+    def enabled(self) -> bool:
+        """Check if OCR is enabled."""
+        return self._enabled
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def extract_text(
@@ -131,7 +138,7 @@ class OCRClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def extract_invoice_data(
@@ -221,7 +228,7 @@ class OCRClient:
     
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential_multiplier(multiplier=1, max=30),
+        wait=wait_exponential(multiplier=1, max=30),
         retry=retry_if_exception_type(httpx.TimeoutException)
     )
     def extract_receipt_data(
