@@ -16,8 +16,8 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v3
       
-      - name: AI Code Reviewer
-        uses: ProduitsGilbert/ai-codereviewer@main
+      - name: OpenAI GPT Code Review Action
+        uses: Ostrich-Cyber-Risk/ai-codereviewer@v2.7.1
         with:
           GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
