@@ -1,15 +1,8 @@
 name: AI Code Review Enhanced
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-    paths:
-      - '**.py'
-      - 'app/**'
-      - 'tests/**'
-      - 'migration/**'
+  # Temporarily disabled to avoid conflicts - use openai-code-review.yml instead
+  workflow_dispatch:
 
 permissions: write-all
 
