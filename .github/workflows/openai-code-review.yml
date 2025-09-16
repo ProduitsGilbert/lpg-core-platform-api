@@ -1,39 +1,25 @@
-name: OpenAI Code Review
+name: AI Code Reviewer
 
 on:
   pull_request:
     types:
       - opened
       - synchronize
-      - reopened
-      - ready_for_review
 
-permissions:
-  contents: read
-  pull-requests: write
+permissions: write-all
 
 jobs:
-  code-review:
+  review:
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout Repo
+        uses: actions/checkout@v3
       
       - name: AI Code Reviewer
-        uses: AleksandrFurmenkovOfficial/ai-code-review@v0.9
+        uses: Ostrich-Cyber-Risk/ai-codereviewer@main
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          pr_number: ${{ github.event.number }}
-          
-          ai_provider: 'openai'
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-          openai_model: 'gpt-4o'
-          
-          # File filtering
-          file_extensions: 'py'
-          exclude_files: 'migrations/,__pycache__/,*.pyc,tests/'
+          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_MODEL: "gpt-4o"
+          exclude: "**/*.json, **/*.md, **/*.txt, **/*.yaml, **/*.yml, **/migrations/**, **/*.lock, **/requirements.txt"

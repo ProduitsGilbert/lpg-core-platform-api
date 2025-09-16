@@ -1,21 +1,17 @@
-name: AI Code Review
+name: AI Code Review Enhanced
 
 on:
   pull_request:
     types:
       - opened
       - synchronize
-      - reopened
     paths:
       - '**.py'
       - 'app/**'
       - 'tests/**'
       - 'migration/**'
 
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+permissions: write-all
 
 jobs:
   code-review:
@@ -23,34 +19,16 @@ jobs:
     name: OpenAI Code Review
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Get PR diff
-        id: get-diff
-        run: |
-          git fetch origin ${{ github.base_ref }}
-          echo "base_sha=$(git rev-parse origin/${{ github.base_ref }})" >> $GITHUB_OUTPUT
-          echo "head_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - name: Checkout Repo
+        uses: actions/checkout@v3
       
-      - name: OpenAI Code Review
-        uses: AleksandrFurmenkovOfficial/ai-code-review@v0.9
+      - name: AI Code Reviewer
+        uses: Ostrich-Cyber-Risk/ai-codereviewer@main
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          pr_number: ${{ github.event.number }}
-          
-          ai_provider: 'openai'
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
-          openai_model: 'gpt-4o'
-          
-          # File filtering - focus on Python code
-          file_extensions: 'py'
-          exclude_files: 'migrations/,__pycache__/,*.pyc,.pytest_cache/,.mypy_cache/,.ruff_cache/,htmlcov/'
-          exclude_paths: 'venv/,.venv/,tests/'
+          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_MODEL: "gpt-4o"
+          exclude: "**/*.json, **/*.md, **/*.txt, **/*.yaml, **/*.yml, **/*.lock, **/requirements*.txt, **/__pycache__/**, **/*.pyc, **/migrations/**, **/.env*, **/venv/**, **/.venv/**, **/htmlcov/**, **/.pytest_cache/**, **/.mypy_cache/**, **/.ruff_cache/**"
             
       - name: Comment PR Summary
         if: always()
