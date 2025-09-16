@@ -16,7 +16,8 @@ You need to configure the following secrets in your GitHub repository settings:
 4. Create a new API key
 5. Copy the key (you won't be able to see it again)
 
-#### B. OCTOKIT_TOKEN
+#### B. GITHUB_TOKEN (Optional)
+The default `GITHUB_TOKEN` provided by GitHub Actions should work. However, if you need more permissions, you can create a personal access token:
 1. Go to GitHub Settings > Developer settings > Personal access tokens
 2. Click "Generate new token (classic)"
 3. Give it a descriptive name like "Code Review Bot"
@@ -30,12 +31,11 @@ You need to configure the following secrets in your GitHub repository settings:
 1. Go to your repository: https://github.com/ProduitsGilbert/lpg-core-platform-api
 2. Navigate to Settings > Secrets and variables > Actions
 3. Click "New repository secret"
-4. Add each secret:
+4. Add the required secret:
    - Name: `OPENAI_API_KEY`
    - Value: [Your OpenAI API key]
    
-   - Name: `OCTOKIT_TOKEN`
-   - Value: [Your GitHub personal access token]
+   Note: The `GITHUB_TOKEN` is automatically provided by GitHub Actions
 
 ### 3. Workflow Files
 

@@ -36,32 +36,21 @@ jobs:
           echo "head_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       
       - name: OpenAI Code Review
-        uses: yunyunlee/openai-code-review-action@v2.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        uses: AleksandrFurmenkovOfficial/ai-code-review@v0.9
         with:
-          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4o"
-          exclude: |
-            **/*.json
-            **/*.md
-            **/*.txt
-            **/*.yaml
-            **/*.yml
-            **/*.lock
-            **/requirements*.txt
-            **/__pycache__/**
-            **/*.pyc
-            **/migrations/**
-            **/.env*
-            **/venv/**
-            **/.venv/**
-            **/htmlcov/**
-            **/.pytest_cache/**
-            **/.mypy_cache/**
-            **/.ruff_cache/**
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          pr_number: ${{ github.event.number }}
+          
+          ai_provider: 'openai'
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          openai_model: 'gpt-4o'
+          
+          # File filtering - focus on Python code
+          file_extensions: 'py'
+          exclude_files: 'migrations/,__pycache__/,*.pyc,.pytest_cache/,.mypy_cache/,.ruff_cache/,htmlcov/'
+          exclude_paths: 'venv/,.venv/,tests/'
             
       - name: Comment PR Summary
         if: always()

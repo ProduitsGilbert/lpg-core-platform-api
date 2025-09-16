@@ -5,6 +5,8 @@ on:
     types:
       - opened
       - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
@@ -21,9 +23,17 @@ jobs:
           fetch-depth: 0
       
       - name: AI Code Reviewer
-        uses: yunyunlee/openai-code-review-action@v2.0.1
+        uses: AleksandrFurmenkovOfficial/ai-code-review@v0.9
         with:
-          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4o"
-          exclude: "**/*.json, **/*.md, **/*.txt, **/*.yaml, **/*.yml, **/migrations/**, **/*.lock, **/requirements.txt"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
+          pr_number: ${{ github.event.number }}
+          
+          ai_provider: 'openai'
+          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
+          openai_model: 'gpt-4o'
+          
+          # File filtering
+          file_extensions: 'py'
+          exclude_files: 'migrations/,__pycache__/,*.pyc,tests/'
