@@ -1,17 +1,19 @@
 """
-Purchasing API endpoints.
+ERP API endpoints.
 
-This module provides REST API endpoints for all purchasing operations
+This module provides ERP-facing REST endpoints for purchasing operations
 including PO line updates, receipts, and returns.
 """
 
 from typing import Annotated, Optional
 from datetime import date
-from fastapi import APIRouter, Depends, BackgroundTasks, status, Path, Body
+from fastapi import APIRouter, Depends, BackgroundTasks, status, Path, Body, HTTPException
 from sqlalchemy.orm import Session
 import logging
 
 logger = logging.getLogger(__name__)
+
+import logfire
 
 from app.deps import (
     get_db,
@@ -20,6 +22,12 @@ from app.deps import (
     RequestContext
 )
 from app.domain.purchasing_service import PurchasingService
+from app.domain.erp.item_service import ItemService
+from app.domain.erp.models import (
+    ItemResponse,
+    ItemUpdateRequest,
+    CreateItemRequest
+)
 from app.domain.dtos import (
     POLineDTO,
     UpdatePOLineDateBody,
@@ -40,13 +48,41 @@ from app.settings import settings
 
 
 router = APIRouter(
-    prefix=f"{settings.api_v1_prefix}/purchasing",
-    tags=["purchasing"]
+    prefix=f"{settings.api_v1_prefix}/erp",
+    tags=["erp"]
 )
 
 
-# Initialize service
-purchasing_service = PurchasingService()
+# Initialize service with graceful fallback when dependencies are missing
+try:
+    purchasing_service: Optional[PurchasingService] = PurchasingService()
+except ImportError as exc:  # pyodbc not available in test/runtime
+    logger.warning("Purchasing service disabled: %s", exc)
+    purchasing_service = None
+
+try:
+    item_service: Optional[ItemService] = ItemService()
+except ImportError as exc:
+    logger.warning("Item service disabled: %s", exc)
+    item_service = None
+
+
+def _get_service() -> PurchasingService:
+    if purchasing_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Purchasing service is not configured",
+        )
+    return purchasing_service
+
+
+def _get_item_service() -> ItemService:
+    if item_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Item service is not configured",
+        )
+    return item_service
 
 
 @router.post(
@@ -54,7 +90,8 @@ purchasing_service = PurchasingService()
     response_model=POLineDTO,
     status_code=status.HTTP_200_OK,
     summary="Update PO line promise date",
-    description="Update the promise date for a purchase order line with business rule validation"
+    description="Update the promise date for a purchase order line with business rule validation",
+    include_in_schema=False
 )
 async def update_poline_date(
     po_id: Annotated[str, Path(description="Purchase Order ID")],
@@ -104,7 +141,8 @@ async def update_poline_date(
         )
         
         # Execute service operation
-        result = purchasing_service.update_poline_date(command, db)
+        service = _get_service()
+        result = service.update_poline_date(command, db)
         
         # Optional background task for downstream updates
         background_tasks.add_task(
@@ -123,7 +161,8 @@ async def update_poline_date(
     response_model=POLineDTO,
     status_code=status.HTTP_200_OK,
     summary="Update PO line unit price",
-    description="Update the unit price for a purchase order line"
+    description="Update the unit price for a purchase order line",
+    include_in_schema=False
 )
 async def update_poline_price(
     po_id: Annotated[str, Path(description="Purchase Order ID")],
@@ -171,7 +210,8 @@ async def update_poline_price(
             idempotency_key=idempotency_key or body.idempotency_key
         )
         
-        result = purchasing_service.update_poline_price(command, db)
+        service = _get_service()
+        result = service.update_poline_price(command, db)
         
         # Background task for price change analysis
         if settings.enable_ai_assistance:
@@ -191,7 +231,8 @@ async def update_poline_price(
     response_model=POLineDTO,
     status_code=status.HTTP_200_OK,
     summary="Update PO line quantity",
-    description="Update the quantity for a purchase order line"
+    description="Update the quantity for a purchase order line",
+    include_in_schema=False
 )
 async def update_poline_quantity(
     po_id: Annotated[str, Path(description="Purchase Order ID")],
@@ -237,7 +278,8 @@ async def update_poline_quantity(
             idempotency_key=idempotency_key or body.idempotency_key
         )
         
-        return purchasing_service.update_poline_quantity(command, db)
+        service = _get_service()
+        return service.update_poline_quantity(command, db)
 
 
 @router.post(
@@ -245,7 +287,8 @@ async def update_poline_quantity(
     response_model=ReceiptDTO,
     status_code=status.HTTP_201_CREATED,
     summary="Create goods receipt",
-    description="Create a new goods receipt for purchase order lines"
+    description="Create a new goods receipt for purchase order lines",
+    include_in_schema=False
 )
 async def create_receipt(
     body: CreateReceiptBody,
@@ -288,7 +331,8 @@ async def create_receipt(
             idempotency_key=idempotency_key or body.idempotency_key
         )
         
-        result = purchasing_service.create_receipt(command, db)
+        service = _get_service()
+        result = service.create_receipt(command, db)
         
         # Background task to update inventory
         background_tasks.add_task(
@@ -305,7 +349,8 @@ async def create_receipt(
     response_model=ReturnDTO,
     status_code=status.HTTP_201_CREATED,
     summary="Create purchase return",
-    description="Create a return for previously received goods"
+    description="Create a return for previously received goods",
+    include_in_schema=False
 )
 async def create_return(
     body: CreateReturnBody,
@@ -335,19 +380,18 @@ async def create_return(
         receipt_id=body.receipt_id,
         line_count=len(body.lines)
     ):
-        # Note: Implementation would be similar to create_receipt
-        # For now, return a stub response
-        return ReturnDTO(
-            return_id=f"RET-{date.today().strftime('%Y%m%d')}-001",
+        command = CreateReturnCommand(
             receipt_id=body.receipt_id,
-            po_id="PO-001",
-            vendor_id="VENDOR-001",
-            vendor_name="Sample Vendor",
-            return_date=body.return_date or date.today(),
+            lines=body.lines,
             reason=body.reason,
-            status="posted",
-            lines=[]
+            return_date=body.return_date or date.today(),
+            actor=ctx.actor,
+            trace_id=ctx.trace_id,
+            idempotency_key=idempotency_key or body.idempotency_key,
         )
+
+        service = _get_service()
+        return service.create_return(command, db)
 
 
 @router.get(
@@ -355,7 +399,8 @@ async def create_return(
     response_model=PurchaseOrderDTO,
     status_code=status.HTTP_200_OK,
     summary="Get purchase order",
-    description="Retrieve full purchase order details with all lines"
+    description="Retrieve full purchase order details with all lines",
+    include_in_schema=False
 )
 async def get_purchase_order(
     po_id: Annotated[str, Path(description="Purchase Order ID")],
@@ -401,7 +446,8 @@ async def get_purchase_order(
     response_model=POLineDTO,
     status_code=status.HTTP_200_OK,
     summary="Get PO line",
-    description="Retrieve specific purchase order line details"
+    description="Retrieve specific purchase order line details",
+    include_in_schema=False
 )
 async def get_poline(
     po_id: Annotated[str, Path(description="Purchase Order ID")],
@@ -446,8 +492,63 @@ async def get_poline(
             quantity_invoiced=Decimal(str(line_data.get("quantity_invoiced", 0))),
             quantity_to_receive=Decimal(str(line_data["quantity"])) - Decimal(str(line_data.get("quantity_received", 0))),
             status=line_data.get("status", "open"),
-            location_code=line_data.get("location_code")
-        )
+        location_code=line_data.get("location_code")
+    )
+
+
+@router.post(
+    "/items/{item_id}/update",
+    response_model=ItemResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Update item fields",
+    description="Fetch a fresh eTag and update item fields when current values match",
+    include_in_schema=False
+)
+async def update_item_fields(
+    item_id: Annotated[str, Path(description="Item number/ID")],
+    body: ItemUpdateRequest,
+    ctx: Annotated[RequestContext, Depends(get_request_context)]
+) -> ItemResponse:
+    """Update Business Central item fields using optimistic concurrency."""
+    with logfire.span("POST /items/{item_id}/update", item_id=item_id, actor=ctx.actor):
+        service = _get_item_service()
+        return await service.update_item(item_id, body.updates)
+
+
+@router.post(
+    "/items/purchased",
+    response_model=ItemResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create purchased item",
+    description="Create a new purchased item by copying template 000",
+    include_in_schema=False
+)
+async def create_purchased_item(
+    body: CreateItemRequest,
+    ctx: Annotated[RequestContext, Depends(get_request_context)]
+) -> ItemResponse:
+    """Create a purchased item from template 000."""
+    with logfire.span("POST /items/purchased", item_no=body.item_no, actor=ctx.actor):
+        service = _get_item_service()
+        return await service.create_purchased_item(body.item_no)
+
+
+@router.post(
+    "/items/manufactured",
+    response_model=ItemResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create manufactured item",
+    description="Create a new manufactured item by copying template 00000",
+    include_in_schema=False
+)
+async def create_manufactured_item(
+    body: CreateItemRequest,
+    ctx: Annotated[RequestContext, Depends(get_request_context)]
+) -> ItemResponse:
+    """Create a manufactured item from template 00000."""
+    with logfire.span("POST /items/manufactured", item_no=body.item_no, actor=ctx.actor):
+        service = _get_item_service()
+        return await service.create_manufactured_item(body.item_no)
 
 
 # Background task functions

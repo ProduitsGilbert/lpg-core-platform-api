@@ -3,6 +3,8 @@ fastapi==0.109.0
 uvicorn[standard]==0.27.0
 pydantic==2.5.3
 pydantic-settings==2.1.0
+email-validator==2.1.1
+python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.25
@@ -10,12 +12,16 @@ pyodbc==5.0.1
 
 # HTTP Client
 httpx==0.26.0
+paramiko==3.5.0
 
 # Retry Logic
 tenacity==8.2.3
 
 # Observability
 logfire[fastapi]==0.25.0
+
+# AI/ML
+openai==1.58.1
 
 # Scheduler (optional, disabled by default)
 apscheduler==3.10.4

@@ -51,10 +51,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application code  
 COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser migration/ ./migration/
 COPY --chown=appuser:appuser tests/ ./tests/
 
 # Create necessary directories
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
+RUN mkdir -p /app/logs /app/edi/send /app/edi/receive \
+    && chown -R appuser:appuser /app/logs /app/edi
 
 # Switch to non-root user
 USER appuser

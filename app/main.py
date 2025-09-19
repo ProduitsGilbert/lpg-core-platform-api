@@ -55,8 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             import logfire
             logfire.configure(
                 service_name=settings.app_name,
-                token=settings.logfire_api_key,
-                environment=settings.environment
+                token=settings.logfire_api_key
             )
             logfire.info(f"Logfire initialized for {settings.app_name}")
         except Exception as e:
@@ -279,7 +278,10 @@ register_exception_handlers(app)
 
 # Include routers
 app.include_router(health.router)
-app.include_router(purchasing.router)
+
+# Include new v1 API routers
+from app.api.v1 import router as v1_router
+app.include_router(v1_router)
 
 
 # Root endpoint

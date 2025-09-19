@@ -31,6 +31,7 @@ from app.domain.dtos import (
     CreateReturnCommand,
     ReceiptDTO,
     ReturnDTO,
+    ReturnLineDTO,
     PurchaseOrderDTO
 )
 from app.errors import ValidationException, ERPError
@@ -80,17 +81,29 @@ class PurchasingService:
             ValidationException: If business rules are violated
             ERPError: If ERP operation fails
         """
-        with logfire.span(
-            "update_poline_date",
-            po_id=command.po_id,
-            line_no=command.line_no,
-            new_date=str(command.new_date)
-        ):
+        from app.settings import settings
+        
+        if settings.logfire_api_key:
+            import logfire
+            span_context = logfire.span(
+                "update_poline_date",
+                po_id=command.po_id,
+                line_no=command.line_no,
+                new_date=str(command.new_date)
+            )
+        else:
+            from contextlib import nullcontext
+            span_context = nullcontext()
+        
+        with span_context:
             # Check idempotency
             if command.idempotency_key:
                 cached = get_idempotency_record(db_session, command.idempotency_key)
                 if cached:
-                    logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    if settings.logfire_api_key:
+                        logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    else:
+                        logger.info(f"Returning cached response for key: {command.idempotency_key}")
                     return POLineDTO(**cached)
             
             # Use audit context for automatic logging
@@ -141,13 +154,18 @@ class PurchasingService:
                         result.model_dump()
                     )
                 
-                logfire.info(
-                    f"PO line date updated successfully",
-                    po_id=command.po_id,
-                    line_no=command.line_no,
-                    old_date=str(current_date),
-                    new_date=str(command.new_date)
-                )
+                if settings.logfire_api_key:
+                    logfire.info(
+                        f"PO line date updated successfully",
+                        po_id=command.po_id,
+                        line_no=command.line_no,
+                        old_date=str(current_date),
+                        new_date=str(command.new_date)
+                    )
+                else:
+                    logger.info(
+                        f"PO line date updated successfully: po_id={command.po_id}, line_no={command.line_no}, old_date={current_date}, new_date={command.new_date}"
+                    )
                 
                 return result
     
@@ -227,17 +245,29 @@ class PurchasingService:
             ValidationException: If business rules are violated
             ERPError: If ERP operation fails
         """
-        with logfire.span(
-            "update_poline_price",
-            po_id=command.po_id,
-            line_no=command.line_no,
-            new_price=str(command.new_price)
-        ):
+        from app.settings import settings
+        
+        if settings.logfire_api_key:
+            import logfire
+            span_context = logfire.span(
+                "update_poline_price",
+                po_id=command.po_id,
+                line_no=command.line_no,
+                new_price=str(command.new_price)
+            )
+        else:
+            from contextlib import nullcontext
+            span_context = nullcontext()
+        
+        with span_context:
             # Check idempotency
             if command.idempotency_key:
                 cached = get_idempotency_record(db_session, command.idempotency_key)
                 if cached:
-                    logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    if settings.logfire_api_key:
+                        logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    else:
+                        logger.info(f"Returning cached response for key: {command.idempotency_key}")
                     return POLineDTO(**cached)
             
             with AuditContext(
@@ -264,11 +294,16 @@ class PurchasingService:
                 # Check for significant price change
                 price_change_pct = abs((command.new_price - current_price) / current_price * 100)
                 if price_change_pct > 10:
-                    logfire.warning(
-                        f"Significant price change: {price_change_pct:.1f}%",
-                        po_id=command.po_id,
-                        line_no=command.line_no
-                    )
+                    if settings.logfire_api_key:
+                        logfire.warning(
+                            f"Significant price change: {price_change_pct:.1f}%",
+                            po_id=command.po_id,
+                            line_no=command.line_no
+                        )
+                    else:
+                        logger.warning(
+                            f"Significant price change: {price_change_pct:.1f}% for po_id={command.po_id}, line_no={command.line_no}"
+                        )
                     
                     # Trigger AI review if enabled
                     if self.ai.enabled:
@@ -308,14 +343,19 @@ class PurchasingService:
                         result.model_dump()
                     )
                 
-                logfire.info(
-                    f"PO line price updated successfully",
-                    po_id=command.po_id,
-                    line_no=command.line_no,
-                    old_price=str(current_price),
-                    new_price=str(command.new_price),
-                    change_pct=price_change_pct
-                )
+                if settings.logfire_api_key:
+                    logfire.info(
+                        f"PO line price updated successfully",
+                        po_id=command.po_id,
+                        line_no=command.line_no,
+                        old_price=str(current_price),
+                        new_price=str(command.new_price),
+                        change_pct=price_change_pct
+                    )
+                else:
+                    logger.info(
+                        f"PO line price updated successfully: po_id={command.po_id}, line_no={command.line_no}, old_price={current_price}, new_price={command.new_price}, change_pct={price_change_pct}"
+                    )
                 
                 return result
     
@@ -393,17 +433,29 @@ class PurchasingService:
             ValidationException: If business rules are violated
             ERPError: If ERP operation fails
         """
-        with logfire.span(
-            "update_poline_quantity",
-            po_id=command.po_id,
-            line_no=command.line_no,
-            new_quantity=str(command.new_quantity)
-        ):
+        from app.settings import settings
+        
+        if settings.logfire_api_key:
+            import logfire
+            span_context = logfire.span(
+                "update_poline_quantity",
+                po_id=command.po_id,
+                line_no=command.line_no,
+                new_quantity=str(command.new_quantity)
+            )
+        else:
+            from contextlib import nullcontext
+            span_context = nullcontext()
+        
+        with span_context:
             # Check idempotency
             if command.idempotency_key:
                 cached = get_idempotency_record(db_session, command.idempotency_key)
                 if cached:
-                    logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    if settings.logfire_api_key:
+                        logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    else:
+                        logger.info(f"Returning cached response for key: {command.idempotency_key}")
                     return POLineDTO(**cached)
             
             with AuditContext(
@@ -430,11 +482,16 @@ class PurchasingService:
                 # Check for significant quantity change
                 qty_change_pct = abs((command.new_quantity - current_quantity) / current_quantity * 100)
                 if qty_change_pct > 20:
-                    logfire.warning(
-                        f"Significant quantity change: {qty_change_pct:.1f}%",
-                        po_id=command.po_id,
-                        line_no=command.line_no
-                    )
+                    if settings.logfire_api_key:
+                        logfire.warning(
+                            f"Significant quantity change: {qty_change_pct:.1f}%",
+                            po_id=command.po_id,
+                            line_no=command.line_no
+                        )
+                    else:
+                        logger.warning(
+                            f"Significant quantity change: {qty_change_pct:.1f}% for po_id={command.po_id}, line_no={command.line_no}"
+                        )
                 
                 # Update in ERP
                 updated_data = self.erp.update_poline_quantity(
@@ -459,14 +516,19 @@ class PurchasingService:
                         result.model_dump()
                     )
                 
-                logfire.info(
-                    f"PO line quantity updated successfully",
-                    po_id=command.po_id,
-                    line_no=command.line_no,
-                    old_quantity=str(current_quantity),
-                    new_quantity=str(command.new_quantity),
-                    change_pct=qty_change_pct
-                )
+                if settings.logfire_api_key:
+                    logfire.info(
+                        f"PO line quantity updated successfully",
+                        po_id=command.po_id,
+                        line_no=command.line_no,
+                        old_quantity=str(current_quantity),
+                        new_quantity=str(command.new_quantity),
+                        change_pct=qty_change_pct
+                    )
+                else:
+                    logger.info(
+                        f"PO line quantity updated successfully: po_id={command.po_id}, line_no={command.line_no}, old_quantity={current_quantity}, new_quantity={command.new_quantity}, change_pct={qty_change_pct}"
+                    )
                 
                 return result
     
@@ -544,16 +606,28 @@ class PurchasingService:
             ValidationException: If business rules are violated
             ERPError: If ERP operation fails
         """
-        with logfire.span(
-            "create_receipt",
-            po_id=command.po_id,
-            line_count=len(command.lines)
-        ):
+        from app.settings import settings
+        
+        if settings.logfire_api_key:
+            import logfire
+            span_context = logfire.span(
+                "create_receipt",
+                po_id=command.po_id,
+                line_count=len(command.lines)
+            )
+        else:
+            from contextlib import nullcontext
+            span_context = nullcontext()
+        
+        with span_context:
             # Check idempotency
             if command.idempotency_key:
                 cached = get_idempotency_record(db_session, command.idempotency_key)
                 if cached:
-                    logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    if settings.logfire_api_key:
+                        logfire.info(f"Returning cached response for key: {command.idempotency_key}")
+                    else:
+                        logger.info(f"Returning cached response for key: {command.idempotency_key}")
                     return ReceiptDTO(**cached)
             
             with AuditContext(
@@ -565,17 +639,39 @@ class PurchasingService:
                 
                 audit.set_entity(po_id=command.po_id)
                 
-                # Validate receipt lines
+                # Validate receipt lines and collect shipment references
+                shipment_refs = set()
+                if command.vendor_shipment_no:
+                    shipment_refs.add(command.vendor_shipment_no)
+
                 for line in command.lines:
                     po_line = self.erp.get_poline(command.po_id, line.line_no)
                     self._validate_receipt_line(po_line, line.quantity)
+                    if line.vendor_shipment_no:
+                        shipment_refs.add(line.vendor_shipment_no)
+
+                if not shipment_refs:
+                    raise ValidationException(
+                        "Vendor shipment number is required to create a receipt",
+                        field="vendor_shipment_no",
+                        context={"po_id": command.po_id},
+                    )
+
+                if len(shipment_refs) > 1:
+                    raise ValidationException(
+                        "Multiple vendor shipment numbers provided; only one is supported",
+                        field="vendor_shipment_no",
+                        context={"po_id": command.po_id, "values": list(shipment_refs)},
+                    )
+
+                vendor_shipment_no = shipment_refs.pop()
                 
                 # Create receipt in ERP
                 receipt_lines = [
                     {
                         "line_no": line.line_no,
                         "quantity": float(line.quantity),
-                        "location_code": line.location_code
+                        "location_code": line.location_code,
                     }
                     for line in command.lines
                 ]
@@ -583,7 +679,10 @@ class PurchasingService:
                 receipt_data = self.erp.create_receipt(
                     command.po_id,
                     receipt_lines,
-                    command.receipt_date
+                    command.receipt_date,
+                    vendor_shipment_no,
+                    command.job_check_delay_seconds,
+                    command.notes,
                 )
                 
                 audit.set_change(
@@ -602,12 +701,17 @@ class PurchasingService:
                         result.model_dump()
                     )
                 
-                logfire.info(
-                    f"Receipt created successfully",
-                    receipt_id=result.receipt_id,
-                    po_id=command.po_id,
-                    line_count=len(command.lines)
-                )
+                if settings.logfire_api_key:
+                    logfire.info(
+                        f"Receipt created successfully",
+                        receipt_id=result.receipt_id,
+                        po_id=command.po_id,
+                        line_count=len(command.lines)
+                    )
+                else:
+                    logger.info(
+                        f"Receipt created successfully: receipt_id={result.receipt_id}, po_id={command.po_id}, line_count={len(command.lines)}"
+                    )
                 
                 return result
     
@@ -693,3 +797,212 @@ class PurchasingService:
             created_by=data.get("created_by"),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
         )
+
+    # ------------------------------------------------------------------
+    # Purchase return operations
+
+    def create_return(
+        self,
+        command: CreateReturnCommand,
+        db_session: Session
+    ) -> ReturnDTO:
+        """Create a purchase return order in Business Central."""
+        from app.settings import settings
+
+        return_date = command.return_date or date.today()
+
+        if settings.logfire_api_key:
+            import logfire
+            span_context = logfire.span(
+                "create_return",
+                receipt_id=command.receipt_id,
+                line_count=len(command.lines)
+            )
+        else:
+            from contextlib import nullcontext
+            span_context = nullcontext()
+
+        with span_context:
+            if command.idempotency_key:
+                cached = get_idempotency_record(db_session, command.idempotency_key)
+                if cached:
+                    return ReturnDTO(**cached)
+
+            with AuditContext(
+                db_session,
+                "Return.Created",
+                command.actor,
+                command.trace_id
+            ) as audit:
+                receipt_lines = self.erp.get_posted_purchase_receipt_lines(command.receipt_id)
+                if not receipt_lines:
+                    raise ValidationException(
+                        "Posted receipt has no lines or does not exist",
+                        field="receipt_id",
+                        context={"receipt_id": command.receipt_id}
+                    )
+
+                receipt_line_map = {
+                    int(line.get("Line_No", 0)): line
+                    for line in receipt_lines
+                    if line.get("Line_No") is not None
+                }
+
+                line_payloads: List[Dict[str, Any]] = []
+                for input_line in command.lines:
+                    receipt_line = receipt_line_map.get(int(input_line.line_no))
+                    if not receipt_line:
+                        raise ValidationException(
+                            f"Receipt line {input_line.line_no} not found",
+                            field="line_no",
+                            context={
+                                "receipt_id": command.receipt_id,
+                                "line_no": input_line.line_no,
+                            }
+                        )
+
+                    self._validate_return_line(receipt_line, input_line.quantity)
+
+                    line_payloads.append({
+                        "line_no": int(receipt_line.get("Line_No", input_line.line_no)),
+                        "item_no": receipt_line.get("Item_No") or receipt_line.get("No"),
+                        "description": receipt_line.get("Description"),
+                        "quantity": float(input_line.quantity),
+                        "unit_of_measure": receipt_line.get("Unit_of_Measure_Code"),
+                        "location_code": receipt_line.get("Location_Code"),
+                        "return_reason_code": receipt_line.get("Return_Reason_Code"),
+                        "variant_code": receipt_line.get("Variant_Code"),
+                    })
+
+                return_no = self.erp.create_return(
+                    command.receipt_id,
+                    line_payloads,
+                    return_date,
+                    command.reason,
+                )
+
+                audit.set_entity(po_id=return_no)
+                audit.set_change(
+                    previous=None,
+                    next={
+                        "return_id": return_no,
+                        "receipt_id": command.receipt_id,
+                        "line_count": len(line_payloads),
+                        "reason": command.reason,
+                    },
+                    reason="Return order created"
+                )
+
+                header = self.erp.get_purchase_return_order(return_no)
+                lines = self.erp.get_purchase_return_order_lines(return_no)
+
+                if not header:
+                    raise ERPError(
+                        "Return order was created but could not be retrieved",
+                        context={"return_id": return_no}
+                    )
+
+                result = self._map_to_return_dto(header, lines)
+
+                if command.idempotency_key:
+                    save_idempotency_record(
+                        db_session,
+                        command.idempotency_key,
+                        result.model_dump()
+                    )
+
+                return result
+
+    async def get_return_order(self, return_id: str) -> Optional[ReturnDTO]:
+        """Retrieve a purchase return order by its ID."""
+        header = self.erp.get_purchase_return_order(return_id)
+        if not header:
+            return None
+        lines = self.erp.get_purchase_return_order_lines(return_id)
+        return self._map_to_return_dto(header, lines)
+
+    @staticmethod
+    def _parse_date(value: Optional[str]) -> Optional[date]:
+        if not value:
+            return None
+        try:
+            return date.fromisoformat(value[:10])
+        except Exception:
+            return None
+
+    @staticmethod
+    def _parse_datetime(value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except Exception:
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except Exception:
+                return None
+
+    def _map_to_return_dto(
+        self,
+        header: Dict[str, Any],
+        lines: List[Dict[str, Any]]
+    ) -> ReturnDTO:
+        return ReturnDTO(
+            return_id=header.get("No") or header.get("no"),
+            receipt_id=header.get("External_Document_No") or header.get("Vendor_Shipment_No") or "",
+            po_id=header.get("Vendor_Order_No") or header.get("Order_No") or header.get("Purch_Order_No") or "",
+            vendor_id=header.get("Buy_from_Vendor_No", ""),
+            vendor_name=header.get("Buy_from_Vendor_Name", ""),
+            return_date=self._parse_date(header.get("Posting_Date")) or date.today(),
+            reason=header.get("Comments") or header.get("Return_Reason_Code") or "",
+            status=header.get("Status", "Open"),
+            lines=[
+                self._map_to_return_line_dto(
+                    header.get("No") or header.get("no"),
+                    line
+                )
+                for line in lines
+            ],
+            created_by=header.get("Assigned_User_ID") or header.get("Created_By"),
+            created_at=self._parse_datetime(header.get("Last_Modified_DateTime")),
+        )
+
+    def _map_to_return_line_dto(
+        self,
+        return_id: str,
+        line: Dict[str, Any]
+    ) -> ReturnLineDTO:
+        quantity = line.get("Quantity")
+        return ReturnLineDTO(
+            return_id=return_id,
+            line_no=int(line.get("Line_No", 0) or 0),
+            receipt_line_no=int(line.get("Receipt_Line_No", 0) or line.get("Line_No", 0) or 0),
+            item_no=line.get("No") or line.get("Item_No", ""),
+            description=line.get("Description", ""),
+            quantity_returned=Decimal(str(quantity)) if quantity is not None else Decimal("0"),
+            unit_of_measure=line.get("Unit_of_Measure_Code", ""),
+        )
+
+    def _validate_return_line(
+        self,
+        receipt_line: Dict[str, Any],
+        quantity: Decimal
+    ) -> None:
+        if quantity <= 0:
+            raise ValidationException(
+                "Return quantity must be greater than zero",
+                field="quantity",
+                context={"quantity": str(quantity)}
+            )
+
+        received_quantity = Decimal(str(receipt_line.get("Quantity", 0)))
+        if quantity > received_quantity:
+            raise ValidationException(
+                "Return quantity exceeds received quantity",
+                field="quantity",
+                context={
+                    "receipt_line": receipt_line.get("Line_No"),
+                    "requested": str(quantity),
+                    "received": str(received_quantity)
+                }
+            )

@@ -131,7 +131,7 @@ domain/purchasing_service.py
 7.	Return POLineDTO.
 
 routers/purchasing.py
-•	POST /api/v1/purchasing/po/{po_id}/lines/{line_no}/date
+•	POST /api/v1/erp/po/{po_id}/lines/{line_no}/date
 o	Body: UpdatePOLineDateBody
 o	Use BackgroundTasks optionally for side work (e.g., “recompute KPI”), but the ERP write itself runs inline so the client sees success/failure deterministically.
 
@@ -191,5 +191,4 @@ Coding rules (keep it light)
 
 End of minimal prompt. Generate all listed files with working code, not placeholders.
  
-
 

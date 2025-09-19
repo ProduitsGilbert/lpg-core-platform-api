@@ -75,11 +75,11 @@ uvicorn app.main:app --reload --port 7003
 - `GET /readyz` - Readiness probe with dependency checks
 - `GET /metrics` - Application metrics
 
-### Purchasing Operations
+### ERP Operations
 
 #### Update PO Line Promise Date
 ```bash
-curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/date" \
+curl -X POST "http://localhost:7003/api/v1/erp/po/PO-001/lines/1/date" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: unique-key-123" \
   -H "X-User-ID: john.doe" \
@@ -91,7 +91,7 @@ curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/date" \
 
 #### Update PO Line Price
 ```bash
-curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/price" \
+curl -X POST "http://localhost:7003/api/v1/erp/po/PO-001/lines/1/price" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: unique-key-124" \
   -d '{
@@ -102,7 +102,7 @@ curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/price" \
 
 #### Update PO Line Quantity
 ```bash
-curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/quantity" \
+curl -X POST "http://localhost:7003/api/v1/erp/po/PO-001/lines/1/quantity" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: unique-key-125" \
   -d '{
@@ -113,7 +113,7 @@ curl -X POST "http://localhost:7003/api/v1/purchasing/po/PO-001/lines/1/quantity
 
 #### Create Receipt
 ```bash
-curl -X POST "http://localhost:7003/api/v1/purchasing/receipts" \
+curl -X POST "http://localhost:7003/api/v1/erp/po/PO-001/receipts" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: unique-key-126" \
   -d '{
@@ -127,6 +127,33 @@ curl -X POST "http://localhost:7003/api/v1/purchasing/receipts" \
     ],
     "receipt_date": "2024-01-15"
   }'
+```
+
+#### Update Item Fields
+```bash
+curl -X POST "http://localhost:7003/api/v1/erp/items/ITEM-001/update" \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: john.doe" \
+  -d '{
+    "updates": [
+      {"field": "Description", "current_value": "Old name", "new_value": "New name"},
+      {"field": "Unit_Cost", "new_value": 42.5}
+    ]
+  }'
+```
+
+#### Create Purchased Item (template 000)
+```bash
+curl -X POST "http://localhost:7003/api/v1/erp/items/purchased" \
+  -H "Content-Type: application/json" \
+  -d '{"item_no": "ITEM-NEW"}'
+```
+
+#### Create Manufactured Item (template 00000)
+```bash
+curl -X POST "http://localhost:7003/api/v1/erp/items/manufactured" \
+  -H "Content-Type: application/json" \
+  -d '{"item_no": "ITEM-MFG"}'
 ```
 
 ## Configuration

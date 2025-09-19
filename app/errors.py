@@ -84,6 +84,8 @@ class ERPNotFound(ERPError):
     def __init__(self, resource_type: str, resource_id: str):
         detail = f"{resource_type} {resource_id} not found in ERP"
         super().__init__(detail=detail, context={"resource_type": resource_type, "resource_id": resource_id})
+        self.status_code = status.HTTP_404_NOT_FOUND
+        self.error_code = "ERP_NOT_FOUND"
 
 
 class ERPConflict(ERPError):
@@ -95,6 +97,8 @@ class ERPConflict(ERPError):
     
     def __init__(self, detail: str):
         super().__init__(detail=detail)
+        self.status_code = status.HTTP_409_CONFLICT
+        self.error_code = "ERP_CONFLICT"
 
 
 class PurchaseOrderNotFoundError(BaseAPIException):
@@ -136,13 +140,20 @@ class ValidationException(BaseAPIException):
     Used for custom validation logic beyond Pydantic schema validation.
     """
     
-    def __init__(self, detail: str, field: Optional[str] = None):
-        context = {"field": field} if field else None
+    def __init__(
+        self,
+        detail: str,
+        field: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        combined_context = dict(context or {})
+        if field:
+            combined_context["field"] = field
         super().__init__(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=detail,
             error_code="VALIDATION_ERROR",
-            context=context
+            context=combined_context or None,
         )
 
 
@@ -273,6 +284,71 @@ class IdempotencyError(BaseAPIException):
         )
 
 
+class CommunicationsError(BaseAPIException):
+    """Base error for communications integrations."""
+
+    def __init__(
+        self,
+        detail: str,
+        status_code: int = status.HTTP_502_BAD_GATEWAY,
+        error_code: str = "COMMUNICATIONS_ERROR",
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            status_code=status_code,
+            detail=detail,
+            error_code=error_code,
+            context=context,
+        )
+
+
+class CommunicationsUnauthorized(CommunicationsError):
+    """Raised when Front authentication fails."""
+
+    def __init__(self, detail: str = "Authentication with Front API failed"):
+        super().__init__(
+            detail=detail,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            error_code="COMMUNICATIONS_UNAUTHORIZED",
+        )
+
+
+class CommunicationsNotFound(CommunicationsError):
+    """Raised when a Front resource is not found."""
+
+    def __init__(self, resource_type: str, resource_id: str):
+        super().__init__(
+            detail=f"{resource_type} {resource_id} not found in Front",
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code="COMMUNICATIONS_NOT_FOUND",
+            context={"resource_type": resource_type, "resource_id": resource_id},
+        )
+
+
+class CommunicationsRateLimited(CommunicationsError):
+    """Raised when Front rate limits a request."""
+
+    def __init__(self, retry_after: Optional[int] = None):
+        context = {"retry_after": retry_after} if retry_after else None
+        super().__init__(
+            detail="Front API rate limit exceeded",
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            error_code="COMMUNICATIONS_RATE_LIMITED",
+            context=context,
+        )
+
+
+class CommunicationsConfigurationError(CommunicationsError):
+    """Raised when Front configuration is missing or invalid."""
+
+    def __init__(self, detail: str = "Front API configuration missing"):
+        super().__init__(
+            detail=detail,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="COMMUNICATIONS_CONFIGURATION",
+        )
+
+
 # Exception handlers for FastAPI
 
 async def handle_base_api_exception(request: Request, exc: BaseAPIException) -> JSONResponse:
@@ -343,11 +419,13 @@ async def handle_validation_error(request: Request, exc: RequestValidationError)
     if settings.logfire_api_key:
         import logfire
         with logfire.span("Validation error handled"):
-            logfire.warning(
-                "Validation error",
-                error_count=len(errors),
-                errors=errors[:5]  # Log first 5 errors to avoid log bloat
-            )
+            log_method = getattr(logfire, "warning", None) or getattr(logfire, "info", None)
+            if log_method:
+                log_method(
+                    "Validation error",
+                    error_count=len(errors),
+                    errors=errors[:5],
+                )
     else:
         logger.warning(
             "Validation error",

@@ -18,9 +18,9 @@ jobs:
       - name: OpenAI GPT Code Review Action
         uses: Ostrich-Cyber-Risk/ai-codereviewer@v2.7.1
         with:
-          GITHUB_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
+          OCTOKIT_TOKEN: ${{ secrets.OCTOKIT_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4o"
+          OPENAI_API_MODEL: "gpt-4.1"
           exclude: "**/*.json, **/*.md, **/*.txt, **/*.yaml, **/*.yml, **/*.lock, **/requirements*.txt, **/__pycache__/**, **/*.pyc, **/migrations/**, **/.env*, **/venv/**, **/.venv/**, **/htmlcov/**, **/.pytest_cache/**, **/.mypy_cache/**, **/.ruff_cache/**"
             
       - name: Comment PR Summary

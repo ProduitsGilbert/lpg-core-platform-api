@@ -18,6 +18,11 @@ logger = logging.getLogger(__name__)
 
 from app.settings import settings
 
+try:
+    import logfire
+except ImportError:
+    logfire = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +148,31 @@ def get_session() -> Generator[Session, None, None]:
     
     Ensures proper cleanup with automatic rollback on error.
     """
-    session = get_session_factory()()
+    try:
+        session_factory = get_session_factory()
+        session = session_factory()
+    except Exception as exc:
+        message = str(exc)
+        if isinstance(exc, ImportError) or "pyodbc" in message.lower():
+            logger.warning("Database driver unavailable; returning dummy session: %s", exc)
+
+            class DummySession:
+                def commit(self):
+                    return None
+
+                def rollback(self):
+                    return None
+
+                def close(self):
+                    return None
+
+            dummy = DummySession()
+            try:
+                yield dummy
+            finally:
+                dummy.close()
+            return
+        raise
     try:
         yield session
         session.commit()
@@ -203,7 +232,7 @@ async def verify_database_connection() -> bool:
                 result.scalar()
         return True
     except Exception as e:
-        if hasattr(settings, 'logfire_api_key') and settings.logfire_api_key:
+        if logfire and hasattr(settings, 'logfire_api_key') and settings.logfire_api_key:
             logfire.error(f"Database connection failed: {e}")
         return False
 

@@ -6,23 +6,9 @@ loaded from environment variables. It provides type validation and default
 values for all settings.
 """
 
-from enum import Enum
 from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-class ERPMode(str, Enum):
-    """
-    ERP integration mode enumeration.
-    
-    - LEGACY: Uses existing Python functions for ERP integration
-    - OFFICIAL: Uses official Business Central API (future implementation)
-    - CANARY: Gradual rollout mode for testing new API integration
-    """
-    LEGACY = "legacy"
-    OFFICIAL = "official"
-    CANARY = "canary"
 
 
 class Settings(BaseSettings):
@@ -46,22 +32,20 @@ class Settings(BaseSettings):
         description="MSSQL database connection string with pyodbc driver"
     )
     
-    # ERP Configuration
-    erp_mode: ERPMode = Field(
-        default=ERPMode.LEGACY,
-        description="ERP integration mode: legacy|official|canary"
+    # Business Central API Configuration
+    erp_base_url: str = Field(
+        description="Base URL for Business Central OData API"
     )
     
-    erp_base_url: Optional[str] = Field(
+    # Business Central API Credentials
+    bc_api_username: Optional[str] = Field(
         default=None,
-        description="Base URL for official Business Central API (when using official mode)"
+        description="Business Central API username"
     )
     
-    canary_percent: int = Field(
-        default=0,
-        ge=0,
-        le=100,
-        description="Percentage of requests to route to new API in canary mode"
+    bc_api_password: Optional[str] = Field(
+        default=None,
+        description="Business Central API password"
     )
     
     # External Services Configuration
@@ -69,7 +53,27 @@ class Settings(BaseSettings):
         default=None,
         description="API key for Logfire observability platform"
     )
-    
+
+    front_api_base_url: str = Field(
+        default="https://api2.frontapp.com",
+        description="Base URL for Front API"
+    )
+
+    front_api_key: Optional[str] = Field(
+        default=None,
+        description="Front API access token"
+    )
+
+    file_share_base_url: str = Field(
+        default="https://api.gilbert-tech.com:7776/api/v1",
+        description="Base URL for Gilbert Tech file share API"
+    )
+
+    file_share_requester_id: Optional[str] = Field(
+        default=None,
+        description="Requester user identifier for file share API calls"
+    )
+
     openai_api_key: Optional[str] = Field(
         default=None,
         description="OpenAI API key for AI-powered features"
@@ -78,6 +82,11 @@ class Settings(BaseSettings):
     openai_model: str = Field(
         default="gpt-5-2025-08-07",
         description="OpenAI model to use for AI operations"
+    )
+    
+    ocr_llm_model: str = Field(
+        default="gpt-4.1-mini",
+        description="OpenAI model to use for OCR document extraction"
     )
     
     local_agent_base_url: Optional[str] = Field(

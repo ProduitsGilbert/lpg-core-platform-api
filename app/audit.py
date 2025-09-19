@@ -20,6 +20,27 @@ logger = logging.getLogger(__name__)
 from app.errors import IdempotencyException
 from app.settings import settings
 
+try:
+    import logfire  # type: ignore
+except ImportError:  # pragma: no cover - fallback for environments without logfire
+    from contextlib import contextmanager
+
+    class _LogfireStub:
+        @contextmanager
+        def span(self, *args, **kwargs):
+            yield
+
+        def info(self, *args, **kwargs):
+            logger.debug(*args, **kwargs)
+
+        def warning(self, *args, **kwargs):
+            logger.warning(*args, **kwargs)
+
+        def error(self, *args, **kwargs):
+            logger.error(*args, **kwargs)
+
+    logfire = _LogfireStub()
+
 
 def get_idempotency_record(
     session: Session,

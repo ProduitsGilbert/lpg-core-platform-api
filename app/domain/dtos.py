@@ -141,6 +141,11 @@ class CreateReceiptBody(BaseDTO):
         max_length=50,
         description="Purchase Order ID"
     )
+    vendor_shipment_no: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Vendor shipment reference number"
+    )
     lines: List["ReceiptLineInput"] = Field(
         ...,
         min_length=1,
@@ -154,6 +159,12 @@ class CreateReceiptBody(BaseDTO):
         None,
         max_length=500,
         description="Optional receipt notes"
+    )
+    job_check_delay_seconds: int = Field(
+        default=5,
+        ge=0,
+        le=60,
+        description="Seconds to wait before checking posting status"
     )
     idempotency_key: Optional[str] = Field(
         None,
@@ -179,6 +190,11 @@ class ReceiptLineInput(BaseDTO):
         None,
         max_length=20,
         description="Warehouse location code"
+    )
+    vendor_shipment_no: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Optional line-level vendor shipment reference override"
     )
 
 
@@ -436,6 +452,8 @@ class CreateReceiptCommand(PurchaseCommand):
     lines: List[ReceiptLineInput]
     receipt_date: date
     notes: Optional[str] = None
+    vendor_shipment_no: Optional[str] = None
+    job_check_delay_seconds: int = 5
 
 
 class CreateReturnCommand(PurchaseCommand):

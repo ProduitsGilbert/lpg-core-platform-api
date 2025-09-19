@@ -102,7 +102,7 @@ def test_update_poline_date_success():
     }
     
     # Mock dependencies
-    with patch("app.routers.purchasing.purchasing_service") as mock_service:
+    with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         mock_service.update_poline_date.return_value = POLineDTO(
             po_id=po_id,
             line_no=line_no,
@@ -121,7 +121,7 @@ def test_update_poline_date_success():
         
         # Make request
         response = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
@@ -147,7 +147,7 @@ def test_update_poline_date_with_idempotency():
         "idempotency_key": idempotency_key
     }
     
-    with patch("app.routers.purchasing.purchasing_service") as mock_service:
+    with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         mock_service.update_poline_date.return_value = POLineDTO(
             po_id=po_id,
             line_no=line_no,
@@ -166,14 +166,14 @@ def test_update_poline_date_with_idempotency():
         
         # First request
         response1 = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
         
         # Second request with same idempotency key
         response2 = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
@@ -200,7 +200,7 @@ def test_update_poline_date_past_date():
     }
     
     response = client.post(
-        f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+        f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
         json=request_body,
         headers={"X-User-ID": "test-user"}
     )
@@ -222,7 +222,7 @@ def test_update_poline_date_missing_reason():
     }
     
     response = client.post(
-        f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+        f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
         json=request_body,
         headers={"X-User-ID": "test-user"}
     )
@@ -243,12 +243,12 @@ def test_update_poline_date_not_found():
         "reason": "Test update"
     }
     
-    with patch("app.routers.purchasing.purchasing_service") as mock_service:
+    with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         from app.errors import ERPNotFound
         mock_service.update_poline_date.side_effect = ERPNotFound("PO Line", f"{po_id}/{line_no}")
         
         response = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
@@ -268,14 +268,14 @@ def test_update_poline_date_closed_line():
         "reason": "Test update"
     }
     
-    with patch("app.routers.purchasing.purchasing_service") as mock_service:
+    with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         from app.errors import ERPConflict
         mock_service.update_poline_date.side_effect = ERPConflict(
             "Cannot update closed PO line"
         )
         
         response = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
@@ -366,7 +366,7 @@ def test_date_validation_scenarios(days_offset, should_succeed):
         "reason": "Test update"
     }
     
-    with patch("app.routers.purchasing.purchasing_service") as mock_service:
+    with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         if should_succeed:
             mock_service.update_poline_date.return_value = POLineDTO(
                 po_id=po_id,
@@ -389,7 +389,7 @@ def test_date_validation_scenarios(days_offset, should_succeed):
             )
         
         response = client.post(
-            f"/api/v1/purchasing/po/{po_id}/lines/{line_no}/date",
+            f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
             json=request_body,
             headers={"X-User-ID": "test-user"}
         )
