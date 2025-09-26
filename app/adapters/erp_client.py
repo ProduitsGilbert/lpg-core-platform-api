@@ -302,10 +302,10 @@ class ERPClient(ERPClientProtocol):
     def get_purchase_order(self, po_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve purchase order from Business Central.
-        
+
         Args:
             po_id: Purchase Order ID
-        
+
         Returns:
             Dictionary with PO header data or None if not found
         """
@@ -316,10 +316,10 @@ class ERPClient(ERPClientProtocol):
                     f"PurchaseOrderHeaders?$filter=No eq '{po_id}'"
                 )
                 response.raise_for_status()
-                
+
                 data = response.json()
                 orders = data.get("value", [])
-                
+
                 if orders:
                     order = orders[0]
                     logfire.info(f"Retrieved PO {po_id} from Business Central API")
@@ -327,7 +327,7 @@ class ERPClient(ERPClientProtocol):
                 else:
                     logfire.info(f"PO {po_id} not found in Business Central")
                     return None
-                    
+
             except httpx.HTTPStatusError as e:
                 logfire.error(f"HTTP error getting PO {po_id}: {e.response.status_code}")
                 logfire.error(f"Response: {e.response.text}")
@@ -335,11 +335,36 @@ class ERPClient(ERPClientProtocol):
             except Exception as e:
                 logfire.error(f"Error getting PO {po_id}: {e}")
                 raise ERPError(f"Failed to get PO: {str(e)}")
-    
+
+    def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
+        """Invoke the Business Central action to reopen a released purchase order."""
+        if not header_no:
+            raise ERPError(
+                "Purchase order number is required to reopen an order",
+                context={"po_id": header_no},
+            )
+
+        with logfire.span("ERP reopen_purchase_order", header_no=header_no):
+            try:
+                payload = {"headerNo": header_no}
+                result = self._post_purchase_operation("createPO_reopen", payload)
+                logfire.info("Purchase order reopened", header_no=header_no)
+                return result
+            except ERPError:
+                raise
+            except Exception as exc:
+                logfire.error(
+                    f"Unexpected error reopening purchase order {header_no}: {exc}"
+                )
+                raise ERPError(
+                    f"Failed to reopen purchase order {header_no}",
+                    context={"po_id": header_no},
+                ) from exc
+
     def get_purchase_order_lines(self, po_id: str) -> List[Dict[str, Any]]:
         """
         Get purchase order lines from Business Central.
-        
+
         Args:
             po_id: Purchase Order ID
         

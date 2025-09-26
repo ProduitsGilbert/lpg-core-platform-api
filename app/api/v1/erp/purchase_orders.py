@@ -16,7 +16,12 @@ from app.deps import (
 )
 from app.api.v1.models import SingleResponse, CollectionResponse, ErrorResponse
 from app.domain.erp.purchase_order_service import PurchaseOrderService
-from app.domain.erp.models import PurchaseOrderResponse, PurchaseOrderLineResponse
+from app.domain.erp.models import (
+    PurchaseOrderResponse,
+    PurchaseOrderLineResponse,
+    PurchaseOrderReopenRequest,
+    PurchaseOrderReopenResponse,
+)
 from app.domain.purchasing_service import PurchasingService
 from app.domain.dtos import (
     POLineDTO,
@@ -33,6 +38,7 @@ from app.domain.dtos import (
     ReceiptDTO,
     ReturnDTO
 )
+from app.errors import BaseAPIException
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +197,42 @@ async def get_purchase_order_lines(
                     "code": "INTERNAL_ERROR",
                     "message": "Failed to retrieve purchase order lines",
                     "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            }
+        )
+
+
+@router.post(
+    "/reopen",
+    response_model=SingleResponse[PurchaseOrderReopenResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Reopen purchase order",
+    description="Invoke Business Central action to set a purchase order back to Open so it can be edited"
+)
+async def reopen_purchase_order_endpoint(
+    body: PurchaseOrderReopenRequest,
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db)
+) -> SingleResponse[PurchaseOrderReopenResponse]:
+    try:
+        with logfire.span(
+            "POST /erp/po/reopen",
+            po_id=body.header_no,
+            actor=ctx.actor,
+        ):
+            result = await po_service.reopen_purchase_order(body.header_no)
+            return SingleResponse(data=result)
+    except BaseAPIException:
+        raise
+    except Exception as exc:
+        logger.error("Error reopening purchase order %s: %s", body.header_no, exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to reopen purchase order",
+                    "trace_id": ctx.trace_id or getattr(db, 'trace_id', 'unknown')
                 }
             }
         )

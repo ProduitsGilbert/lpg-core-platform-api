@@ -7,7 +7,11 @@ from typing import Optional, List
 from decimal import Decimal
 from datetime import date, datetime
 
-from app.domain.erp.models import PurchaseOrderResponse, PurchaseOrderLineResponse
+from app.domain.erp.models import (
+    PurchaseOrderResponse,
+    PurchaseOrderLineResponse,
+    PurchaseOrderReopenResponse,
+)
 from app.adapters.erp_client import ERPClient
 
 logger = logging.getLogger(__name__)
@@ -124,4 +128,32 @@ class PurchaseOrderService:
                 
         except Exception as e:
             logger.error(f"Error getting purchase order lines for {po_id}: {e}")
+            raise
+
+    async def reopen_purchase_order(self, po_id: str) -> PurchaseOrderReopenResponse:
+        """Reopen a purchase order in Business Central so it can be edited."""
+        try:
+            with logfire.span("po_service.reopen_purchase_order", po_id=po_id):
+                raw_response = self.erp_client.reopen_purchase_order(po_id)
+
+                status = "Open"
+                try:
+                    current = self.erp_client.get_purchase_order(po_id)
+                    if current and current.get("Status"):
+                        status = current.get("Status")
+                except Exception as exc:
+                    logger.warning(
+                        "Unable to retrieve updated status after reopening PO %s: %s",
+                        po_id,
+                        exc,
+                    )
+
+                return PurchaseOrderReopenResponse(
+                    id=po_id,
+                    status=status or "Open",
+                    details=raw_response or {},
+                )
+
+        except Exception as e:
+            logger.error(f"Error reopening purchase order {po_id}: {e}")
             raise

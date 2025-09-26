@@ -34,8 +34,8 @@ def get_db() -> Session:
 
 
 def get_idempotency_key(
-    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
-    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key", include_in_schema=False),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key", include_in_schema=False),
 ) -> Optional[str]:
     """
     Extract idempotency key from request headers.
@@ -59,8 +59,8 @@ def get_idempotency_key(
 
 
 def get_request_id(
-    request_id: Optional[str] = Header(None, alias="X-Request-ID"),
-    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID"),
+    request_id: Optional[str] = Header(None, alias="X-Request-ID", include_in_schema=False),
+    x_correlation_id: Optional[str] = Header(None, alias="X-Correlation-ID", include_in_schema=False),
 ) -> str:
     """
     Extract or generate request ID for tracing.
@@ -78,9 +78,9 @@ def get_request_id(
 
 
 def get_actor(
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    x_user_email: Optional[str] = Header(None, alias="X-User-Email"),
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_user_id: Optional[str] = Header(None, alias="X-User-ID", include_in_schema=False),
+    x_user_email: Optional[str] = Header(None, alias="X-User-Email", include_in_schema=False),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key", include_in_schema=False),
 ) -> str:
     """
     Extract actor/user information from request headers.
@@ -108,8 +108,8 @@ def get_actor(
 
 
 def get_source(
-    user_agent: Optional[str] = Header(None),
-    x_source_system: Optional[str] = Header(None, alias="X-Source-System"),
+    user_agent: Optional[str] = Header(None, include_in_schema=False),
+    x_source_system: Optional[str] = Header(None, alias="X-Source-System", include_in_schema=False),
 ) -> str:
     """
     Extract source system information from request.

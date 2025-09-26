@@ -90,6 +90,10 @@ class ERPClientProtocol(Protocol):
         """
         ...
 
+    def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
+        """Reopen a purchase order header in the ERP system."""
+        ...
+
     def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve an item from ERP by its number."""
         ...

@@ -1,10 +1,10 @@
 """
 Domain models for ERP entities
 """
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # Item models
 class ItemResponse(BaseModel):
@@ -113,3 +113,31 @@ class PurchaseOrderLineResponse(BaseModel):
             Decimal: lambda v: float(v),
             date: lambda v: v.isoformat() if v else None
         }
+
+
+class PurchaseOrderReopenRequest(BaseModel):
+    """Request payload to reopen a released purchase order."""
+
+    header_no: str = Field(
+        ...,
+        alias="headerNo",
+        min_length=1,
+        description="Purchase order number to reopen"
+    )
+
+    model_config = ConfigDict(
+        populate_by_name=True,
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+
+class PurchaseOrderReopenResponse(BaseModel):
+    """Response returned after reopening a purchase order."""
+
+    id: str = Field(..., description="Purchase order number")
+    type: str = Field(default="purchase-order-status", description="Resource type identifier")
+    status: str = Field(default="Open", description="Purchase order status after the reopen action")
+    details: Dict[str, Any] = Field(default_factory=dict, description="Raw ERP response payload")
+
+    model_config = ConfigDict(extra="ignore")
