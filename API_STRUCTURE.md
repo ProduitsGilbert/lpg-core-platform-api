@@ -45,6 +45,15 @@ Business Central and SQL Server integrations
 /api/v1/erp/customers
 /api/v1/erp/items
 /api/v1/erp/inventory
+/api/v1/erp/bc/posted-sales-invoice-headers
+/api/v1/erp/bc/purchase-order-headers
+/api/v1/erp/bc/purchase-order-lines
+/api/v1/erp/bc/vendors
+/api/v1/erp/bc/items
+/api/v1/erp/bc/sales-order-headers
+/api/v1/erp/bc/sales-order-lines
+/api/v1/erp/bc/sales-quote-headers
+/api/v1/erp/bc/sales-quote-lines
 ```
 
 ### 2. AI Domain (`/api/v1/ai`)
@@ -119,6 +128,15 @@ Business process automation
 /api/v1/workflows/processes/{id}/actions/cancel # POST
 /api/v1/workflows/processes/{id}/tasks        # GET
 /api/v1/workflows/processes/{id}/tasks/{task_id}/actions/complete # POST
+```
+
+### 7. Toolkit Domain (`/api/v1/toolkit`)
+Internal utilities, diagnostics, and AI helpers
+
+```
+/api/v1/toolkit/mrp/production-orders                     # GET
+/api/v1/toolkit/mrp/production-orders/export              # GET (Excel)
+/api/v1/toolkit/ai/sample-response                        # POST
 ```
 
 ## File Structure

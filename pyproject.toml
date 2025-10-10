@@ -19,7 +19,7 @@ extend-exclude = '''
 [tool.isort]
 profile = "black"
 line_length = 100
-known_third_party = ["fastapi", "pydantic", "sqlalchemy", "pytest", "httpx", "tenacity", "logfire"]
+known_third_party = ["fastapi", "httpx", "logfire", "openpyxl", "pydantic", "pytest", "sqlalchemy", "tenacity"]
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
 default_section = "THIRDPARTY"
 skip = ["__init__.py"]

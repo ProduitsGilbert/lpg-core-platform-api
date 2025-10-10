@@ -64,6 +64,11 @@ class Settings(BaseSettings):
         description="Front API access token"
     )
 
+    toolkit_base_url: str = Field(
+        default="https://api.gilbert-tech.com:7778",
+        description="Base URL for Gilbert Tech internal toolkit services"
+    )
+
     file_share_base_url: str = Field(
         default="https://api.gilbert-tech.com:7776/api/v1",
         description="Base URL for Gilbert Tech file share API"

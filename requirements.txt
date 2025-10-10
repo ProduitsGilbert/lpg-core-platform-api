@@ -23,6 +23,9 @@ logfire[fastapi]==0.25.0
 # AI/ML
 openai==1.58.1
 
+# Utilities
+openpyxl==3.1.5
+
 # Scheduler (optional, disabled by default)
 apscheduler==3.10.4
 
