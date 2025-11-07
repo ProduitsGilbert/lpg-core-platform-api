@@ -5,7 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.domain.erp.models import ItemResponse
+from app.domain.erp.models import (
+    ItemResponse,
+    TariffCalculationResponse,
+    TariffMaterialResponse,
+    TariffSummaryResponse,
+)
 from app.errors import ERPConflict
 
 
@@ -83,3 +88,75 @@ def test_create_manufactured_item_conflict(client, monkeypatch):
     assert error["code"] == "ERP_CONFLICT"
     assert "Item exists" in error["message"]
     service.create_manufactured_item.assert_awaited_once_with("ITEM-123")
+
+
+def _setup_tariff_service(monkeypatch, response: TariffCalculationResponse):
+    service = SimpleNamespace(calculate=AsyncMock(return_value=response))
+    monkeypatch.setattr("app.api.v1.erp.items.TariffCalculationService", lambda: service)
+    monkeypatch.setattr("app.api.v1.erp.items.get_tariff_service", lambda: service)
+    return service
+
+
+def _sample_tariff_response() -> TariffCalculationResponse:
+    summary = TariffSummaryResponse(
+        total_materials=1,
+        calculated_materials=1,
+        total_weight_kg=10.0,
+        total_weight_with_scrap_kg=11.0,
+        total_cost_cad=100.0,
+        total_cost_usd=74.0,
+        exchange_rate=0.74,
+    )
+    material = TariffMaterialResponse(
+        item_no="MAT-1",
+        description="Steel Plate",
+        material_type="plate",
+        quantity=1.0,
+        scrap_percent=5.0,
+        dimensions={"thickness": 1.0},
+        weight_per_piece_lbs=20.0,
+        weight_per_piece_kg=9.07184,
+        total_weight_lbs=20.0,
+        total_weight_kg=9.07184,
+        total_with_scrap_lbs=21.0,
+        total_with_scrap_kg=9.525432,
+        standard_cost_cad=50.0,
+        total_cost_cad=50.0,
+        total_cost_usd=37.0,
+        vendor_no="VENDOR-1",
+        vendor_item_no="V1",
+    )
+    return TariffCalculationResponse(
+        item_id="PARENT",
+        production_bom_no="BOM-1",
+        summary=summary,
+        materials=[material],
+        parent_country_of_melt_and_pour="USA",
+        parent_country_of_manufacture="USA",
+        report="Full report text",
+    )
+
+
+def test_get_item_tariff_summary_only(client, monkeypatch):
+    response_model = _sample_tariff_response()
+    service = _setup_tariff_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/PARENT/tariff")
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["summary"]["total_weight_kg"] == 10.0
+    assert body.get("materials") is None
+    assert body.get("report") is None
+    service.calculate.assert_awaited_once_with("PARENT")
+
+
+def test_get_item_tariff_with_details(client, monkeypatch):
+    response_model = _sample_tariff_response()
+    service = _setup_tariff_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/PARENT/tariff?include_details=true")
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert body["materials"][0]["item_no"] == "MAT-1"
+    assert body["report"] == "Full report text"
+    service.calculate.assert_awaited_once_with("PARENT")

@@ -32,6 +32,32 @@ class Settings(BaseSettings):
         description="MSSQL database connection string with pyodbc driver"
     )
     
+    # Optional Cedule Database (Mill Test certificates)
+    cedule_db_dsn: Optional[str] = Field(
+        default=None,
+        description="Override MSSQL+pyodbc DSN for Cedule database (Mill Test certificates)"
+    )
+    cedule_sql_server: Optional[str] = Field(
+        default=None,
+        description="SQL Server host for Cedule database (e.g., server\\instance)"
+    )
+    cedule_sql_database: Optional[str] = Field(
+        default=None,
+        description="Cedule database name"
+    )
+    cedule_sql_username: Optional[str] = Field(
+        default=None,
+        description="Cedule database username"
+    )
+    cedule_sql_password: Optional[str] = Field(
+        default=None,
+        description="Cedule database password"
+    )
+    cedule_sql_driver: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver to use for Cedule SQL connections"
+    )
+    
     # Business Central API Configuration
     erp_base_url: str = Field(
         description="Base URL for Business Central OData API"
@@ -82,6 +108,11 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = Field(
         default=None,
         description="OpenAI API key for AI-powered features"
+    )
+
+    openrouter_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenRouter API key for alternative LLM providers"
     )
     
     openai_model: str = Field(

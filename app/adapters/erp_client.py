@@ -6,9 +6,9 @@ No mock data - only real API calls with proper error handling.
 """
 
 from datetime import date, datetime, UTC
-import time
 from decimal import Decimal
 from typing import Dict, Any, List, Optional
+import asyncio
 import httpx
 import logfire
 from tenacity import (
@@ -39,7 +39,7 @@ class ERPClient(ERPClientProtocol):
         """
         Initialize ERP client for Business Central API.
         """
-        self._http_client = None
+        self._http_client: Optional[httpx.AsyncClient] = None
         self._auth_header = None
         
         # Prepare auth header for Business Central
@@ -49,19 +49,24 @@ class ERPClient(ERPClientProtocol):
         auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
         self._auth_header = f"Basic {auth_b64}"
 
-        base_url = settings.erp_base_url or ""
-        if "ODataV4" in base_url:
-            odata_index = base_url.lower().find("/odatav4")
-            self._custom_odata_base = base_url[: odata_index + len("/ODataV4")].rstrip("/")
+        raw_base_url = (settings.erp_base_url or "").strip()
+        if raw_base_url and not raw_base_url.endswith("/"):
+            raw_base_url = f"{raw_base_url}/"
+        self._base_url = raw_base_url
+
+        base_url_lower = self._base_url.lower()
+        if "/odatav4" in base_url_lower:
+            odata_index = base_url_lower.find("/odatav4")
+            self._custom_odata_base = self._base_url[: odata_index + len("/ODataV4")].rstrip("/")
         else:
-            self._custom_odata_base = base_url.rstrip("/")
+            self._custom_odata_base = self._base_url.rstrip("/")
     
     @property
     def http_client(self):
         """Lazy initialization of HTTP client."""
         if self._http_client is None:
-            self._http_client = httpx.Client(
-                base_url=settings.erp_base_url or "",
+            self._http_client = httpx.AsyncClient(
+                base_url=self._base_url or "",
                 timeout=30.0,
                 headers={
                     "Accept": "application/json",
@@ -70,13 +75,96 @@ class ERPClient(ERPClientProtocol):
                     "Company": "Gilbert-Tech"
                 },
                 verify=False  # For self-signed certs
-            )
+        )
         return self._http_client
     
-    def __del__(self):
-        """Clean up HTTP client on deletion."""
-        if self._http_client:
-            self._http_client.close()
+    async def _fetch_odata_collection(self, resource_path: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve an OData collection and return the raw values list.
+        """
+        try:
+            response = await self.http_client.get(resource_path)
+            response.raise_for_status()
+            payload = response.json()
+            values = payload.get("value", [])
+            if not isinstance(values, list):
+                logger.warning(
+                    "Unexpected payload structure from Business Central",
+                    extra={"resource_path": resource_path, "payload_type": type(payload)},
+                )
+                return []
+            return values
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else None
+            logger.error(
+                "Business Central HTTP error",
+                extra={"resource_path": resource_path, "status_code": status_code},
+            )
+            if status_code == 404:
+                return []
+            if status_code == 503:
+                raise ERPUnavailable()
+            raise ERPError(
+                f"Business Central request failed with status {status_code}: {exc.response.text if exc.response else 'unknown error'}"
+            )
+        except httpx.RequestError as exc:
+            logger.error(
+                "Business Central request error",
+                extra={"resource_path": resource_path, "error": str(exc)},
+            )
+            raise ERPUnavailable("Business Central service unreachable") from exc
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error retrieving Business Central collection",
+                extra={"resource_path": resource_path},
+            )
+            raise ERPError("Unexpected error querying Business Central") from exc
+
+    async def _reset_http_client(self) -> None:
+        """Close and reset the HTTP client to force a fresh connection."""
+        if self._http_client is not None:
+            try:
+                await self._http_client.aclose()
+            except Exception as exc:
+                logfire.warning("Error closing ERP HTTP client", error=str(exc))
+            finally:
+                self._http_client = None
+
+    async def aclose(self) -> None:
+        """Explicitly close the underlying HTTP client."""
+        if self._http_client is not None:
+            await self._http_client.aclose()
+            self._http_client = None
+    
+    async def get_sales_prices_for_item(self, item_no: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve sales price entries for a given item.
+        """
+        sanitized_item = item_no.replace("'", "''")
+        resource = f"SalesPrices?$filter=Item_No eq '{sanitized_item}'"
+        return await self._fetch_odata_collection(resource)
+
+    async def get_currency_exchange_rates(self, currency_code: str, top: int = 5) -> List[Dict[str, Any]]:
+        """
+        Retrieve currency exchange rates ordered by most recent starting date.
+        """
+        sanitized_code = currency_code.replace("'", "''")
+        resource = (
+            f"CurrencyExchangeRates?$filter=Currency_Code eq '{sanitized_code}'"
+            f"&$orderby=Starting_Date desc"
+            f"&$top={top}"
+        )
+        return await self._fetch_odata_collection(resource)
+
+    async def get_bom_component_lines(self, production_bom_no: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve BOM component lines for a given production BOM number.
+        """
+        if not production_bom_no:
+            return []
+        sanitized = production_bom_no.replace("'", "''")
+        resource = f"BOMComponentLines?$filter=Production_BOM_No eq '{sanitized}'"
+        return await self._fetch_odata_collection(resource)
     
     @retry(
         stop=stop_after_attempt(3),
@@ -84,7 +172,7 @@ class ERPClient(ERPClientProtocol):
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    def get_poline(self, po_id: str, line_no: int) -> Dict[str, Any]:
+    async def get_poline(self, po_id: str, line_no: int) -> Dict[str, Any]:
         """
         Retrieve PO line details from Business Central.
         
@@ -98,7 +186,7 @@ class ERPClient(ERPClientProtocol):
         with logfire.span("ERP get_poline", po_id=po_id, line_no=line_no):
             try:
                 # Use the Gilbert_PurchaseOrderLines endpoint with filters for custom fields
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"Gilbert_PurchaseOrderLines?$filter=Document_No eq '{po_id}' and Line_No eq {line_no}"
                 )
                 response.raise_for_status()
@@ -131,7 +219,7 @@ class ERPClient(ERPClientProtocol):
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    def update_poline_date(
+    async def update_poline_date(
         self,
         po_id: str,
         line_no: int,
@@ -156,21 +244,21 @@ class ERPClient(ERPClientProtocol):
         ):
             try:
                 # First get the line to find its system ID
-                line = self.get_poline(po_id, line_no)
+                line = await self.get_poline(po_id, line_no)
                 system_id = line.get("SystemId")
                 
                 if not system_id:
                     raise ERPError(f"No SystemId found for PO line {po_id}/{line_no}")
                 
                 # Update using the system ID on Gilbert_PurchaseOrderLines
-                response = self.http_client.patch(
+                response = await self.http_client.patch(
                     f"Gilbert_PurchaseOrderLines('{system_id}')",
                     json={"Promised_Receipt_Date": new_date.isoformat()}  # Use Promised_Receipt_Date for Gilbert
                 )
                 response.raise_for_status()
                 
                 # Return the updated line
-                return self.get_poline(po_id, line_no)
+                return await self.get_poline(po_id, line_no)
                 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
@@ -189,7 +277,7 @@ class ERPClient(ERPClientProtocol):
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    def update_poline_price(
+    async def update_poline_price(
         self,
         po_id: str,
         line_no: int,
@@ -214,21 +302,21 @@ class ERPClient(ERPClientProtocol):
         ):
             try:
                 # First get the line to find its system ID
-                line = self.get_poline(po_id, line_no)
+                line = await self.get_poline(po_id, line_no)
                 system_id = line.get("SystemId")
                 
                 if not system_id:
                     raise ERPError(f"No SystemId found for PO line {po_id}/{line_no}")
                 
                 # Update using the system ID on Gilbert_PurchaseOrderLines
-                response = self.http_client.patch(
+                response = await self.http_client.patch(
                     f"Gilbert_PurchaseOrderLines('{system_id}')",
                     json={"Direct_Unit_Cost": float(new_price)}
                 )
                 response.raise_for_status()
                 
                 # Return the updated line
-                return self.get_poline(po_id, line_no)
+                return await self.get_poline(po_id, line_no)
                 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
@@ -247,7 +335,7 @@ class ERPClient(ERPClientProtocol):
         retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
         before_sleep=before_sleep_log(logger, logging.WARNING)
     )
-    def update_poline_quantity(
+    async def update_poline_quantity(
         self,
         po_id: str,
         line_no: int,
@@ -272,21 +360,21 @@ class ERPClient(ERPClientProtocol):
         ):
             try:
                 # First get the line to find its system ID
-                line = self.get_poline(po_id, line_no)
+                line = await self.get_poline(po_id, line_no)
                 system_id = line.get("SystemId")
                 
                 if not system_id:
                     raise ERPError(f"No SystemId found for PO line {po_id}/{line_no}")
                 
                 # Update using the system ID on Gilbert_PurchaseOrderLines
-                response = self.http_client.patch(
+                response = await self.http_client.patch(
                     f"Gilbert_PurchaseOrderLines('{system_id}')",
                     json={"Quantity": float(new_quantity)}
                 )
                 response.raise_for_status()
                 
                 # Return the updated line
-                return self.get_poline(po_id, line_no)
+                return await self.get_poline(po_id, line_no)
                 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
@@ -299,7 +387,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error updating PO line quantity {po_id}/{line_no}: {e}")
                 raise
     
-    def get_purchase_order(self, po_id: str) -> Optional[Dict[str, Any]]:
+    async def get_purchase_order(self, po_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve purchase order from Business Central.
 
@@ -312,7 +400,7 @@ class ERPClient(ERPClientProtocol):
         with logfire.span("ERP get_purchase_order", po_id=po_id):
             try:
                 # Call Business Central PurchaseOrderHeaders endpoint
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"PurchaseOrderHeaders?$filter=No eq '{po_id}'"
                 )
                 response.raise_for_status()
@@ -336,7 +424,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error getting PO {po_id}: {e}")
                 raise ERPError(f"Failed to get PO: {str(e)}")
 
-    def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
+    async def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
         """Invoke the Business Central action to reopen a released purchase order."""
         if not header_no:
             raise ERPError(
@@ -347,7 +435,7 @@ class ERPClient(ERPClientProtocol):
         with logfire.span("ERP reopen_purchase_order", header_no=header_no):
             try:
                 payload = {"headerNo": header_no}
-                result = self._post_purchase_operation("createPO_reopen", payload)
+                result = await self._post_purchase_operation("createPO_reopen", payload)
                 logfire.info("Purchase order reopened", header_no=header_no)
                 return result
             except ERPError:
@@ -361,7 +449,7 @@ class ERPClient(ERPClientProtocol):
                     context={"po_id": header_no},
                 ) from exc
 
-    def get_purchase_order_lines(self, po_id: str) -> List[Dict[str, Any]]:
+    async def get_purchase_order_lines(self, po_id: str) -> List[Dict[str, Any]]:
         """
         Get purchase order lines from Business Central.
 
@@ -374,7 +462,7 @@ class ERPClient(ERPClientProtocol):
         with logfire.span("ERP get_purchase_order_lines", po_id=po_id):
             try:
                 # Call Business Central PurchaseOrderLines endpoint
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"Gilbert_PurchaseOrderLines?$filter=Document_No eq '{po_id}'"
                 )
                 response.raise_for_status()
@@ -393,12 +481,12 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error getting PO lines for {po_id}: {e}")
                 raise ERPError(f"Failed to get PO lines: {str(e)}")
 
-    def get_vendor(self, vendor_id: str) -> Optional[Dict[str, Any]]:
+    async def get_vendor(self, vendor_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve vendor master data from Business Central."""
 
         with logfire.span("ERP get_vendor", vendor_id=vendor_id):
             try:
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"Vendor?$filter=No eq '{vendor_id}'"
                 )
                 response.raise_for_status()
@@ -427,7 +515,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error("Error getting vendor", vendor_id=vendor_id, error=str(exc))
                 raise ERPError(f"Failed to get vendor: {str(exc)}")
 
-    def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
+    async def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
         """
         Get item from Business Central.
 
@@ -438,33 +526,48 @@ class ERPClient(ERPClientProtocol):
             Item data or None if not found
         """
         with logfire.span("ERP get_item", item_id=item_id):
-            try:
-                # Call Business Central Items endpoint
-                response = self.http_client.get(
-                    f"Items?$filter=No eq '{item_id}'"
-                )
-                response.raise_for_status()
-                
-                data = response.json()
-                items = data.get("value", [])
-                
-                if items:
-                    item = items[0]
-                    logfire.info(f"Retrieved item {item_id} from Business Central API")
-                    return item
-                else:
-                    logfire.info(f"Item {item_id} not found in Business Central")
-                    return None
+            for attempt in range(2):
+                try:
+                    # Call Business Central Items endpoint
+                    response = await self.http_client.get(
+                        f"Items?$filter=No eq '{item_id}'"
+                    )
+                    response.raise_for_status()
                     
-            except httpx.HTTPStatusError as e:
-                logfire.error(f"HTTP error getting item {item_id}: {e.response.status_code}")
-                logfire.error(f"Response: {e.response.text}")
-                raise ERPError(f"Business Central API error: {e.response.status_code} - {e.response.text}")
-            except Exception as e:
-                logfire.error(f"Error getting item {item_id}: {e}")
-                raise ERPError(f"Failed to get item: {str(e)}")
+                    data = response.json()
+                    items = data.get("value", [])
+                    
+                    if items:
+                        item = items[0]
+                        logfire.info(f"Retrieved item {item_id} from Business Central API")
+                        return item
+                    else:
+                        logfire.info(f"Item {item_id} not found in Business Central")
+                        return None
+                    
+                except httpx.RemoteProtocolError as e:
+                    logfire.warning(
+                        "Remote protocol error when retrieving item",
+                        item_id=item_id,
+                        attempt=attempt + 1,
+                        error=str(e)
+                    )
+                    await self._reset_http_client()
+                    if attempt == 0:
+                        continue
+                    raise ERPError(
+                        "Failed to get item due to remote protocol error",
+                        context={"item_id": item_id}
+                    )
+                except httpx.HTTPStatusError as e:
+                    logfire.error(f"HTTP error getting item {item_id}: {e.response.status_code}")
+                    logfire.error(f"Response: {e.response.text}")
+                    raise ERPError(f"Business Central API error: {e.response.status_code} - {e.response.text}")
+                except Exception as e:
+                    logfire.error(f"Error getting item {item_id}: {e}")
+                    raise ERPError(f"Failed to get item: {str(e)}")
 
-    def update_item_record(
+    async def update_item_record(
         self,
         system_id: str,
         updates: Dict[str, Any],
@@ -478,7 +581,7 @@ class ERPClient(ERPClientProtocol):
         ):
             try:
                 headers = {"If-Match": etag}
-                response = self.http_client.patch(
+                response = await self.http_client.patch(
                     f"Items('{system_id}')",
                     json=updates,
                     headers=headers
@@ -504,7 +607,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error updating item {system_id}: {e}")
                 raise ERPError(f"Failed to update item: {str(e)}")
 
-    def copy_item_from_template(self, template_item: str, destination_item: str) -> None:
+    async def copy_item_from_template(self, template_item: str, destination_item: str) -> None:
         """Copy an item from a template item number."""
         with logfire.span(
             "ERP copy_item_from_template",
@@ -512,14 +615,28 @@ class ERPClient(ERPClientProtocol):
             destination_item=destination_item
         ):
             try:
-                response = self.http_client.post(
-                    "copyItems_copyItemFrom",
+                if not self._custom_odata_base:
+                    raise ERPError(
+                        "Business Central base URL is not configured for template copy operations",
+                        context={"template_item": template_item}
+                    )
+
+                endpoint_url = f"{self._custom_odata_base}/copyItems_copyItemFrom"
+
+                response = await self.http_client.post(
+                    endpoint_url,
                     json={
                         "sourceItem": template_item,
                         "destinationItem": destination_item
-                    }
+                    },
+                    headers={"Connection": "close"}
                 )
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                    # Drain the body (even on 204 chunked responses) before closing to avoid connection reuse issues
+                    await response.aread()
+                finally:
+                    await response.aclose()
             except httpx.HTTPStatusError as e:
                 status_code = e.response.status_code if e.response else "unknown"
                 logfire.error(
@@ -527,10 +644,17 @@ class ERPClient(ERPClientProtocol):
                     template_item=template_item,
                     destination_item=destination_item,
                     status_code=status_code,
+                    endpoint=endpoint_url,
                     body=e.response.text if e.response else None
                 )
                 if e.response is not None:
                     if e.response.status_code == 404:
+                        body_text = e.response.text or ""
+                        if "No HTTP resource was found" in body_text and "copyItems_copyItemFrom" in body_text:
+                            raise ERPError(
+                                "Business Central copyItems_copyItemFrom endpoint is unavailable",
+                                context={"endpoint": endpoint_url}
+                            )
                         raise ERPNotFound("Item template", template_item)
                     if e.response.status_code == 409:
                         raise ERPConflict(
@@ -543,7 +667,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error copying item {destination_item} from template {template_item}: {e}")
                 raise ERPError(f"Failed to copy item from template: {str(e)}")
     
-    def create_receipt(
+    async def create_receipt(
         self,
         po_id: str,
         lines: List[Dict[str, Any]],
@@ -578,8 +702,8 @@ class ERPClient(ERPClientProtocol):
                     )
 
                 root_payload = {"noPo": po_id}
-                self._post_purchase_operation("postPurchaseLine_setToZero", root_payload)
-                self._post_purchase_operation(
+                await self._post_purchase_operation("postPurchaseLine_setToZero", root_payload)
+                await self._post_purchase_operation(
                     "postPurchaseLine_updateVendShipNo",
                     {"noPo": po_id, "shipmentNo": vendor_shipment_no},
                 )
@@ -592,12 +716,12 @@ class ERPClient(ERPClientProtocol):
                     }
                     if line.get("location_code"):
                         payload["locationCode"] = line["location_code"]
-                    self._post_purchase_operation(
+                    await self._post_purchase_operation(
                         "postPurchaseLine_updateToReceiveLine",
                         payload,
                     )
 
-                job_queue_response = self._post_purchase_operation(
+                job_queue_response = await self._post_purchase_operation(
                     "postPurchaseLine_receiveMaterial",
                     {"noPo": po_id, "receiptDate": receipt_date.isoformat()},
                 )
@@ -610,8 +734,8 @@ class ERPClient(ERPClientProtocol):
 
                 job_status = {}
                 if job_queue_entry_id and job_check_delay_seconds:
-                    time.sleep(job_check_delay_seconds)
-                    job_status = self._post_purchase_operation(
+                    await asyncio.sleep(job_check_delay_seconds)
+                    job_status = await self._post_purchase_operation(
                         "postPurchaseLine_checkForError",
                         {"jobQueueEntryID": job_queue_entry_id},
                     )
@@ -626,7 +750,7 @@ class ERPClient(ERPClientProtocol):
                         },
                     )
 
-                purchase_order = self.get_purchase_order(po_id)
+                purchase_order = await self.get_purchase_order(po_id)
                 vendor_id = purchase_order.get("Buy_from_Vendor_No", "") if purchase_order else ""
                 vendor_name = purchase_order.get("Buy_from_Vendor_Name", "") if purchase_order else ""
 
@@ -656,7 +780,7 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error creating receipt for PO {po_id}: {e}")
                 raise
 
-    def _post_purchase_operation(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def _post_purchase_operation(self, endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self._custom_odata_base:
             raise ERPError(
                 "ERP base URL is not configured for purchase receipt operations",
@@ -664,14 +788,17 @@ class ERPClient(ERPClientProtocol):
             )
         url = f"{self._custom_odata_base}/{endpoint.lstrip('/')}"
         try:
-            response = self.http_client.post(url, json=payload)
-            response.raise_for_status()
-            if not response.content:
-                return {}
+            response = await self.http_client.post(url, json=payload)
             try:
-                return response.json()
-            except ValueError:
-                return {}
+                response.raise_for_status()
+                if not response.content:
+                    return {}
+                try:
+                    return response.json()
+                except ValueError:
+                    return {}
+            finally:
+                await response.aclose()
         except httpx.HTTPStatusError as exc:
             logfire.error(
                 "Business Central receipt operation failed",
@@ -684,7 +811,7 @@ class ERPClient(ERPClientProtocol):
                 context={"endpoint": endpoint, "po_id": payload.get("noPo")},
             )
     
-    def create_return(
+    async def create_return(
         self,
         receipt_id: str,
         lines: List[Dict[str, Any]],
@@ -709,7 +836,7 @@ class ERPClient(ERPClientProtocol):
             line_count=len(lines)
         ):
             try:
-                receipt_header = self._get_posted_purchase_receipt(receipt_id)
+                receipt_header = await self._get_posted_purchase_receipt(receipt_id)
                 if not receipt_header:
                     raise ERPNotFound("Posted Purchase Receipt", receipt_id)
 
@@ -733,12 +860,15 @@ class ERPClient(ERPClientProtocol):
                     "External_Document_No": receipt_id,
                 }
 
-                response = self.http_client.post(
+                response = await self.http_client.post(
                     "PurchaseReturnOrderHeaders",
                     json={k: v for k, v in header_payload.items() if v},
                 )
-                response.raise_for_status()
-                created_header = response.json()
+                try:
+                    response.raise_for_status()
+                    created_header = response.json()
+                finally:
+                    await response.aclose()
                 return_no = created_header.get("No") or created_header.get("no")
                 if not return_no:
                     raise ERPError(
@@ -766,19 +896,26 @@ class ERPClient(ERPClientProtocol):
                             context={"line": payload},
                         )
 
-                    response = self.http_client.post(
+                    response = await self.http_client.post(
                         "PurchaseReturnOrderLines",
                         json={k: v for k, v in payload.items() if v not in (None, "")},
                     )
-                    response.raise_for_status()
+                    try:
+                        response.raise_for_status()
+                    finally:
+                        await response.aclose()
 
                 # Optionally update reason at header level if supported
                 if reason:
                     try:
-                        self.http_client.patch(
+                        response = await self.http_client.patch(
                             f"PurchaseReturnOrderHeaders('{return_no}')",
                             json={"Comments": reason[:250]},
                         )
+                        try:
+                            response.raise_for_status()
+                        finally:
+                            await response.aclose()
                     except httpx.HTTPStatusError:
                         # Non-critical; log but do not fail creation
                         logfire.warning(
@@ -812,16 +949,19 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error creating return for receipt {receipt_id}: {e}")
                 raise
 
-    def get_purchase_return_order(self, return_no: str) -> Optional[Dict[str, Any]]:
+    async def get_purchase_return_order(self, return_no: str) -> Optional[Dict[str, Any]]:
         """Retrieve a purchase return order header from Business Central."""
         with logfire.span("ERP get_purchase_return_order", return_no=return_no):
             try:
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"PurchaseReturnOrderHeaders?$filter=No eq '{return_no}'"
                 )
-                response.raise_for_status()
-                data = response.json().get("value", [])
-                return data[0] if data else None
+                try:
+                    response.raise_for_status()
+                    data = response.json().get("value", [])
+                    return data[0] if data else None
+                finally:
+                    await response.aclose()
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code if exc.response else None
                 if status_code == 404:
@@ -847,15 +987,18 @@ class ERPClient(ERPClientProtocol):
                     context={"return_no": return_no},
                 )
 
-    def get_purchase_return_order_lines(self, return_no: str) -> List[Dict[str, Any]]:
+    async def get_purchase_return_order_lines(self, return_no: str) -> List[Dict[str, Any]]:
         """Retrieve lines for a purchase return order."""
         with logfire.span("ERP get_purchase_return_order_lines", return_no=return_no):
             try:
-                response = self.http_client.get(
+                response = await self.http_client.get(
                     f"PurchaseReturnOrderLines?$filter=Document_No eq '{return_no}'"
                 )
-                response.raise_for_status()
-                return response.json().get("value", [])
+                try:
+                    response.raise_for_status()
+                    return response.json().get("value", [])
+                finally:
+                    await response.aclose()
             except httpx.HTTPStatusError as exc:
                 status_code = exc.response.status_code if exc.response else None
                 if status_code == 404:
@@ -881,15 +1024,18 @@ class ERPClient(ERPClientProtocol):
                     context={"return_no": return_no},
                 )
 
-    def _get_posted_purchase_receipt(self, receipt_id: str) -> Optional[Dict[str, Any]]:
+    async def _get_posted_purchase_receipt(self, receipt_id: str) -> Optional[Dict[str, Any]]:
         """Fetch a posted purchase receipt header."""
         try:
-            response = self.http_client.get(
+            response = await self.http_client.get(
                 f"PostedPurchaseReceiptHeaders?$filter=No eq '{receipt_id}'"
             )
-            response.raise_for_status()
-            data = response.json().get("value", [])
-            return data[0] if data else None
+            try:
+                response.raise_for_status()
+                data = response.json().get("value", [])
+                return data[0] if data else None
+            finally:
+                await response.aclose()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response else None
             if status_code == 404:
@@ -905,14 +1051,17 @@ class ERPClient(ERPClientProtocol):
                 context={"receipt_id": receipt_id, "status_code": status_code},
             )
 
-    def get_posted_purchase_receipt_lines(self, receipt_id: str) -> List[Dict[str, Any]]:
+    async def get_posted_purchase_receipt_lines(self, receipt_id: str) -> List[Dict[str, Any]]:
         """Fetch posted receipt lines for a given receipt."""
         try:
-            response = self.http_client.get(
+            response = await self.http_client.get(
                 f"PostedPurchaseReceiptLines?$filter=Document_No eq '{receipt_id}'"
             )
-            response.raise_for_status()
-            return response.json().get("value", [])
+            try:
+                response.raise_for_status()
+                return response.json().get("value", [])
+            finally:
+                await response.aclose()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response else None
             if status_code == 404:

@@ -38,6 +38,69 @@ class ItemResponse(BaseModel):
         }
 
 
+class ItemPricesResponse(BaseModel):
+    """Aggregated item pricing across supported currencies."""
+
+    item_id: str
+    cad_price: Decimal = Field(..., description="Unit sales price in CAD")
+    usd_price: Decimal = Field(..., description="Unit sales price in USD")
+    eur_price: Decimal = Field(..., description="Unit sales price converted to EUR")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+        }
+
+
+class TariffMaterialResponse(BaseModel):
+    """Single BOM component output from the tariff calculator."""
+
+    item_no: str
+    description: str
+    material_type: str
+    quantity: float
+    scrap_percent: float
+    dimensions: Dict[str, float] = Field(default_factory=dict)
+    weight_per_piece_lbs: float
+    weight_per_piece_kg: float
+    total_weight_lbs: float
+    total_weight_kg: float
+    total_with_scrap_lbs: float
+    total_with_scrap_kg: float
+    standard_cost_cad: float
+    total_cost_cad: float
+    total_cost_usd: float
+    vendor_no: Optional[str] = None
+    vendor_item_no: Optional[str] = None
+    country_of_melt_and_pour: Optional[str] = None
+    country_of_manufacture: Optional[str] = None
+    note: Optional[str] = None
+
+
+class TariffSummaryResponse(BaseModel):
+    """Aggregated totals for a tariff calculation."""
+
+    total_materials: int
+    calculated_materials: int
+    total_weight_kg: float
+    total_weight_with_scrap_kg: float
+    total_cost_cad: float
+    total_cost_usd: float
+    exchange_rate: float
+
+
+class TariffCalculationResponse(BaseModel):
+    """Full tariff calculation payload for an item."""
+
+    item_id: str
+    production_bom_no: str
+    summary: TariffSummaryResponse
+    materials: Optional[List[TariffMaterialResponse]] = None
+    parent_country_of_melt_and_pour: Optional[str] = None
+    parent_country_of_manufacture: Optional[str] = None
+    report: Optional[str] = None
+
+
 class ItemValueChange(BaseModel):
     """Single field update requested for an item."""
 

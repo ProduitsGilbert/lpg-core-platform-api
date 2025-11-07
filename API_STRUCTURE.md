@@ -44,6 +44,7 @@ Business Central and SQL Server integrations
 /api/v1/erp/vendors
 /api/v1/erp/customers
 /api/v1/erp/items
+/api/v1/erp/items/{item_id}/tariff (`?include_details=true` to return the full materials table)
 /api/v1/erp/inventory
 /api/v1/erp/bc/posted-sales-invoice-headers
 /api/v1/erp/bc/purchase-order-headers
@@ -60,6 +61,15 @@ Business Central and SQL Server integrations
 AI services including OpenAI, predictions, and agents
 
 ```
+/api/v1/ai/typing-suggestions                   # POST
+/api/v1/ai/deep-reasoning                       # POST
+/api/v1/ai/standard-response                    # POST
+/api/v1/ai/streaming-response                   # POST (SSE stream)
+/api/v1/ai/sample-response                      # POST
+/api/v1/ai/openrouter-response                  # POST (multi-model)
+
+Allowed OpenRouter models: Grok Code Fast 1, Claude Sonnet 4.5, Gemini 2.5 Flash, MiniMax M2 (free), Gemini 2.5 Pro, Grok 4 Fast, Gemini 2.0 Flash, Claude Sonnet 4, Gemini 2.5 Flash Lite.
+
 /api/v1/ai/ocr/documents                      # POST (upload)
 /api/v1/ai/ocr/documents/{id}                 # GET results
 /api/v1/ai/ocr/documents/{id}/actions/extract # POST
@@ -130,14 +140,14 @@ Business process automation
 /api/v1/workflows/processes/{id}/tasks/{task_id}/actions/complete # POST
 ```
 
-### 7. Toolkit Domain (`/api/v1/toolkit`)
-Internal utilities, diagnostics, and AI helpers
+### 7. MRP Domain (`/api/v1/mrp`)
+Advanced production planning utilities
 
 ```
-/api/v1/toolkit/mrp/production-orders                     # GET
-/api/v1/toolkit/mrp/production-orders/export              # GET (Excel)
-/api/v1/toolkit/ai/sample-response                        # POST
+/api/v1/mrp/production-orders                     # GET
+/api/v1/mrp/production-orders/export              # GET (Excel)
 ```
+
 
 ## File Structure
 
