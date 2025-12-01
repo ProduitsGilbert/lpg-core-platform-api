@@ -2,18 +2,25 @@
 ERP Items endpoints
 """
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, status, Query
 import logging
+
+import httpx
 import logfire
+from fastapi import APIRouter, HTTPException, Depends, status, Query
+
 from app.api.v1.models import SingleResponse, ErrorResponse
 from app.domain.erp.item_service import ItemService
+from app.domain.erp.item_attribute_service import ItemAttributeService
 from app.domain.erp.models import (
     ItemResponse,
     ItemUpdateRequest,
     CreateItemRequest,
     ItemPricesResponse,
     TariffCalculationResponse,
+    ItemAvailabilityResponse,
+    ItemAttributesResponse,
 )
+from app.domain.erp.availability_service import ItemAvailabilityService
 from app.domain.erp.tariff_service import TariffCalculationService
 from app.errors import ERPNotFound, ERPConflict, ERPError, BaseAPIException
 
@@ -26,9 +33,19 @@ def get_item_service():
     return ItemService()
 
 
+def get_item_attribute_service():
+    """Dependency to get ItemAttributeService instance."""
+    return ItemAttributeService()
+
+
 def get_tariff_service():
     """Dependency to run tariff calculations."""
     return TariffCalculationService()
+
+
+def get_availability_service():
+    """Dependency to calculate item availability."""
+    return ItemAvailabilityService()
 
 @router.get(
     "/{item_id}",
@@ -86,6 +103,133 @@ async def get_item(
                 }
             }
         )
+
+
+@router.get(
+    "/{item_id}/attributes",
+    response_model=SingleResponse[ItemAttributesResponse],
+    summary="Get item attribute values",
+    description=(
+        "Retrieve Business Central item attributes by combining ItemAttributes, "
+        "ItemAttributeValues, and ItemAttributeValueMapping for the specified item."
+    ),
+)
+async def get_item_attributes(
+    item_id: str,
+    attribute_service: ItemAttributeService = Depends(get_item_attribute_service),
+) -> SingleResponse[ItemAttributesResponse]:
+    """Assemble item attributes for a specific item."""
+    try:
+        with logfire.span("get_item_attributes", item_id=item_id):
+            attributes = await attribute_service.get_item_attributes(item_id)
+        return SingleResponse(data=attributes)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_ITEM",
+                    "message": str(exc),
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        upstream_status = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+        logger.error(
+            "Business Central returned HTTP error while fetching item attributes",
+            extra={"item_id": item_id, "status_code": upstream_status},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_ERROR",
+                    "message": "Business Central request failed",
+                    "upstream_status": upstream_status,
+                }
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.error(
+            "Business Central request failed while fetching item attributes",
+            extra={"item_id": item_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_UNAVAILABLE",
+                    "message": "Business Central service unreachable",
+                }
+            },
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error fetching item attributes", extra={"item_id": item_id})
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to retrieve item attributes",
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
+
+
+@router.get(
+    "/{item_id}/availability",
+    response_model=SingleResponse[ItemAvailabilityResponse],
+    responses={
+        200: {"description": "Item availability calculated successfully"},
+        404: {"description": "Item not found", "model": ErrorResponse},
+        502: {"description": "Planning service unavailable", "model": ErrorResponse},
+        500: {"description": "Internal server error", "model": ErrorResponse},
+    },
+    summary="Get projected item availability by month",
+    description=(
+        "Returns the current on-hand quantity along with upcoming supply (MRP In) "
+        "and demand (MRP Out). When `details=true`, a month-by-month timeline is included."
+    ),
+)
+async def get_item_availability(
+    item_id: str,
+    details: bool = Query(
+        False,
+        description="Include the monthly availability timeline",
+    ),
+    exclude_minimum_stock: bool = Query(
+        False,
+        description="Exclude demand linked to the MINIMUM STOCK job from the totals",
+    ),
+    availability_service: ItemAvailabilityService = Depends(get_availability_service),
+) -> SingleResponse[ItemAvailabilityResponse]:
+    try:
+        result = await availability_service.get_availability(
+            item_id=item_id,
+            include_details=details,
+            exclude_minimum_stock=exclude_minimum_stock,
+        )
+        return SingleResponse(data=result)
+    except BaseAPIException:
+        raise
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error calculating availability for item %s", item_id)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to calculate item availability",
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
 
 
 @router.get(

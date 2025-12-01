@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 import logfire
@@ -12,6 +12,8 @@ import logfire
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
+
+FilterValue = Union[str, int, float, bool]
 
 
 class BusinessCentralODataService:
@@ -33,7 +35,7 @@ class BusinessCentralODataService:
         resource: str,
         *,
         filter_field: Optional[str] = None,
-        filter_value: Optional[str] = None,
+        filter_value: Optional[FilterValue] = None,
         top: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
@@ -42,7 +44,7 @@ class BusinessCentralODataService:
         Args:
             resource: OData collection name (e.g., 'PostedSalesInvoiceHeaders').
             filter_field: Optional field to filter with equality.
-            filter_value: Value to compare against using OData eq operator.
+            filter_value: Value to compare against using OData eq operator. Supports str, int, float, or bool.
             top: Optional number of records to return (`$top`).
 
         Returns:
@@ -50,9 +52,14 @@ class BusinessCentralODataService:
         """
         params: Dict[str, str] = {}
 
-        if filter_field and filter_value:
-            sanitized_value = filter_value.replace("'", "''")
-            params["$filter"] = f"{filter_field} eq '{sanitized_value}'"
+        if filter_field and filter_value is not None:
+            if isinstance(filter_value, str):
+                sanitized_value = filter_value.replace("'", "''")
+                params["$filter"] = f"{filter_field} eq '{sanitized_value}'"
+            elif isinstance(filter_value, bool):
+                params["$filter"] = f"{filter_field} eq {'true' if filter_value else 'false'}"
+            else:
+                params["$filter"] = f"{filter_field} eq {filter_value}"
 
         if top is not None:
             params["$top"] = str(top)

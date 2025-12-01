@@ -52,6 +52,82 @@ class ItemPricesResponse(BaseModel):
         }
 
 
+class ItemAvailabilityTimelineEntry(BaseModel):
+    """Projected inventory snapshot for a calendar month."""
+
+    period_start: date = Field(..., description="Month start date (YYYY-MM-01)")
+    incoming_qty: Decimal = Field(default=Decimal("0"), description="Quantity expected to arrive during the month")
+    outgoing_qty: Decimal = Field(default=Decimal("0"), description="Quantity required during the month")
+    projected_available: Decimal = Field(
+        default=Decimal("0"),
+        description="Projected ending available quantity after this month",
+    )
+    incoming_jobs: List[str] = Field(default_factory=list, description="Jobs contributing to inbound supply")
+    outgoing_jobs: List[str] = Field(default_factory=list, description="Jobs consuming inventory")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+            date: lambda v: v.isoformat() if v else None,
+        }
+
+
+class ItemAvailabilityResponse(BaseModel):
+    """Summary of on-hand and projected availability."""
+
+    item_id: str
+    as_of_date: date = Field(..., description="Date when availability was calculated")
+    current_inventory: Decimal = Field(..., description="On-hand quantity in fixed bins at GIL")
+    total_incoming: Decimal = Field(..., description="Sum of open inbound supply from MRP In endpoint")
+    total_outgoing: Decimal = Field(..., description="Sum of demand from MRP Out endpoint")
+    projected_available: Decimal = Field(..., description="Net availability after planned supply and demand")
+    details_included: bool = Field(
+        default=False,
+        description="Indicates whether the monthly timeline data is populated",
+    )
+    timeline: Optional[List[ItemAvailabilityTimelineEntry]] = Field(
+        default=None,
+        description="Monthly breakdown when details are requested",
+    )
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+            date: lambda v: v.isoformat() if v else None,
+        }
+
+
+class ItemAttributeValueEntry(BaseModel):
+    """Single attribute and value assigned to an item."""
+
+    attribute_id: int = Field(..., description="Business Central item attribute ID")
+    attribute_name: str = Field(..., description="Item attribute name")
+    attribute_type: str = Field(..., description="Attribute data type (Option, Decimal, Text)")
+    value_id: int = Field(..., description="Business Central attribute value ID")
+    value: str = Field(..., description="Value assigned to the item attribute")
+
+
+class ItemAttributesResponse(BaseModel):
+    """Collection of attribute values for a specific item."""
+
+    item_id: str = Field(..., description="Item number/ID")
+    attributes: List[ItemAttributeValueEntry] = Field(
+        default_factory=list,
+        description="Attributes assigned to the item",
+    )
+
+
+class VendorContactResponse(BaseModel):
+    """Vendor email contact details."""
+
+    vendor_id: str = Field(..., description="Vendor number (No)")
+    email: str = Field(..., description="Primary contact email address")
+    language: str = Field(..., description="Preferred communication language")
+    language_code: Optional[str] = Field(None, description="Business Central language code")
+    name: str = Field("", description="Vendor name")
+    communication_language: str = Field(..., description="Alias mirroring language field for compatibility")
+
+
 class TariffMaterialResponse(BaseModel):
     """Single BOM component output from the tariff calculator."""
 

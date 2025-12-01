@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +12,10 @@ from app.domain.erp.models import (
     TariffCalculationResponse,
     TariffMaterialResponse,
     TariffSummaryResponse,
+    ItemAvailabilityResponse,
+    ItemAvailabilityTimelineEntry,
+    ItemAttributesResponse,
+    ItemAttributeValueEntry,
 )
 from app.errors import ERPConflict
 
@@ -29,6 +35,15 @@ def _setup_item_service(monkeypatch, **overrides):
         setattr(service, name, value)
     monkeypatch.setattr("app.api.v1.erp.items.ItemService", lambda: service)
     monkeypatch.setattr("app.api.v1.erp.items.get_item_service", lambda: service)
+    return service
+
+
+def _setup_item_attribute_service(monkeypatch, response: ItemAttributesResponse):
+    service = SimpleNamespace(
+        get_item_attributes=AsyncMock(return_value=response),
+    )
+    monkeypatch.setattr("app.api.v1.erp.items.ItemAttributeService", lambda: service)
+    monkeypatch.setattr("app.api.v1.erp.items.get_item_attribute_service", lambda: service)
     return service
 
 
@@ -90,10 +105,48 @@ def test_create_manufactured_item_conflict(client, monkeypatch):
     service.create_manufactured_item.assert_awaited_once_with("ITEM-123")
 
 
+def test_get_item_attributes_success(client, monkeypatch):
+    response_model = ItemAttributesResponse(
+        item_id="0410604",
+        attributes=[
+            ItemAttributeValueEntry(
+                attribute_id=2,
+                attribute_name="Matériel",
+                attribute_type="Option",
+                value_id=372,
+                value="HARDOX-450",
+            ),
+            ItemAttributeValueEntry(
+                attribute_id=5,
+                attribute_name="Epaisseur",
+                attribute_type="Decimal",
+                value_id=90,
+                value="0.375",
+            ),
+        ],
+    )
+    service = _setup_item_attribute_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/0410604/attributes")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["item_id"] == "0410604"
+    assert payload["attributes"][0]["value"] == "HARDOX-450"
+    service.get_item_attributes.assert_awaited_once_with("0410604")
+
+
 def _setup_tariff_service(monkeypatch, response: TariffCalculationResponse):
     service = SimpleNamespace(calculate=AsyncMock(return_value=response))
     monkeypatch.setattr("app.api.v1.erp.items.TariffCalculationService", lambda: service)
     monkeypatch.setattr("app.api.v1.erp.items.get_tariff_service", lambda: service)
+    return service
+
+
+def _setup_availability_service(monkeypatch, response: ItemAvailabilityResponse):
+    service = SimpleNamespace(get_availability=AsyncMock(return_value=response))
+    monkeypatch.setattr("app.api.v1.erp.items.ItemAvailabilityService", lambda: service)
+    monkeypatch.setattr("app.api.v1.erp.items.get_availability_service", lambda: service)
     return service
 
 
@@ -137,6 +190,31 @@ def _sample_tariff_response() -> TariffCalculationResponse:
     )
 
 
+def _sample_availability_response(include_timeline: bool) -> ItemAvailabilityResponse:
+    timeline = None
+    if include_timeline:
+        timeline = [
+            ItemAvailabilityTimelineEntry(
+                period_start=date(2024, 11, 1),
+                incoming_qty=Decimal("5"),
+                outgoing_qty=Decimal("2"),
+                projected_available=Decimal("13"),
+                incoming_jobs=["JOB-IN-1"],
+                outgoing_jobs=["JOB-OUT-1"],
+            )
+        ]
+    return ItemAvailabilityResponse(
+        item_id="1510136",
+        as_of_date=date(2024, 11, 12),
+        current_inventory=Decimal("10"),
+        total_incoming=Decimal("5"),
+        total_outgoing=Decimal("2"),
+        projected_available=Decimal("13"),
+        details_included=include_timeline,
+        timeline=timeline,
+    )
+
+
 def test_get_item_tariff_summary_only(client, monkeypatch):
     response_model = _sample_tariff_response()
     service = _setup_tariff_service(monkeypatch, response_model)
@@ -160,3 +238,44 @@ def test_get_item_tariff_with_details(client, monkeypatch):
     assert body["materials"][0]["item_no"] == "MAT-1"
     assert body["report"] == "Full report text"
     service.calculate.assert_awaited_once_with("PARENT")
+
+
+def test_get_item_availability_summary_only(client, monkeypatch):
+    response_model = _sample_availability_response(include_timeline=False)
+    service = _setup_availability_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/1510136/availability")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["projected_available"] == 13
+    assert payload["timeline"] is None
+    service.get_availability.assert_awaited_once_with(
+        item_id="1510136", include_details=False, exclude_minimum_stock=False
+    )
+
+
+def test_get_item_availability_with_details(client, monkeypatch):
+    response_model = _sample_availability_response(include_timeline=True)
+    service = _setup_availability_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/1510136/availability?details=true")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["details_included"] is True
+    assert payload["timeline"][0]["incoming_qty"] == 5
+    assert payload["timeline"][0]["incoming_jobs"][0] == "JOB-IN-1"
+    assert payload["timeline"][0]["outgoing_jobs"][0] == "JOB-OUT-1"
+    service.get_availability.assert_awaited_once_with(
+        item_id="1510136", include_details=True, exclude_minimum_stock=False
+    )
+
+
+def test_get_item_availability_excluding_minimum_stock(client, monkeypatch):
+    response_model = _sample_availability_response(include_timeline=False)
+    service = _setup_availability_service(monkeypatch, response_model)
+
+    response = client.get("/api/v1/erp/items/1510136/availability?exclude_minimum_stock=true")
+    assert response.status_code == 200
+    service.get_availability.assert_awaited_once_with(
+        item_id="1510136", include_details=False, exclude_minimum_stock=True
+    )
