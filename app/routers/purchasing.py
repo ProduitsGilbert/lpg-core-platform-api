@@ -5,7 +5,7 @@ This module provides ERP-facing REST endpoints for purchasing operations
 including PO line updates, receipts, and returns.
 """
 
-from typing import Annotated, Optional
+from typing import Optional
 from datetime import date
 from fastapi import APIRouter, Depends, BackgroundTasks, status, Path, Body, HTTPException
 from sqlalchemy.orm import Session
@@ -94,13 +94,13 @@ def _get_item_service() -> ItemService:
     include_in_schema=False
 )
 async def update_poline_date(
-    po_id: Annotated[str, Path(description="Purchase Order ID")],
-    line_no: Annotated[int, Path(description="Line number", ge=1)],
     body: UpdatePOLineDateBody,
     background_tasks: BackgroundTasks,
-    ctx: Annotated[RequestContext, Depends(get_request_context)],
-    db: Annotated[Session, Depends(get_db)],
-    idempotency_key: Annotated[Optional[str], Depends(get_idempotency_key)]
+    po_id: str = Path(..., description="Purchase Order ID"),
+    line_no: int = Path(..., description="Line number", ge=1),
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key)
 ) -> POLineDTO:
     """
     Update PO line promise date.
@@ -142,7 +142,7 @@ async def update_poline_date(
         
         # Execute service operation
         service = _get_service()
-        result = service.update_poline_date(command, db)
+        result = await service.update_poline_date(command, db)
         
         # Optional background task for downstream updates
         background_tasks.add_task(
@@ -165,13 +165,13 @@ async def update_poline_date(
     include_in_schema=False
 )
 async def update_poline_price(
-    po_id: Annotated[str, Path(description="Purchase Order ID")],
-    line_no: Annotated[int, Path(description="Line number", ge=1)],
     body: UpdatePOLinePriceBody,
     background_tasks: BackgroundTasks,
-    ctx: Annotated[RequestContext, Depends(get_request_context)],
-    db: Annotated[Session, Depends(get_db)],
-    idempotency_key: Annotated[Optional[str], Depends(get_idempotency_key)]
+    po_id: str = Path(..., description="Purchase Order ID"),
+    line_no: int = Path(..., description="Line number", ge=1),
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key)
 ) -> POLineDTO:
     """
     Update PO line unit price.
@@ -211,7 +211,7 @@ async def update_poline_price(
         )
         
         service = _get_service()
-        result = service.update_poline_price(command, db)
+        result = await service.update_poline_price(command, db)
         
         # Background task for price change analysis
         if settings.enable_ai_assistance:
@@ -235,12 +235,12 @@ async def update_poline_price(
     include_in_schema=False
 )
 async def update_poline_quantity(
-    po_id: Annotated[str, Path(description="Purchase Order ID")],
-    line_no: Annotated[int, Path(description="Line number", ge=1)],
     body: UpdatePOLineQuantityBody,
-    ctx: Annotated[RequestContext, Depends(get_request_context)],
-    db: Annotated[Session, Depends(get_db)],
-    idempotency_key: Annotated[Optional[str], Depends(get_idempotency_key)]
+    po_id: str = Path(..., description="Purchase Order ID"),
+    line_no: int = Path(..., description="Line number", ge=1),
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key)
 ) -> POLineDTO:
     """
     Update PO line quantity.
@@ -279,7 +279,7 @@ async def update_poline_quantity(
         )
         
         service = _get_service()
-        return service.update_poline_quantity(command, db)
+        return await service.update_poline_quantity(command, db)
 
 
 @router.post(
@@ -293,9 +293,9 @@ async def update_poline_quantity(
 async def create_receipt(
     body: CreateReceiptBody,
     background_tasks: BackgroundTasks,
-    ctx: Annotated[RequestContext, Depends(get_request_context)],
-    db: Annotated[Session, Depends(get_db)],
-    idempotency_key: Annotated[Optional[str], Depends(get_idempotency_key)]
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key)
 ) -> ReceiptDTO:
     """
     Create a goods receipt.
@@ -332,7 +332,7 @@ async def create_receipt(
         )
         
         service = _get_service()
-        result = service.create_receipt(command, db)
+        result = await service.create_receipt(command, db)
         
         # Background task to update inventory
         background_tasks.add_task(
@@ -354,9 +354,9 @@ async def create_receipt(
 )
 async def create_return(
     body: CreateReturnBody,
-    ctx: Annotated[RequestContext, Depends(get_request_context)],
-    db: Annotated[Session, Depends(get_db)],
-    idempotency_key: Annotated[Optional[str], Depends(get_idempotency_key)]
+    ctx: RequestContext = Depends(get_request_context),
+    db: Session = Depends(get_db),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key)
 ) -> ReturnDTO:
     """
     Create a purchase return.
@@ -391,7 +391,7 @@ async def create_return(
         )
 
         service = _get_service()
-        return service.create_return(command, db)
+        return await service.create_return(command, db)
 
 
 @router.get(
@@ -403,8 +403,8 @@ async def create_return(
     include_in_schema=False
 )
 async def get_purchase_order(
-    po_id: Annotated[str, Path(description="Purchase Order ID")],
-    ctx: Annotated[RequestContext, Depends(get_request_context)]
+    po_id: str = Path(..., description="Purchase Order ID"),
+    ctx: RequestContext = Depends(get_request_context)
 ) -> PurchaseOrderDTO:
     """
     Get purchase order details.
@@ -425,7 +425,7 @@ async def get_purchase_order(
         from decimal import Decimal
         
         erp = ERPClient()
-        po_data = erp.get_purchase_order(po_id)
+        po_data = await erp.get_purchase_order(po_id)
         
         # Map to DTO
         return PurchaseOrderDTO(
@@ -450,9 +450,9 @@ async def get_purchase_order(
     include_in_schema=False
 )
 async def get_poline(
-    po_id: Annotated[str, Path(description="Purchase Order ID")],
-    line_no: Annotated[int, Path(description="Line number", ge=1)],
-    ctx: Annotated[RequestContext, Depends(get_request_context)]
+    po_id: str = Path(..., description="Purchase Order ID"),
+    line_no: int = Path(..., description="Line number", ge=1),
+    ctx: RequestContext = Depends(get_request_context)
 ) -> POLineDTO:
     """
     Get PO line details.
@@ -474,7 +474,7 @@ async def get_poline(
         from decimal import Decimal
         
         erp = ERPClient()
-        line_data = erp.get_poline(po_id, line_no)
+        line_data = await erp.get_poline(po_id, line_no)
         
         # Map to DTO
         return POLineDTO(
@@ -505,9 +505,9 @@ async def get_poline(
     include_in_schema=False
 )
 async def update_item_fields(
-    item_id: Annotated[str, Path(description="Item number/ID")],
     body: ItemUpdateRequest,
-    ctx: Annotated[RequestContext, Depends(get_request_context)]
+    item_id: str = Path(..., description="Item number/ID"),
+    ctx: RequestContext = Depends(get_request_context)
 ) -> ItemResponse:
     """Update Business Central item fields using optimistic concurrency."""
     with logfire.span("POST /items/{item_id}/update", item_id=item_id, actor=ctx.actor):
@@ -525,7 +525,7 @@ async def update_item_fields(
 )
 async def create_purchased_item(
     body: CreateItemRequest,
-    ctx: Annotated[RequestContext, Depends(get_request_context)]
+    ctx: RequestContext = Depends(get_request_context)
 ) -> ItemResponse:
     """Create a purchased item from template 000."""
     with logfire.span("POST /items/purchased", item_no=body.item_no, actor=ctx.actor):
@@ -543,7 +543,7 @@ async def create_purchased_item(
 )
 async def create_manufactured_item(
     body: CreateItemRequest,
-    ctx: Annotated[RequestContext, Depends(get_request_context)]
+    ctx: RequestContext = Depends(get_request_context)
 ) -> ItemResponse:
     """Create a manufactured item from template 00000."""
     with logfire.span("POST /items/manufactured", item_no=body.item_no, actor=ctx.actor):
