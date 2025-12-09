@@ -25,6 +25,35 @@ router = APIRouter(
     tags=["OCR"]
 )
 
+ALLOWED_EXTENSIONS = ('.pdf', '.png', '.jpg', '.jpeg', '.tiff')
+MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+DOCUMENT_HANDLER_MAP = {
+    "purchase_order": "extract_purchase_order",
+    "invoice": "extract_invoice",
+    "supplier_account_statement": "extract_supplier_account_statement",
+    "customer_account_statement": "extract_customer_account_statement",
+    "supplier_invoice": "extract_supplier_invoice",
+    "shipping_bill": "extract_shipping_bill",
+    "commercial_invoice": "extract_commercial_invoice",
+}
+
+
+async def _read_and_validate_upload(file: UploadFile) -> bytes:
+    """Ensure uploaded file is supported and within size limits."""
+    if not file.filename.lower().endswith(ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be PDF or image format (PNG, JPG, JPEG, TIFF)"
+        )
+
+    file_content = await file.read()
+    if len(file_content) > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="File size must not exceed 10MB"
+        )
+    return file_content
+
 
 def get_ocr_service() -> OCRService:
     """
@@ -66,20 +95,8 @@ async def extract_purchase_order(
     with logfire.span('api_extract_purchase_order'):
         try:
             # Validate file type
-            if not file.filename.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff')):
-                raise HTTPException(
-                    status_code=400,
-                    detail="File must be PDF or image format (PNG, JPG, JPEG, TIFF)"
-                )
-            
-            # Check file size (max 10MB)
-            file_content = await file.read()
-            if len(file_content) > 10 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File size must not exceed 10MB"
-                )
-            
+            file_content = await _read_and_validate_upload(file)
+
             logfire.info(f'Processing PO extraction for file: {file.filename}')
             
             # Extract data
@@ -148,20 +165,8 @@ async def extract_invoice(
     with logfire.span('api_extract_invoice'):
         try:
             # Validate file type
-            if not file.filename.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff')):
-                raise HTTPException(
-                    status_code=400,
-                    detail="File must be PDF or image format (PNG, JPG, JPEG, TIFF)"
-                )
-            
-            # Check file size (max 10MB)
-            file_content = await file.read()
-            if len(file_content) > 10 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File size must not exceed 10MB"
-                )
-            
+            file_content = await _read_and_validate_upload(file)
+
             logfire.info(f'Processing invoice extraction for file: {file.filename}')
             
             # Extract data
@@ -203,10 +208,255 @@ async def extract_invoice(
             )
 
 
+@router.post("/supplier-account-statements/extract", response_model=OCRExtractionResponse)
+async def extract_supplier_account_statement(
+    file: UploadFile = File(..., description="PDF or image file containing the supplier account statement"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from supplier account statements."""
+    with logfire.span('api_extract_supplier_account_statement'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing supplier account statement for file: {file.filename}')
+
+            result = ocr_service.extract_supplier_account_statement(
+                file_content=file_content,
+                filename=file.filename
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "supplier_account_statement"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "supplier_account_statement",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract supplier account statement: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract supplier account statement: {str(e)}"
+            )
+
+
+@router.post("/customer-account-statements/extract", response_model=OCRExtractionResponse)
+async def extract_customer_account_statement(
+    file: UploadFile = File(..., description="PDF or image file containing the customer account statement"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from customer account statements."""
+    with logfire.span('api_extract_customer_account_statement'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing customer account statement for file: {file.filename}')
+
+            result = ocr_service.extract_customer_account_statement(
+                file_content=file_content,
+                filename=file.filename
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "customer_account_statement"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "customer_account_statement",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract customer account statement: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract customer account statement: {str(e)}"
+            )
+
+
+@router.post("/supplier-invoices/extract", response_model=OCRExtractionResponse)
+async def extract_supplier_invoice(
+    file: UploadFile = File(..., description="PDF or image file containing the supplier invoice"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from supplier invoices."""
+    with logfire.span('api_extract_supplier_invoice'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing supplier invoice for file: {file.filename}')
+
+            result = ocr_service.extract_supplier_invoice(
+                file_content=file_content,
+                filename=file.filename
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "supplier_invoice"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "supplier_invoice",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract supplier invoice: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract supplier invoice: {str(e)}"
+            )
+
+
+@router.post("/shipping-bills/extract", response_model=OCRExtractionResponse)
+async def extract_shipping_bill(
+    file: UploadFile = File(..., description="PDF or image file containing the shipping bill"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from shipping bills."""
+    with logfire.span('api_extract_shipping_bill'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing shipping bill for file: {file.filename}')
+
+            result = ocr_service.extract_shipping_bill(
+                file_content=file_content,
+                filename=file.filename
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "shipping_bill"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "shipping_bill",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract shipping bill: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract shipping bill: {str(e)}"
+            )
+
+
+@router.post("/commercial-invoices/extract", response_model=OCRExtractionResponse)
+async def extract_commercial_invoice(
+    file: UploadFile = File(..., description="PDF or image file containing the commercial invoice"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from commercial invoices."""
+    with logfire.span('api_extract_commercial_invoice'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing commercial invoice for file: {file.filename}')
+
+            result = ocr_service.extract_commercial_invoice(
+                file_content=file_content,
+                filename=file.filename
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "commercial_invoice"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "commercial_invoice",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract commercial invoice: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract commercial invoice: {str(e)}"
+            )
+
+
 @router.post("/batch/extract")
 async def extract_batch_documents(
     files: list[UploadFile] = File(..., description="Multiple PDF or image files"),
-    document_type: str = Form(..., description="Type of documents (purchase_order or invoice)"),
+    document_type: str = Form(..., description="Type of documents (e.g., purchase_order, supplier_invoice)"),
     ocr_service: OCRService = Depends(get_ocr_service)
 ):
     """
@@ -224,10 +474,10 @@ async def extract_batch_documents(
     """
     with logfire.span('api_extract_batch_documents'):
         try:
-            if document_type not in ["purchase_order", "invoice"]:
+            if document_type not in DOCUMENT_HANDLER_MAP:
                 raise HTTPException(
                     status_code=400,
-                    detail="Document type must be 'purchase_order' or 'invoice'"
+                    detail=f"Unsupported document type. Supported types: {', '.join(DOCUMENT_HANDLER_MAP.keys())}"
                 )
             
             if len(files) > 10:
@@ -239,39 +489,17 @@ async def extract_batch_documents(
             results = []
             
             for file in files:
-                # Validate file type
-                if not file.filename.lower().endswith(('.pdf', '.png', '.jpg', '.jpeg', '.tiff')):
-                    results.append({
-                        "filename": file.filename,
-                        "success": False,
-                        "error": "Invalid file format"
-                    })
-                    continue
-                
                 try:
                     # Read file content
-                    file_content = await file.read()
-                    
-                    # Check file size
-                    if len(file_content) > 10 * 1024 * 1024:
-                        results.append({
-                            "filename": file.filename,
-                            "success": False,
-                            "error": "File size exceeds 10MB"
-                        })
-                        continue
+                    file_content = await _read_and_validate_upload(file)
                     
                     # Extract based on document type
-                    if document_type == "purchase_order":
-                        result = ocr_service.extract_purchase_order(
-                            file_content=file_content,
-                            filename=file.filename
-                        )
-                    else:
-                        result = ocr_service.extract_invoice(
-                            file_content=file_content,
-                            filename=file.filename
-                        )
+                    handler_name = DOCUMENT_HANDLER_MAP[document_type]
+                    handler = getattr(ocr_service, handler_name)
+                    result = handler(
+                        file_content=file_content,
+                        filename=file.filename
+                    )
                     
                     results.append({
                         "filename": file.filename,

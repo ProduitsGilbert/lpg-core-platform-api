@@ -1,4 +1,4 @@
-"""Toolkit endpoints for Advanced MRP production order monitoring."""
+"""Advanced MRP production order monitoring endpoints."""
 
 from __future__ import annotations
 
@@ -13,13 +13,15 @@ from fastapi.responses import StreamingResponse
 
 from app.api.v1.models import CollectionResponse, PaginationMeta
 from app.domain.toolkit import AdvancedMRPService
+from app.domain.toolkit.missing_parts_service import MissingPartsReportService
 from app.domain.toolkit.models import ProductionOrder
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/mrp", tags=["Toolkit - Advanced MRP"])
+router = APIRouter(prefix="/mrp", tags=["MRP"])
 
 mrp_service = AdvancedMRPService()
+missing_parts_service = MissingPartsReportService()
 
 
 @router.get(
@@ -49,7 +51,7 @@ async def list_production_orders(
     """Return production order monitoring data as JSON."""
     try:
         with logfire.span(
-            "toolkit.list_production_orders",
+            "mrp.list_production_orders",
             critical=critical,
             prod_order_no=prod_order_no,
             job_no=job_no,
@@ -132,7 +134,7 @@ async def export_production_orders(
     """Return production order monitoring data as an Excel workbook."""
     try:
         with logfire.span(
-            "toolkit.export_production_orders",
+            "mrp.export_production_orders",
             critical=critical,
             prod_order_no=prod_order_no,
             job_no=job_no,
@@ -176,6 +178,85 @@ async def export_production_orders(
         ) from exc
 
     filename = "production-orders.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-cache",
+    }
+
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get(
+    "/sales-orders/{sales_order_no}/missing-parts/export",
+    responses={
+        status.HTTP_200_OK: {
+            "description": "Missing parts Excel generated successfully",
+            "content": {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            },
+        },
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid input"},
+        status.HTTP_502_BAD_GATEWAY: {"description": "Failed to reach upstream MRP service"},
+    },
+    summary="Export missing parts for a sales order",
+    description="Download an Excel report showing shortages for the requested sales order, including raw MRP data.",
+)
+async def export_missing_parts_for_sales_order(sales_order_no: str) -> StreamingResponse:
+    """Return a formatted workbook highlighting MRP shortages for the sales order."""
+    try:
+        with logfire.span("mrp.export_missing_parts", sales_order_no=sales_order_no):
+            content = await missing_parts_service.generate_excel(sales_order_no)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_INPUT",
+                    "message": str(exc),
+                }
+            },
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+        detail = exc.response.text if exc.response else "Upstream MRP service failed"
+        logger.error(
+            "Basic MRP upstream call returned HTTP error during missing parts export",
+            extra={
+                "status_code": status_code,
+                "detail": detail[:500],
+                "sales_order_no": sales_order_no,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "UPSTREAM_ERROR",
+                    "message": "Failed to retrieve missing parts from MRP",
+                    "upstream_status": status_code,
+                }
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.error(
+            "Basic MRP upstream call failed during missing parts export",
+            extra={"error": str(exc), "sales_order_no": sales_order_no},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "UPSTREAM_UNAVAILABLE",
+                    "message": "MRP service is unreachable",
+                }
+            },
+        ) from exc
+
+    filename = f"missing-parts-{sales_order_no}.xlsx"
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "Cache-Control": "no-cache",

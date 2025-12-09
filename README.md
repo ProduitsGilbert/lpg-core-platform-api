@@ -50,6 +50,25 @@ docker-compose exec api sh -c "sqlcmd -S mssql -U sa -P 'YourStrong!Passw0rd' -i
 - Documentation: http://localhost:7003/docs
 - Health check: http://localhost:7003/healthz
 
+### Enable HTTPS for Business Central webhooks
+
+To terminate TLS directly in the API container with an existing certificate:
+
+1. Place your certificate, private key, and optional CA bundle files in the local `cert/` directory (ignored by git).
+2. Update `.env` with the in-container paths (matching the filenames you added):
+   ```env
+   TLS_CERT_FILE=/app/certs/your-domain.crt
+   TLS_KEY_FILE=/app/certs/your-domain.key
+   TLS_CA_BUNDLE=/app/certs/ca-bundle.crt  # optional, e.g. gd_bundle-g2.crt
+   ```
+3. Start the stack with Docker Compose:
+   ```bash
+   docker-compose up -d api
+   ```
+4. Business Central can now call `https://<your-host>:7003/api/v1/erp/webhooks/items` for validation and notifications.
+
+The `entrypoint.sh` script enables TLS automatically when both `TLS_CERT_FILE` and `TLS_KEY_FILE` point to readable files. Leave the variables blank to run HTTP only.
+
 ### Local Development (without Docker)
 
 1. **Install dependencies**

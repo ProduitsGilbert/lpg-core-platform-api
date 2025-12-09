@@ -9,7 +9,10 @@ class MessageAuthor(BaseModel):
     """Author of a message or comment."""
 
     id: Optional[str] = None
-    email: Optional[EmailStr] = None
+    email: Optional[str] = Field(
+        default=None,
+        description="Email address or handle; may contain system identifiers.",
+    )
     name: Optional[str] = None
     is_team_member: bool = False
 
@@ -62,7 +65,7 @@ class ConversationResponse(BaseModel):
     id: str
     type: str = "conversation"
     subject: Optional[str] = None
-    status: Literal["open", "archived", "deleted", "spam"]
+    status: str
     assignee: Optional[MessageAuthor] = None
     tags: List[str] = Field(default_factory=list)
     messages: List[Message] = Field(default_factory=list)

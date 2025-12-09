@@ -53,10 +53,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser migration/ ./migration/
 COPY --chown=appuser:appuser tests/ ./tests/
+COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/edi/send /app/edi/receive \
-    && chown -R appuser:appuser /app/logs /app/edi
+    && chown -R appuser:appuser /app/logs /app/edi \
+    && chmod +x /app/entrypoint.sh
 
 # Switch to non-root user
 USER appuser
@@ -77,4 +79,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 7003
 
 # Run the application
-CMD ["/opt/venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7003", "--log-level", "info"]
+ENTRYPOINT ["/app/entrypoint.sh"]

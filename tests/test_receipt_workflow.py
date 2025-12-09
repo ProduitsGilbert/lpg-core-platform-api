@@ -14,7 +14,7 @@ class StubERPClient:
         self.poline_calls = []
         self.create_receipt_calls = []
 
-    def get_poline(self, po_id: str, line_no: int):
+    async def get_poline(self, po_id: str, line_no: int):
         self.poline_calls.append((po_id, line_no))
         return {
             "po_id": po_id,
@@ -30,7 +30,7 @@ class StubERPClient:
             "quantity_received": 0,
         }
 
-    def create_receipt(self, po_id, lines, receipt_date, vendor_shipment_no, job_delay, notes):
+    async def create_receipt(self, po_id, lines, receipt_date, vendor_shipment_no, job_delay, notes):
         self.create_receipt_calls.append(
             {
                 "po_id": po_id,
@@ -77,24 +77,26 @@ def make_command(**overrides):
     return CreateReceiptCommand(**base)
 
 
-def test_create_receipt_requires_shipment_number(monkeypatch):
+@pytest.mark.asyncio
+async def test_create_receipt_requires_shipment_number(monkeypatch):
     service = PurchasingService(erp_client=StubERPClient())
     db_session = MagicMock()
 
     command = make_command(vendor_shipment_no=None)
 
     with pytest.raises(ValidationException):
-        service.create_receipt(command, db_session)
+        await service.create_receipt(command, db_session)
 
 
-def test_create_receipt_success(monkeypatch):
+@pytest.mark.asyncio
+async def test_create_receipt_success(monkeypatch):
     erp = StubERPClient()
     service = PurchasingService(erp_client=erp)
     db_session = MagicMock()
 
     command = make_command(vendor_shipment_no="SHIP-001")
 
-    result = service.create_receipt(command, db_session)
+    result = await service.create_receipt(command, db_session)
 
     assert result.receipt_id == "RCPT-123"
     assert erp.create_receipt_calls[0]["vendor_shipment_no"] == "SHIP-001"

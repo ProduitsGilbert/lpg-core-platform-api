@@ -17,7 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from app.db import get_session
+from app.db import get_session, get_autopilot_session
 from app.errors import ValidationException
 
 
@@ -31,6 +31,13 @@ def get_db() -> Session:
     This is a wrapper around the db.get_session for cleaner imports.
     """
     yield from get_session()
+
+
+def get_autopilot_db() -> Session:
+    """
+    Get database session for Fastems1 Autopilot tables.
+    """
+    yield from get_autopilot_session()
 
 
 def get_idempotency_key(

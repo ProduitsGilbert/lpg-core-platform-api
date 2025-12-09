@@ -21,7 +21,7 @@ class ERPClientProtocol(Protocol):
     fail the type check, preventing runtime errors.
     """
     
-    def get_poline(self, po_id: str, line_no: int) -> Dict[str, Any]:
+    async def get_poline(self, po_id: str, line_no: int) -> Dict[str, Any]:
         """
         Retrieve PO line details from ERP.
         
@@ -34,7 +34,7 @@ class ERPClientProtocol(Protocol):
         """
         ...
     
-    def update_poline_date(self, po_id: str, line_no: int, new_date: date) -> Dict[str, Any]:
+    async def update_poline_date(self, po_id: str, line_no: int, new_date: date) -> Dict[str, Any]:
         """
         Update PO line promise date in ERP.
         
@@ -48,7 +48,7 @@ class ERPClientProtocol(Protocol):
         """
         ...
     
-    def update_poline_price(self, po_id: str, line_no: int, new_price: Decimal) -> Dict[str, Any]:
+    async def update_poline_price(self, po_id: str, line_no: int, new_price: Decimal) -> Dict[str, Any]:
         """
         Update PO line unit price in ERP.
         
@@ -62,7 +62,7 @@ class ERPClientProtocol(Protocol):
         """
         ...
     
-    def update_poline_quantity(self, po_id: str, line_no: int, new_quantity: Decimal) -> Dict[str, Any]:
+    async def update_poline_quantity(self, po_id: str, line_no: int, new_quantity: Decimal) -> Dict[str, Any]:
         """
         Update PO line quantity in ERP.
         
@@ -76,7 +76,7 @@ class ERPClientProtocol(Protocol):
         """
         ...
     
-    def create_receipt(self, po_id: str, lines: List[Dict[str, Any]], receipt_date: date) -> Dict[str, Any]:
+    async def create_receipt(self, po_id: str, lines: List[Dict[str, Any]], receipt_date: date) -> Dict[str, Any]:
         """
         Create a goods receipt in ERP.
         
@@ -90,19 +90,19 @@ class ERPClientProtocol(Protocol):
         """
         ...
 
-    def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
+    async def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
         """Reopen a purchase order header in the ERP system."""
         ...
 
-    def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
+    async def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve an item from ERP by its number."""
         ...
 
-    def update_item_record(self, system_id: str, updates: Dict[str, Any], etag: str) -> None:
+    async def update_item_record(self, system_id: str, updates: Dict[str, Any], etag: str) -> None:
         """Patch an item using its SystemId and concurrency token."""
         ...
 
-    def copy_item_from_template(self, template_item: str, destination_item: str) -> None:
+    async def copy_item_from_template(self, template_item: str, destination_item: str) -> None:
         """Copy an item from a template record to a new item number."""
         ...
 
@@ -204,6 +204,46 @@ class OCRClientProtocol(Protocol):
         Returns:
             Extracted data in the specified model format
         """
+        ...
+
+    def extract_supplier_account_statement(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a supplier account statement document."""
+        ...
+
+    def extract_customer_account_statement(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a customer account statement document."""
+        ...
+
+    def extract_supplier_invoice(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a supplier invoice document."""
+        ...
+
+    def extract_shipping_bill(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a shipping bill document."""
+        ...
+
+    def extract_commercial_invoice(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a commercial invoice document."""
         ...
 
 

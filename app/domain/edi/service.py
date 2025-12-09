@@ -34,12 +34,12 @@ class EDIService:
         self.erp_client = erp_client or ERPClient()
         self.sender_id = sender_id
 
-    def _fetch_po_data(self, po_number: str):
-        po_header = self.erp_client.get_purchase_order(po_number)
+    async def _fetch_po_data(self, po_number: str):
+        po_header = await self.erp_client.get_purchase_order(po_number)
         if not po_header:
             raise PurchaseOrderNotFoundError(po_number)
 
-        lines = self.erp_client.get_purchase_order_lines(po_number)
+        lines = await self.erp_client.get_purchase_order_lines(po_number)
         if not lines:
             raise InvalidPurchaseOrderError(
                 "Purchase order has no lines to include in the EDI document",
@@ -53,7 +53,7 @@ class EDIService:
                 context={"po_number": po_number},
             )
 
-        vendor_info = self.erp_client.get_vendor(vendor_code)
+        vendor_info = await self.erp_client.get_vendor(vendor_code)
         if not vendor_info:
             raise InvalidPurchaseOrderError(
                 "Unable to retrieve vendor details for EDI document",
@@ -62,8 +62,8 @@ class EDIService:
 
         return po_header, lines, vendor_info
 
-    def generate_purchase_order_850(self, po_number: str) -> Tuple[str, str]:
-        po_header, lines, vendor_info = self._fetch_po_data(po_number)
+    async def generate_purchase_order_850(self, po_number: str) -> Tuple[str, str]:
+        po_header, lines, vendor_info = await self._fetch_po_data(po_number)
         document = build_edi_850_document(
             po_number,
             po_header,
@@ -76,8 +76,8 @@ class EDIService:
         file_name = f"PO_{po_number}_{timestamp}.edi"
         return document, file_name
 
-    def send_purchase_order_850(self, po_number: str) -> EDITransmissionResult:
-        document, file_name = self.generate_purchase_order_850(po_number)
+    async def send_purchase_order_850(self, po_number: str) -> EDITransmissionResult:
+        document, file_name = await self.generate_purchase_order_850(po_number)
 
         send_dir, _ = get_edi_paths()
         os.makedirs(send_dir, exist_ok=True)

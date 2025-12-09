@@ -21,7 +21,7 @@ edi_service = EDIService()
 )
 async def send_purchase_order_850(request: PurchaseOrder850Request) -> SingleResponse[PurchaseOrder850Response]:
     with logfire.span("edi.send_purchase_order_850", po_number=request.po_number):
-        result = edi_service.send_purchase_order_850(request.po_number)
+        result = await edi_service.send_purchase_order_850(request.po_number)
 
     response = PurchaseOrder850Response(
         po_number=result.po_number,

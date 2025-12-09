@@ -10,6 +10,8 @@ import logfire
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.domain.erp.business_central_data_service import BusinessCentralODataService
+from app.domain.erp.models import VendorContactResponse
+from app.domain.erp.vendor_contact_service import VendorContactService
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,13 @@ router = APIRouter(prefix="/bc", tags=["ERP - Business Central Data"])
 def get_odata_service() -> BusinessCentralODataService:
     """FastAPI dependency for the Business Central OData service."""
     return BusinessCentralODataService()
+
+
+def get_vendor_contact_service(
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> VendorContactService:
+    """Dependency wrapper for vendor contact lookups."""
+    return VendorContactService(service)
 
 
 async def _fetch_with_handling(
@@ -163,6 +172,55 @@ async def list_vendors(
 
 
 @router.get(
+    "/vendor-email-contact",
+    response_model=VendorContactResponse,
+    summary="Get vendor email contact details",
+    description="Retrieve the vendor email contact, language, and name using Business Central and easyPDFAddress data.",
+)
+async def get_vendor_email_contact(
+    vendor_no: str = Query(..., min_length=1, description="Vendor number (No) to look up."),
+    contact_service: VendorContactService = Depends(get_vendor_contact_service),
+) -> VendorContactResponse:
+    """Return vendor email contact using the easyPDFAddress endpoint."""
+    try:
+        contact = await contact_service.get_vendor_contact(vendor_no)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_VENDOR",
+                    "message": str(exc),
+                }
+            },
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_VENDOR_CONTACT_ERROR",
+                    "message": "Business Central vendor contact lookup failed",
+                    "upstream_status": status_code,
+                }
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_VENDOR_CONTACT_UNAVAILABLE",
+                    "message": "Business Central vendor contact service unreachable",
+                }
+            },
+        ) from exc
+
+    return VendorContactResponse(**contact.to_dict())
+
+
+@router.get(
     "/items",
     response_model=List[Dict[str, Any]],
     summary="List items",
@@ -278,7 +336,7 @@ async def list_sales_order_lines(
     with logfire.span("bc_api.list_sales_order_lines", document_no=document_no, top=top):
         records = await _fetch_with_handling(
             resource="Gilbert_SalesOrderLines",
-            filter_field="Document_No",
+            filter_field="DocumentNo",
             filter_value=document_no,
             top=top,
             service=service,

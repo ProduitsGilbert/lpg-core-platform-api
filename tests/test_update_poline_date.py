@@ -11,7 +11,7 @@ This module tests the update_poline_date endpoint including:
 import pytest
 from datetime import date, timedelta
 from decimal import Decimal
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -41,7 +41,7 @@ def mock_erp_client():
         mock_instance = mock_class.return_value
         
         # Default successful response
-        mock_instance.get_poline.return_value = {
+        mock_instance.get_poline = AsyncMock(return_value={
             "po_id": "PO-001",
             "line_no": 1,
             "item_no": "ITEM-001",
@@ -56,9 +56,9 @@ def mock_erp_client():
             "quantity_invoiced": 0.0,
             "status": "open",
             "location_code": "MAIN"
-        }
+        })
         
-        mock_instance.update_poline_date.return_value = {
+        mock_instance.update_poline_date = AsyncMock(return_value={
             "po_id": "PO-001",
             "line_no": 1,
             "item_no": "ITEM-001",
@@ -73,7 +73,7 @@ def mock_erp_client():
             "quantity_invoiced": 0.0,
             "status": "open",
             "location_code": "MAIN"
-        }
+        })
         
         yield mock_instance
 
@@ -103,7 +103,7 @@ def test_update_poline_date_success():
     
     # Mock dependencies
     with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
-        mock_service.update_poline_date.return_value = POLineDTO(
+        mock_service.update_poline_date = AsyncMock(return_value=POLineDTO(
             po_id=po_id,
             line_no=line_no,
             item_no="ITEM-001",
@@ -117,7 +117,7 @@ def test_update_poline_date_success():
             quantity_invoiced=Decimal("0"),
             quantity_to_receive=Decimal("100"),
             status="open"
-        )
+        ))
         
         # Make request
         response = client.post(
@@ -148,7 +148,7 @@ def test_update_poline_date_with_idempotency():
     }
     
     with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
-        mock_service.update_poline_date.return_value = POLineDTO(
+        mock_service.update_poline_date = AsyncMock(return_value=POLineDTO(
             po_id=po_id,
             line_no=line_no,
             item_no="ITEM-001",
@@ -162,7 +162,7 @@ def test_update_poline_date_with_idempotency():
             quantity_invoiced=Decimal("0"),
             quantity_to_receive=Decimal("100"),
             status="open"
-        )
+        ))
         
         # First request
         response1 = client.post(
@@ -245,7 +245,7 @@ def test_update_poline_date_not_found():
     
     with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         from app.errors import ERPNotFound
-        mock_service.update_poline_date.side_effect = ERPNotFound("PO Line", f"{po_id}/{line_no}")
+        mock_service.update_poline_date = AsyncMock(side_effect=ERPNotFound("PO Line", f"{po_id}/{line_no}"))
         
         response = client.post(
             f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
@@ -270,9 +270,9 @@ def test_update_poline_date_closed_line():
     
     with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         from app.errors import ERPConflict
-        mock_service.update_poline_date.side_effect = ERPConflict(
+        mock_service.update_poline_date = AsyncMock(side_effect=ERPConflict(
             "Cannot update closed PO line"
-        )
+        ))
         
         response = client.post(
             f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",
@@ -287,7 +287,8 @@ def test_update_poline_date_closed_line():
 
 # Service layer tests
 
-def test_service_update_poline_date_business_rules(mock_db_session, mock_erp_client):
+@pytest.mark.asyncio
+async def test_service_update_poline_date_business_rules(mock_db_session, mock_erp_client):
     """Test business rule validation in service layer."""
     service = PurchasingService(erp_client=mock_erp_client)
     
@@ -304,12 +305,13 @@ def test_service_update_poline_date_business_rules(mock_db_session, mock_erp_cli
     )
     
     with pytest.raises(ValidationException) as exc_info:
-        service.update_poline_date(command, mock_db_session)
+        await service.update_poline_date(command, mock_db_session)
     
     assert "closed" in str(exc_info.value).lower()
 
 
-def test_service_update_poline_date_audit_logging(mock_db_session, mock_erp_client):
+@pytest.mark.asyncio
+async def test_service_update_poline_date_audit_logging(mock_db_session, mock_erp_client):
     """Test audit logging during update."""
     service = PurchasingService(erp_client=mock_erp_client)
     
@@ -323,7 +325,7 @@ def test_service_update_poline_date_audit_logging(mock_db_session, mock_erp_clie
             trace_id="trace-001"
         )
         
-        result = service.update_poline_date(command, mock_db_session)
+        result = await service.update_poline_date(command, mock_db_session)
         
         # Verify audit was called
         # Note: In the actual implementation, audit is written via context manager
@@ -368,7 +370,7 @@ def test_date_validation_scenarios(days_offset, should_succeed):
     
     with patch("app.api.v1.erp.purchase_orders.purchasing_service") as mock_service:
         if should_succeed:
-            mock_service.update_poline_date.return_value = POLineDTO(
+            mock_service.update_poline_date = AsyncMock(return_value=POLineDTO(
                 po_id=po_id,
                 line_no=line_no,
                 item_no="ITEM-001",
@@ -382,11 +384,11 @@ def test_date_validation_scenarios(days_offset, should_succeed):
                 quantity_invoiced=Decimal("0"),
                 quantity_to_receive=Decimal("100"),
                 status="open"
-            )
+            ))
         else:
-            mock_service.update_poline_date.side_effect = ValidationException(
+            mock_service.update_poline_date = AsyncMock(side_effect=ValidationException(
                 "Promise date cannot be in the past"
-            )
+            ))
         
         response = client.post(
             f"/api/v1/erp/po/{po_id}/lines/{line_no}/date",

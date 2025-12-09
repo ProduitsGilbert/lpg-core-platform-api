@@ -157,6 +157,7 @@ logs/
 
 # Docker volumes
 mssql-data/
+cert/
 
 # Temporary files
 *.tmp

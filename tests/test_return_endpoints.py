@@ -69,16 +69,16 @@ class StubERPClient:
         self.created_returns = []
 
     # -- Helpers used by PurchasingService --
-    def get_purchase_return_order(self, return_no: str):
+    async def get_purchase_return_order(self, return_no: str):
         return self.return_headers.get(return_no)
 
-    def get_purchase_return_order_lines(self, return_no: str):
+    async def get_purchase_return_order_lines(self, return_no: str):
         return self.return_lines.get(return_no, [])
 
-    def get_posted_purchase_receipt_lines(self, receipt_id: str):
+    async def get_posted_purchase_receipt_lines(self, receipt_id: str):
         return self.posted_receipt_lines.get(receipt_id, [])
 
-    def create_return(self, receipt_id: str, lines, return_date: datetime.date, reason: str) -> str:
+    async def create_return(self, receipt_id: str, lines, return_date: datetime.date, reason: str) -> str:
         header = self.posted_receipt_headers.get(receipt_id)
         if not header:
             raise ValueError(f"Unknown receipt {receipt_id}")

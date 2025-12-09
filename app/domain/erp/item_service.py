@@ -3,11 +3,11 @@ Item service for Business Central integration
 """
 import logging
 import logfire
-from typing import Optional, List, Dict, Any
-from decimal import Decimal
-from datetime import datetime
+from typing import Optional, List, Dict, Any, Tuple
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime, date
 
-from app.domain.erp.models import ItemResponse, ItemValueChange
+from app.domain.erp.models import ItemResponse, ItemValueChange, ItemPricesResponse
 from app.adapters.erp_client import ERPClient
 from app.errors import ERPNotFound, ERPConflict, ERPError
 
@@ -56,7 +56,7 @@ class ItemService:
         """
         try:
             # Get item data from ERP
-            item_data = self.erp_client.get_item(item_id)
+            item_data = await self.erp_client.get_item(item_id)
             
             if not item_data:
                 logfire.info(f"Item {item_id} not found in Business Central")
@@ -68,6 +68,86 @@ class ItemService:
         except Exception as e:
             logger.error(f"Error getting item {item_id}: {e}")
             raise
+    
+    @staticmethod
+    def _parse_bc_date(value: Optional[str]) -> Optional[date]:
+        """Convert Business Central date strings to date objects."""
+        if not value:
+            return None
+        try:
+            if value.startswith("0001-01-01"):
+                return None
+            return datetime.fromisoformat(value).date()
+        except ValueError:
+            return None
+
+    async def get_item_prices(self, item_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve active sales prices for an item and derive multi-currency values."""
+        with logfire.span("item_service.get_item_prices", item_id=item_id):
+            sales_prices = await self.erp_client.get_sales_prices_for_item(item_id)
+
+        if not sales_prices:
+            return None
+
+        today = date.today()
+        active_prices: Dict[str, Tuple[Decimal, date]] = {}
+
+        for entry in sales_prices:
+            currency_code = (entry.get("Currency_Code") or "").strip() or "CAD"
+            start_date = self._parse_bc_date(entry.get("Starting_Date")) or date.min
+            end_date = self._parse_bc_date(entry.get("Ending_Date"))
+
+            if start_date and start_date > today:
+                continue
+            if end_date and end_date < today:
+                continue
+
+            try:
+                unit_price = Decimal(str(entry.get("Unit_Price", 0)))
+            except Exception:
+                logfire.warning(
+                    "Skipping sales price with invalid unit price",
+                    item_id=item_id,
+                    currency=currency_code,
+                    raw_value=entry.get("Unit_Price"),
+                )
+                continue
+
+            current = active_prices.get(currency_code)
+            if current is None or start_date > current[1]:
+                active_prices[currency_code] = (unit_price, start_date)
+
+        if "CAD" not in active_prices or "USD" not in active_prices:
+            raise ERPError(
+                f"Active CAD and USD prices are required for item {item_id}, found currencies: {list(active_prices.keys())}"
+            )
+
+        cad_price = active_prices["CAD"][0]
+        usd_price = active_prices["USD"][0]
+
+        with logfire.span("item_service.get_item_prices.exchange_rate", item_id=item_id):
+            exchange_rates = await self.erp_client.get_currency_exchange_rates("EUR", top=1)
+
+        if not exchange_rates:
+            raise ERPError("No EUR exchange rate available in Business Central")
+
+        rate_entry = exchange_rates[0]
+        try:
+            eur_rate = Decimal(str(rate_entry.get("Relational_Exch_Rate_Amount")))
+        except Exception as exc:
+            raise ERPError("Invalid EUR exchange rate value returned by Business Central") from exc
+
+        if eur_rate <= 0:
+            raise ERPError("EUR exchange rate must be greater than zero")
+
+        eur_price = (cad_price / eur_rate).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+        return ItemPricesResponse(
+            item_id=item_id,
+            cad_price=cad_price,
+            usd_price=usd_price,
+            eur_price=eur_price,
+        )
 
     async def update_item(self, item_id: str, changes: List[ItemValueChange]) -> ItemResponse:
         """Update one or more item fields after validating current values."""
@@ -75,7 +155,7 @@ class ItemService:
             raise ERPError("No updates provided for item")
 
         with logfire.span("item_service.update_item", item_id=item_id, fields=[c.field for c in changes]):
-            item_data = self.erp_client.get_item(item_id)
+            item_data = await self.erp_client.get_item(item_id)
 
             if not item_data:
                 raise ERPNotFound("Item", item_id)
@@ -110,9 +190,9 @@ class ItemService:
             if not payload:
                 raise ERPConflict("No updates applied; payload is empty")
 
-            self.erp_client.update_item_record(system_id, payload, etag)
+            await self.erp_client.update_item_record(system_id, payload, etag)
 
-            updated_item = self.erp_client.get_item(item_id)
+            updated_item = await self.erp_client.get_item(item_id)
             if not updated_item:
                 raise ERPError("Failed to load item after update")
 
@@ -125,13 +205,13 @@ class ItemService:
             item_id=item_id,
             template_item=template_item
         ):
-            existing = self.erp_client.get_item(item_id)
+            existing = await self.erp_client.get_item(item_id)
             if existing:
                 raise ERPConflict(f"Item {item_id} already exists in ERP")
 
-            self.erp_client.copy_item_from_template(template_item, item_id)
+            await self.erp_client.copy_item_from_template(template_item, item_id)
 
-            created = self.erp_client.get_item(item_id)
+            created = await self.erp_client.get_item(item_id)
             if not created:
                 raise ERPError("Item creation succeeded but item could not be retrieved")
 

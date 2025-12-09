@@ -6,6 +6,17 @@ export PYTHONPATH=/app:${PYTHONPATH:-}
 
 PORT="${APP_PORT:-7003}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
+DEFAULT_WORKERS="$(
+    python - <<'PY'
+import multiprocessing
+try:
+    cpu_count = multiprocessing.cpu_count()
+except NotImplementedError:
+    cpu_count = 1
+print(max(2, cpu_count))
+PY
+)"
+WORKERS="${WEB_CONCURRENCY:-${DEFAULT_WORKERS}}"
 
 UVICORN_CMD=(
     /opt/venv/bin/uvicorn
@@ -16,6 +27,12 @@ UVICORN_CMD=(
     "${PORT}"
     --log-level
     "${LOG_LEVEL}"
+    --workers
+    "${WORKERS}"
+    --loop
+    uvloop
+    --http
+    httptools
 )
 
 if [[ -n "${TLS_CERT_FILE:-}" && -n "${TLS_KEY_FILE:-}" ]]; then

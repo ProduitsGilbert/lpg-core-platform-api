@@ -271,7 +271,7 @@ async def update_poline_date(
         )
 
         service = _get_purchasing_service()
-        result = service.update_poline_date(command, db)
+        result = await service.update_poline_date(command, db)
 
         background_tasks.add_task(
             log_date_change,
@@ -317,7 +317,7 @@ async def update_poline_price(
         )
 
         service = _get_purchasing_service()
-        result = service.update_poline_price(command, db)
+        result = await service.update_poline_price(command, db)
 
         background_tasks.add_task(
             analyze_price_change,
@@ -362,7 +362,7 @@ async def update_poline_quantity(
         )
 
         service = _get_purchasing_service()
-        return service.update_poline_quantity(command, db)
+        return await service.update_poline_quantity(command, db)
 
 
 @router.post(
@@ -403,7 +403,7 @@ async def create_receipt(
         )
 
         service = _get_purchasing_service()
-        result = service.create_receipt(command, db)
+        result = await service.create_receipt(command, db)
 
         background_tasks.add_task(
             update_inventory_levels,
@@ -444,7 +444,7 @@ async def create_return(
         )
 
         service = _get_purchasing_service()
-        result = service.create_return(command, db)
+        result = await service.create_return(command, db)
 
         if result.po_id and result.po_id != po_id:
             logfire.warning(

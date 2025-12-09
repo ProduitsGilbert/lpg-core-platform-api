@@ -56,7 +56,7 @@ class PurchasingService:
         self.erp = erp_client or ERPClient()
         self.ai = ai_client or AIClient()
     
-    def update_poline_date(
+    async def update_poline_date(
         self,
         command: UpdatePOLineDateCommand,
         db_session: Session
@@ -115,7 +115,7 @@ class PurchasingService:
             ) as audit:
                 
                 # Fetch current PO line from ERP
-                current_data = self.erp.get_poline(command.po_id, command.line_no)
+                current_data = await self.erp.get_poline(command.po_id, command.line_no)
                 current_date = date.fromisoformat(current_data["promise_date"])
                 
                 # Set audit entity
@@ -130,7 +130,7 @@ class PurchasingService:
                 )
                 
                 # Update in ERP
-                updated_data = self.erp.update_poline_date(
+                updated_data = await self.erp.update_poline_date(
                     command.po_id,
                     command.line_no,
                     command.new_date
@@ -220,7 +220,7 @@ class PurchasingService:
                     }
                 )
     
-    def update_poline_price(
+    async def update_poline_price(
         self,
         command: UpdatePOLinePriceCommand,
         db_session: Session
@@ -278,7 +278,7 @@ class PurchasingService:
             ) as audit:
                 
                 # Fetch current PO line
-                current_data = self.erp.get_poline(command.po_id, command.line_no)
+                current_data = await self.erp.get_poline(command.po_id, command.line_no)
                 current_price = Decimal(str(current_data["unit_price"]))
                 
                 audit.set_entity(command.po_id, command.line_no)
@@ -321,7 +321,7 @@ class PurchasingService:
                         audit.add_context(ai_recommendations=ai_review.get("recommendations"))
                 
                 # Update in ERP
-                updated_data = self.erp.update_poline_price(
+                updated_data = await self.erp.update_poline_price(
                     command.po_id,
                     command.line_no,
                     command.new_price
@@ -408,7 +408,7 @@ class PurchasingService:
                 context={"po_id": po_id, "line_no": line_no, "new_price": str(new_price)}
             )
     
-    def update_poline_quantity(
+    async def update_poline_quantity(
         self,
         command: UpdatePOLineQuantityCommand,
         db_session: Session
@@ -466,7 +466,7 @@ class PurchasingService:
             ) as audit:
                 
                 # Fetch current PO line
-                current_data = self.erp.get_poline(command.po_id, command.line_no)
+                current_data = await self.erp.get_poline(command.po_id, command.line_no)
                 current_quantity = Decimal(str(current_data["quantity"]))
                 
                 audit.set_entity(command.po_id, command.line_no)
@@ -494,7 +494,7 @@ class PurchasingService:
                         )
                 
                 # Update in ERP
-                updated_data = self.erp.update_poline_quantity(
+                updated_data = await self.erp.update_poline_quantity(
                     command.po_id,
                     command.line_no,
                     command.new_quantity
@@ -582,7 +582,7 @@ class PurchasingService:
                 context={"po_id": po_id, "line_no": line_no, "new_quantity": str(new_quantity)}
             )
     
-    def create_receipt(
+    async def create_receipt(
         self,
         command: CreateReceiptCommand,
         db_session: Session
@@ -645,7 +645,7 @@ class PurchasingService:
                     shipment_refs.add(command.vendor_shipment_no)
 
                 for line in command.lines:
-                    po_line = self.erp.get_poline(command.po_id, line.line_no)
+                    po_line = await self.erp.get_poline(command.po_id, line.line_no)
                     self._validate_receipt_line(po_line, line.quantity)
                     if line.vendor_shipment_no:
                         shipment_refs.add(line.vendor_shipment_no)
@@ -676,7 +676,7 @@ class PurchasingService:
                     for line in command.lines
                 ]
                 
-                receipt_data = self.erp.create_receipt(
+                receipt_data = await self.erp.create_receipt(
                     command.po_id,
                     receipt_lines,
                     command.receipt_date,
@@ -801,7 +801,7 @@ class PurchasingService:
     # ------------------------------------------------------------------
     # Purchase return operations
 
-    def create_return(
+    async def create_return(
         self,
         command: CreateReturnCommand,
         db_session: Session
@@ -834,7 +834,7 @@ class PurchasingService:
                 command.actor,
                 command.trace_id
             ) as audit:
-                receipt_lines = self.erp.get_posted_purchase_receipt_lines(command.receipt_id)
+                receipt_lines = await self.erp.get_posted_purchase_receipt_lines(command.receipt_id)
                 if not receipt_lines:
                     raise ValidationException(
                         "Posted receipt has no lines or does not exist",
@@ -874,7 +874,7 @@ class PurchasingService:
                         "variant_code": receipt_line.get("Variant_Code"),
                     })
 
-                return_no = self.erp.create_return(
+                return_no = await self.erp.create_return(
                     command.receipt_id,
                     line_payloads,
                     return_date,
@@ -893,8 +893,8 @@ class PurchasingService:
                     reason="Return order created"
                 )
 
-                header = self.erp.get_purchase_return_order(return_no)
-                lines = self.erp.get_purchase_return_order_lines(return_no)
+                header = await self.erp.get_purchase_return_order(return_no)
+                lines = await self.erp.get_purchase_return_order_lines(return_no)
 
                 if not header:
                     raise ERPError(
@@ -915,10 +915,10 @@ class PurchasingService:
 
     async def get_return_order(self, return_id: str) -> Optional[ReturnDTO]:
         """Retrieve a purchase return order by its ID."""
-        header = self.erp.get_purchase_return_order(return_id)
+        header = await self.erp.get_purchase_return_order(return_id)
         if not header:
             return None
-        lines = self.erp.get_purchase_return_order_lines(return_id)
+        lines = await self.erp.get_purchase_return_order_lines(return_id)
         return self._map_to_return_dto(header, lines)
 
     @staticmethod

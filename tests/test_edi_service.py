@@ -11,7 +11,7 @@ class StubERPClient:
     def __init__(self, *, vendor_available: bool = True):
         self.vendor_available = vendor_available
 
-    def get_purchase_order(self, po_number: str):
+    async def get_purchase_order(self, po_number: str):
         return {
             "No": po_number,
             "Document_Date": "2024-05-01",
@@ -20,7 +20,7 @@ class StubERPClient:
             "Buy_from_Vendor_No": "VEND01",
         }
 
-    def get_purchase_order_lines(self, po_number: str):
+    async def get_purchase_order_lines(self, po_number: str):
         return [
             {
                 "Line_No": 10000,
@@ -33,7 +33,7 @@ class StubERPClient:
             }
         ]
 
-    def get_vendor(self, vendor_id: str):
+    async def get_vendor(self, vendor_id: str):
         if not self.vendor_available:
             return None
         return {
@@ -57,7 +57,8 @@ def fake_paths(tmp_path):
     return _get_paths
 
 
-def test_send_purchase_order_850_success(monkeypatch, fake_paths):
+@pytest.mark.asyncio
+async def test_send_purchase_order_850_success(monkeypatch, fake_paths):
     sent_paths = {}
 
     monkeypatch.setattr("app.domain.edi.service.get_edi_paths", fake_paths)
@@ -69,7 +70,7 @@ def test_send_purchase_order_850_success(monkeypatch, fake_paths):
     monkeypatch.setattr("app.domain.edi.service.send_file", fake_send_file)
 
     service = EDIService(erp_client=StubERPClient())
-    result = service.send_purchase_order_850("PO123")
+    result = await service.send_purchase_order_850("PO123")
 
     assert result.sent is True
     assert result.remote_path == "EMISSION/850/TEST.edi"
@@ -78,7 +79,8 @@ def test_send_purchase_order_850_success(monkeypatch, fake_paths):
     assert os.path.exists(sent_paths["path"]) is True
 
 
-def test_send_purchase_order_850_missing_vendor(monkeypatch, fake_paths):
+@pytest.mark.asyncio
+async def test_send_purchase_order_850_missing_vendor(monkeypatch, fake_paths):
     monkeypatch.setattr("app.domain.edi.service.get_edi_paths", fake_paths)
     monkeypatch.setattr(
         "app.domain.edi.service.send_file",
@@ -88,4 +90,4 @@ def test_send_purchase_order_850_missing_vendor(monkeypatch, fake_paths):
     service = EDIService(erp_client=StubERPClient(vendor_available=False))
 
     with pytest.raises(InvalidPurchaseOrderError):
-        service.send_purchase_order_850("PO999")
+        await service.send_purchase_order_850("PO999")

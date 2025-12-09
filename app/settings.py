@@ -57,7 +57,12 @@ class Settings(BaseSettings):
         default="ODBC Driver 18 for SQL Server",
         description="ODBC driver to use for Cedule SQL connections"
     )
-    
+
+    fastems1_autopilot_db_dsn: Optional[str] = Field(
+        default=None,
+        description="Override MSSQL DSN for Fastems1 Autopilot tables (if different from DB_DSN)"
+    )
+
     # Business Central API Configuration
     erp_base_url: str = Field(
         description="Base URL for Business Central OData API"
@@ -72,6 +77,10 @@ class Settings(BaseSettings):
     bc_api_password: Optional[str] = Field(
         default=None,
         description="Business Central API password"
+    )
+    bc_explorer_api_base_url: Optional[str] = Field(
+        default="https://bc.gilbert-tech.com:7063/ProductionBCBasic/api/GITECH/Explorateur/beta/",
+        description="Base URL for Business Central Explorer API used for custom endpoints like easyPDFAddress"
     )
     
     # External Services Configuration
@@ -103,6 +112,50 @@ class Settings(BaseSettings):
     file_share_requester_id: Optional[str] = Field(
         default=None,
         description="Requester user identifier for file share API calls"
+    )
+
+    # Fastems1 Autopilot configuration
+    fastems1_autopilot_enabled: bool = Field(
+        default=False,
+        description="Enable Fastems1 Autopilot endpoints and services"
+    )
+    fastems1_production_api_base_url: Optional[str] = Field(
+        default="https://api.gilbert-tech.com:7776/api/v1",
+        description="Base URL for Fastems1 production/WorkOrder API"
+    )
+    fastems1_production_requester_id: Optional[str] = Field(
+        default=None,
+        description="RequesterUserID header value for Fastems1 production API"
+    )
+    fastems1_tooling_api_base_url: Optional[str] = Field(
+        default="https://api.gilbert-tech.com:7776/api/v1",
+        description="Base URL for CNCTooling machine tools API"
+    )
+    fastems1_nc_program_tool_base_url: Optional[str] = Field(
+        default="http://lpgadoc03:8585/fastems1",
+        description="Base URL for NC program tool metadata"
+    )
+    fastems1_material_api_base_url: Optional[str] = Field(
+        default="http://lpgadoc03:8585/fastems1",
+        description="Base URL for Fastems1 material pallet inventory (dy_storage)"
+    )
+    fastems1_pallet_route_api_base_url: Optional[str] = Field(
+        default="http://lpgadoc03:8585/fastems1",
+        description="Base URL for Fastems1 pallet route status (dy_pallet_routes)"
+    )
+    fastems1_default_shift_timezone: str = Field(
+        default="America/Toronto",
+        description="IANA timezone for shift-window evaluation"
+    )
+    fastems1_ignore_ttl_hours: int = Field(
+        default=24,
+        ge=1,
+        description="Default number of hours to ignore a refused job"
+    )
+    fastems1_plan_jobs_per_machine: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Optional cap on planned jobs per machine (None = plan everything)"
     )
 
     openai_api_key: Optional[str] = Field(
@@ -259,6 +312,31 @@ class Settings(BaseSettings):
         if v and not v.startswith(("http://", "https://")):
             raise ValueError("ERP base URL must start with http:// or https://")
         return v
+
+    @field_validator("fastems1_plan_jobs_per_machine", mode="before")
+    @classmethod
+    def normalize_plan_limit(cls, value):
+        """
+        Treat blank/zero values as 'no limit' so planners can schedule every job.
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if not lowered or lowered in {"none", "null"}:
+                return None
+            try:
+                numeric = int(lowered)
+            except ValueError:
+                return value
+        else:
+            try:
+                numeric = int(value)
+            except (TypeError, ValueError):
+                return value
+        if numeric <= 0:
+            return None
+        return numeric
     
     @property
     def is_production(self) -> bool:

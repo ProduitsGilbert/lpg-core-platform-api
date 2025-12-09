@@ -102,6 +102,9 @@ def create_session_factory(engine: Engine) -> sessionmaker:
 # Global instances (initialized on first import)
 _engine: Optional[Engine] = None
 _session_factory: Optional[sessionmaker] = None
+_autopilot_engine: Optional[Engine] = None
+_autopilot_session_factory: Optional[sessionmaker] = None
+_autopilot_dsn: Optional[str] = None  # cached resolved DSN
 
 
 def get_engine() -> Engine:
@@ -132,6 +135,41 @@ def get_session_factory() -> sessionmaker:
     if _session_factory is None:
         _session_factory = create_session_factory(get_engine())
     return _session_factory
+
+
+def get_autopilot_engine() -> Engine:
+    """
+    Engine for Fastems1 Autopilot tables (optional override).
+
+    Falls back to the primary engine when no override DSN is configured.
+    """
+    global _autopilot_engine, _autopilot_session_factory, _autopilot_dsn
+    resolved_dsn = settings.fastems1_autopilot_db_dsn or settings.cedule_db_dsn
+    if not resolved_dsn:
+        return get_engine()
+    if _autopilot_dsn != resolved_dsn:
+        # DSN changed; reset engine/session
+        _autopilot_engine = None
+        _autopilot_session_factory = None
+        _autopilot_dsn = resolved_dsn
+    if _autopilot_engine is None:
+        _autopilot_engine = create_db_engine(resolved_dsn)
+        if logfire:
+            with logfire.span("Autopilot database engine initialized"):
+                logfire.info(f"Created autopilot engine with pool size {settings.db_pool_size}")
+    return _autopilot_engine
+
+
+def get_autopilot_session_factory() -> sessionmaker:
+    """
+    Session factory for Fastems1 Autopilot database.
+    """
+    global _autopilot_session_factory
+    if not (settings.fastems1_autopilot_db_dsn or settings.cedule_db_dsn):
+        return get_session_factory()
+    if _autopilot_session_factory is None:
+        _autopilot_session_factory = create_session_factory(get_autopilot_engine())
+    return _autopilot_session_factory
 
 
 def get_session() -> Generator[Session, None, None]:
@@ -183,6 +221,45 @@ def get_session() -> Generator[Session, None, None]:
         session.close()
 
 
+def get_autopilot_session() -> Generator[Session, None, None]:
+    """
+    Dependency for Fastems1 Autopilot tables; uses override DSN when provided.
+    """
+    try:
+        session_factory = get_autopilot_session_factory()
+        session = session_factory()
+    except Exception as exc:
+        message = str(exc)
+        if isinstance(exc, ImportError) or "pyodbc" in message.lower():
+            logger.warning("Autopilot database driver unavailable; returning dummy session: %s", exc)
+
+            class DummySession:
+                def commit(self):
+                    return None
+
+                def rollback(self):
+                    return None
+
+                def close(self):
+                    return None
+
+            dummy = DummySession()
+            try:
+                yield dummy
+            finally:
+                dummy.close()
+            return
+        raise
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 @contextmanager
 def get_db_session() -> Generator[Session, None, None]:
     """
@@ -196,6 +273,26 @@ def get_db_session() -> Generator[Session, None, None]:
             session.execute(text("SELECT 1"))
     """
     session = get_session_factory()()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+@contextmanager
+def get_autopilot_db_session() -> Generator[Session, None, None]:
+    """
+    Context manager for the Autopilot database session.
+    """
+    if settings.fastems1_autopilot_db_dsn is None:
+        with get_db_session() as session:
+            yield session
+        return
+    session = get_autopilot_session_factory()()
     try:
         yield session
         session.commit()

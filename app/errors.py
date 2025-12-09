@@ -349,6 +349,24 @@ class CommunicationsConfigurationError(CommunicationsError):
         )
 
 
+class PlanningServiceError(BaseAPIException):
+    """Raised when the internal MRP planning service fails."""
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        status_code: int = status.HTTP_502_BAD_GATEWAY,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            status_code=status_code,
+            detail=detail,
+            error_code="MRP_SERVICE_ERROR",
+            context=context,
+        )
+
+
 # Exception handlers for FastAPI
 
 async def handle_base_api_exception(request: Request, exc: BaseAPIException) -> JSONResponse:

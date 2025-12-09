@@ -15,7 +15,12 @@ from pydantic import BaseModel
 from app.ports import OCRClientProtocol
 from app.domain.ocr.models import (
     PurchaseOrderExtraction,
-    InvoiceExtraction
+    InvoiceExtraction,
+    SupplierAccountStatementExtraction,
+    CustomerAccountStatementExtraction,
+    SupplierInvoiceExtraction,
+    ShippingBillExtraction,
+    CommercialInvoiceExtraction
 )
 
 
@@ -274,4 +279,167 @@ class OpenAIOCRClient(OCRClientProtocol):
                 
             except Exception as e:
                 logfire.error(f'Failed to extract {document_type} from {filename}: {str(e)}')
+                raise
+
+    def extract_supplier_account_statement(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a supplier account statement document."""
+        with logfire.span('openai_extract_supplier_account_statement'):
+            start_time = time.time()
+
+            try:
+                statement_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="supplier_account_statement",
+                    system_prompt="""You are an expert at extracting structured data from supplier account statements.
+                    Capture the supplier identifiers, statement period, opening/closing balances, totals, and every transaction line.
+                    Ensure debits, credits, and balances are returned as decimal numbers.
+                    Dates must be formatted as ISO YYYY-MM-DD.""",
+                    user_prompt="Extract all supplier account statement details including summary balances and the full list of transactions.",
+                    response_model=SupplierAccountStatementExtraction
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = statement_data.model_dump()
+                result["document_category"] = "supplier_account_statement"
+                result["confidence_score"] = 0.9
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract supplier account statement from {filename}: {exc}')
+                raise
+
+    def extract_customer_account_statement(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a customer account statement document."""
+        with logfire.span('openai_extract_customer_account_statement'):
+            start_time = time.time()
+
+            try:
+                statement_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="customer_account_statement",
+                    system_prompt="""You are an expert at extracting structured data from customer account statements.
+                    Capture the customer identifiers, statement dates, balances, credit limits, and every transaction line.
+                    Debits, credits, and balances must be decimal numbers.
+                    Dates must be returned using ISO YYYY-MM-DD format.""",
+                    user_prompt="Extract all customer account statement information including balances and detailed transactions.",
+                    response_model=CustomerAccountStatementExtraction
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = statement_data.model_dump()
+                result["document_category"] = "customer_account_statement"
+                result["confidence_score"] = 0.9
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract customer account statement from {filename}: {exc}')
+                raise
+
+    def extract_supplier_invoice(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a supplier invoice document."""
+        with logfire.span('openai_extract_supplier_invoice'):
+            start_time = time.time()
+
+            try:
+                invoice_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="supplier_invoice",
+                    system_prompt="""You are an expert at extracting structured data from supplier invoices for accounts payable processing.
+                    Capture vendor and buyer information, invoice identifiers, dates, totals, taxes, payment instructions, references, and detailed line items.
+                    Return all numeric values as decimal numbers without currency symbols.
+                    Dates must use ISO YYYY-MM-DD format.""",
+                    user_prompt="Extract all supplier invoice information including summary amounts, payment info, and detailed line items.",
+                    response_model=SupplierInvoiceExtraction
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = invoice_data.model_dump()
+                result["document_category"] = "supplier_invoice"
+                result["confidence_score"] = 0.92
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract supplier invoice from {filename}: {exc}')
+                raise
+
+    def extract_shipping_bill(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a shipping bill document."""
+        with logfire.span('openai_extract_shipping_bill'):
+            start_time = time.time()
+
+            try:
+                shipping_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="shipping_bill",
+                    system_prompt="""You are an expert at extracting structured data from shipping bills or bills of entry/export.
+                    Capture exporter and consignee information, ports, transport details, incoterms, totals, and every declared line item with HS codes and customs values.
+                    Return numeric amounts as decimals and dates using ISO YYYY-MM-DD format.""",
+                    user_prompt="Extract all shipping bill declaration details including header information and each declared line item.",
+                    response_model=ShippingBillExtraction
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = shipping_data.model_dump()
+                result["document_category"] = "shipping_bill"
+                result["confidence_score"] = 0.88
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract shipping bill from {filename}: {exc}')
+                raise
+
+    def extract_commercial_invoice(
+        self,
+        file_content: bytes,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Extract structured data from a commercial invoice document."""
+        with logfire.span('openai_extract_commercial_invoice'):
+            start_time = time.time()
+
+            try:
+                commercial_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="commercial_invoice",
+                    system_prompt="""You are an expert at extracting structured data from commercial export invoices.
+                    Capture exporter and importer details, invoice identifiers, incoterms, payment terms, logistics information, totals, and each line item with HS codes and countries of origin/destination.
+                    All monetary values must be decimals and dates in ISO YYYY-MM-DD format.""",
+                    user_prompt="Extract all commercial invoice details including parties, totals, logistics information, and the detailed line item list.",
+                    response_model=CommercialInvoiceExtraction
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = commercial_data.model_dump()
+                result["document_category"] = "commercial_invoice"
+                result["confidence_score"] = 0.9
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract commercial invoice from {filename}: {exc}')
                 raise

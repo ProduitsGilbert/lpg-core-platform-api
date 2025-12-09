@@ -108,3 +108,156 @@ class SampleAIResponse(BaseModel):
         default=False,
         description="Indicates that the response was generated locally for testing.",
     )
+
+
+class TypingSuggestionRequest(BaseModel):
+    """Request payload for rapid typing/code completion suggestions."""
+
+    prefix: str = Field(
+        ...,
+        description="Text immediately preceding the cursor.",
+        min_length=1,
+    )
+    suffix: str = Field(
+        default="",
+        description="Text immediately following the cursor.",
+    )
+    language: Optional[str] = Field(
+        default=None,
+        description="Optional hint about the programming or natural language.",
+        max_length=64,
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Optional custom instructions overriding the default typing helper persona.",
+    )
+    temperature: float = Field(
+        default=0.2,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature forwarded to the language model.",
+    )
+
+
+class TypingSuggestionResponse(BaseModel):
+    """Response payload for typing suggestions."""
+
+    model: str
+    suggestion: str
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the suggestion was generated locally because OpenAI is not configured.",
+    )
+
+
+class DeepReasoningRequest(BaseModel):
+    """Request payload for complex problem solving with high reasoning effort."""
+
+    question: str = Field(
+        ...,
+        description="Primary question or problem statement to solve.",
+    )
+    context: Optional[str] = Field(
+        default=None,
+        description="Supplementary context, facts, or background information.",
+    )
+    expected_format: Optional[str] = Field(
+        default=None,
+        description="Optional guidance for the desired answer structure (e.g., bullet list, JSON).",
+    )
+
+
+class DeepReasoningResponse(BaseModel):
+    """Response payload for complex reasoning queries."""
+
+    model: str
+    effort: Literal["high"] = Field(default="high")
+    answer: str
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because OpenAI is not configured.",
+    )
+
+
+class StandardAIRequest(BaseModel):
+    """Request payload for standard assistant-style generations."""
+
+    prompt: str = Field(
+        ...,
+        description="User prompt or instruction for the assistant.",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Optional system-level instructions to steer the assistant.",
+    )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature forwarded to the language model.",
+    )
+
+
+class StandardAIResponse(BaseModel):
+    """Response payload for standard assistant generations."""
+
+    model: str
+    output: str
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because OpenAI is not configured.",
+    )
+
+
+class StreamingAIRequest(BaseModel):
+    """Request payload for streaming assistant responses."""
+
+    prompt: str = Field(
+        ...,
+        description="User prompt or instruction to stream.",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Optional system prompt to guide the model behaviour.",
+    )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for the streamed response.",
+    )
+
+
+class OpenRouterRequest(BaseModel):
+    """Request payload for invoking OpenRouter supported models."""
+
+    prompt: str = Field(..., description="User prompt forwarded to the selected model(s).")
+    models: Optional[List[str]] = Field(
+        default=None,
+        description="Preferred model ordering drawn from the allowed leaderboard list.",
+    )
+    instructions: Optional[str] = Field(
+        default=None,
+        description="Optional system instructions or persona guidance.",
+    )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description="Sampling temperature for the completion.",
+    )
+
+
+class OpenRouterResponse(BaseModel):
+    """Response payload returned from OpenRouter completions."""
+
+    requested_models: List[str]
+    selected_model: Optional[str] = Field(
+        default=None,
+        description="Actual model that generated the output (if known).",
+    )
+    output: str
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because OpenRouter is not configured.",
+    )

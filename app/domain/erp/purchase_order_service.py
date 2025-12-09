@@ -35,7 +35,7 @@ class PurchaseOrderService:
         try:
             with logfire.span(f"po_service.get_purchase_order", po_id=po_id):
                 # Get PO data from ERP
-                po_data = self.erp_client.get_purchase_order(po_id)
+                po_data = await self.erp_client.get_purchase_order(po_id)
                 
                 if not po_data:
                     logfire.info(f"Purchase order {po_id} not found")
@@ -75,12 +75,12 @@ class PurchaseOrderService:
         try:
             with logfire.span(f"po_service.get_purchase_order_lines", po_id=po_id):
                 # Check if PO exists
-                po_exists = self.erp_client.get_purchase_order(po_id)
+                po_exists = await self.erp_client.get_purchase_order(po_id)
                 if not po_exists:
                     return None
                 
                 # Get lines from ERP
-                lines_data = self.erp_client.get_purchase_order_lines(po_id)
+                lines_data = await self.erp_client.get_purchase_order_lines(po_id)
                 
                 if not lines_data:
                     logfire.info(f"No lines found for purchase order {po_id}")
@@ -134,11 +134,11 @@ class PurchaseOrderService:
         """Reopen a purchase order in Business Central so it can be edited."""
         try:
             with logfire.span("po_service.reopen_purchase_order", po_id=po_id):
-                raw_response = self.erp_client.reopen_purchase_order(po_id)
+                raw_response = await self.erp_client.reopen_purchase_order(po_id)
 
                 status = "Open"
                 try:
-                    current = self.erp_client.get_purchase_order(po_id)
+                    current = await self.erp_client.get_purchase_order(po_id)
                     if current and current.get("Status"):
                         status = current.get("Status")
                 except Exception as exc:

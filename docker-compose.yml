@@ -6,9 +6,8 @@ services:
       dockerfile: Dockerfile
     container_name: lpg-core-platform-api
     working_dir: /app
-    command: ["/opt/venv/bin/python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7003", "--log-level", "info"]
     ports:
-      - "7003:7003"
+      - "7005:7003"
     env_file:
       - .env
     environment:
@@ -36,8 +35,13 @@ services:
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-false}
       ENABLE_OCR: ${ENABLE_OCR:-false}
       ENABLE_AI_ASSISTANCE: ${ENABLE_AI_ASSISTANCE:-false}
+      APP_PORT: ${APP_PORT:-7003}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-}
+      TLS_CA_BUNDLE: ${TLS_CA_BUNDLE:-}
     volumes:
       - ./logs:/app/logs
+      - ./cert:/app/certs:ro
     networks:
       - lpg-network
     healthcheck:

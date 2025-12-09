@@ -2,12 +2,12 @@
 Documents File Share endpoints
 Implements file sharing functionality for item PDFs and other documents
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import logging
 import logfire
-from typing import Optional
+from typing import Optional, Dict, Any
 import io
 
 from app.deps import get_db
@@ -85,6 +85,136 @@ async def get_item_pdf_file(
                 "error": {
                     "code": "INTERNAL_ERROR", 
                     "message": "Failed to retrieve PDF file",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            }
+        )
+
+@router.get(
+    "/items/{item_no}/technical-sheet",
+    summary="Read technical sheet content",
+    description="""
+    Reads text content, form fields, and provides vision fallback for technical drawings.
+    Useful for extracting data from PDF forms or drawings.
+    """
+)
+async def read_technical_sheet(
+    item_no: str,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """Read technical sheet content"""
+    try:
+        with logfire.span(f"read_technical_sheet", item_no=item_no):
+            result = await file_share_service.read_technical_sheet(item_no)
+            
+        if not result["success"]:
+            # If it's a "not found" type error (though service returns generic error string), 
+            # we might want 404, but service returns success=False for various reasons.
+            # Assuming if PDF missing it's a 404 logic inside service, but let's check error message or adjust service.
+            # For now, 400 or 404 based on error content? 
+            # The service returns "PDF file not found..." in error string.
+            if "not found" in (result.get("error") or "").lower():
+                 raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": {
+                            "code": "PDF_NOT_FOUND",
+                            "message": result["error"],
+                            "trace_id": getattr(db, 'trace_id', 'unknown')
+                        }
+                    }
+                )
+            
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": {
+                        "code": "PROCESSING_ERROR",
+                        "message": result["error"],
+                        "trace_id": getattr(db, 'trace_id', 'unknown')
+                    }
+                }
+            )
+            
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reading technical sheet for {item_no}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR", 
+                    "message": "Failed to read technical sheet",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            }
+        )
+
+@router.post(
+    "/items/{item_no}/technical-sheet",
+    summary="Fill technical sheet form fields",
+    description="""
+    Fills the technical sheet PDF form fields with the provided data.
+    Returns the filled PDF file.
+    """
+)
+async def fill_technical_sheet(
+    item_no: str,
+    fields: Dict[str, Any] = Body(..., description="Key-value pairs for form fields"),
+    db: Session = Depends(get_db)
+) -> StreamingResponse:
+    """Fill technical sheet form fields"""
+    try:
+        with logfire.span(f"fill_technical_sheet", item_no=item_no):
+            result = await file_share_service.write_technical_sheet(item_no, fields)
+            
+        if not result["success"]:
+            if "not found" in (result.get("error") or "").lower():
+                 raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": {
+                            "code": "PDF_NOT_FOUND",
+                            "message": result["error"],
+                            "trace_id": getattr(db, 'trace_id', 'unknown')
+                        }
+                    }
+                )
+            
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": {
+                        "code": "PROCESSING_ERROR",
+                        "message": result["error"],
+                        "trace_id": getattr(db, 'trace_id', 'unknown')
+                    }
+                }
+            )
+        
+        return StreamingResponse(
+            io.BytesIO(result["content"]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{result["filename"]}"',
+                "Content-Length": str(result["size"]),
+                "Cache-Control": "no-cache"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error filling technical sheet for {item_no}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR", 
+                    "message": "Failed to fill technical sheet",
                     "trace_id": getattr(db, 'trace_id', 'unknown')
                 }
             }

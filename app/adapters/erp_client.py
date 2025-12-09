@@ -166,6 +166,70 @@ class ERPClient(ERPClientProtocol):
         resource = f"BOMComponentLines?$filter=Production_BOM_No eq '{sanitized}'"
         return await self._fetch_odata_collection(resource)
     
+    async def get_bin_contents(
+        self,
+        item_no: str,
+        *,
+        location_code: Optional[str] = None,
+        fixed_only: bool = True,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve BinContents rows for an item with optional filtering.
+        """
+        if not item_no:
+            return []
+
+        sanitized_item = item_no.replace("'", "''")
+        filters = [f"Item_No eq '{sanitized_item}'"]
+
+        if location_code:
+            sanitized_location = location_code.replace("'", "''")
+            filters.append(f"Location_Code eq '{sanitized_location}'")
+
+        filter_query = " and ".join(filters)
+        resource = f"BinContents?$filter={filter_query}"
+        entries = await self._fetch_odata_collection(resource)
+
+        if not fixed_only:
+            return entries
+
+        filtered: List[Dict[str, Any]] = []
+        for entry in entries:
+            if bool(entry.get("Fixed")):
+                filtered.append(entry)
+        return filtered
+
+    async def get_fixed_bin_quantity(self, item_no: str, location_code: str = "GIL") -> Decimal:
+        """
+        Sum the quantity for an item within fixed bins at the specified location.
+        """
+        entries = await self.get_bin_contents(item_no, location_code=location_code, fixed_only=True)
+        total = Decimal("0")
+
+        for entry in entries:
+            quantity_fields = ("Quantity_Base", "Quantity")
+            value: Optional[Decimal] = None
+            for field in quantity_fields:
+                raw_value = entry.get(field)
+                if raw_value in (None, "", []):
+                    continue
+                try:
+                    value = Decimal(str(raw_value))
+                except (ArithmeticError, ValueError, TypeError):
+                    value = None
+                if value is not None:
+                    break
+
+            if value is None:
+                logger.warning(
+                    "Skipping BinContents row with invalid quantity",
+                    extra={"item_no": item_no, "location_code": location_code, "row": entry},
+                )
+                continue
+
+            total += value
+        return total
+    
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, max=60),
