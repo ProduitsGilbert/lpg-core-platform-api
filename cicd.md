@@ -201,12 +201,8 @@ jobs:
           docker image prune -f
 ```
 
-**Required GitHub Secrets:**
-- `DOCKER_HUB_USERNAME`
-- `DOCKER_HUB_TOKEN`
-- `PRODUCTION_HOST`
-- `PRODUCTION_USER`
-- `PRODUCTION_SSH_KEY`
+**GitHub Secrets: None Required**
+Since you're using a self-hosted runner on your Docker server, no GitHub secrets are needed. The runner builds and deploys directly on the host system.
 
 9) Branch protection (enforced by you in GitHub UI)
 •	Protect main:

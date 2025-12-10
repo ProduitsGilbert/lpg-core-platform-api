@@ -146,14 +146,12 @@ docker-compose -f docker-compose.prod.yml up -d
   - SSH to production server
   - Pull new image and restart containers
 
-#### Required GitHub Secrets
-Set these in your repository settings:
+#### GitHub Secrets (Optional)
+Since you're using a self-hosted runner on your Docker server, **no GitHub secrets are required** for production deployment. The runner can build and deploy directly on the host system.
+
+If you want to push images to a registry for backup/archival, you can optionally set:
 - `DOCKER_HUB_USERNAME`: Docker Hub username
 - `DOCKER_HUB_TOKEN`: Docker Hub access token
-- `PRODUCTION_HOST`: Production server hostname
-- `PRODUCTION_USER`: SSH username
-- `PRODUCTION_SSH_KEY`: Private SSH key
-- `PRODUCTION_PORT`: SSH port (optional, defaults to 22)
 
 ### Local Development (without Docker)
 
