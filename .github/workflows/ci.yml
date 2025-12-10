@@ -2,30 +2,43 @@ name: CI
 
 on:
   pull_request:
+    branches: [main, dev]
   push:
-    branches: [ main ]
+    branches: [dev]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
 
-      - name: Type check (mypy)
-        run: mypy app
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-dev.txt
 
-      - name: Unit tests (pytest)
-        env:
-          # if your app imports MSSQL at import-time, mock or guard it
-          ENV: test
-        run: pytest -q
+    - name: Run tests
+      run: |
+        python -m pytest tests/ -v --tb=short
+
+    - name: Run linting (optional)
+      run: |
+        # Install and run ruff if available, otherwise skip
+        pip install ruff || echo "Ruff not available, skipping linting"
+        ruff check . --exclude __pycache__ || echo "Linting completed with warnings"

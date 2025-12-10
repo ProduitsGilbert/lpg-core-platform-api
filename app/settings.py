@@ -6,6 +6,7 @@ loaded from environment variables. It provides type validation and default
 values for all settings.
 """
 
+import os
 from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,17 +15,51 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """
     Central application settings loaded from environment variables.
-    
+
     All settings can be overridden via environment variables with the same name.
-    Uses .env file if present for local development.
+    Uses .env file if present for local development, or .env.dev/.env.prod based on APP_ENV.
     """
-    
+
+    # App Environment - determines which .env file to load
+    app_env: str = Field(
+        default="dev",
+        description="Application environment: dev|prod (controls .env file loading)"
+    )
+
+    # Dynamically set env_file based on APP_ENV
+    @property
+    def env_file_path(self) -> str:
+        """Get the appropriate .env file path based on APP_ENV."""
+        if self.app_env == "prod":
+            return ".env.prod"
+        elif self.app_env == "dev":
+            return ".env.dev"
+        else:
+            return ".env"
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=None,  # Will be set dynamically
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore"
     )
+
+    def __init__(self, **kwargs):
+        # Load APP_ENV first to determine which .env file to use
+        app_env = os.getenv("APP_ENV", "dev")
+
+        # Set the env_file based on APP_ENV
+        env_file_path = ".env.prod" if app_env == "prod" else ".env.dev"
+
+        # Update model_config with the correct env_file
+        self.__class__.model_config = SettingsConfigDict(
+            env_file=env_file_path if os.path.exists(env_file_path) else ".env",
+            env_file_encoding="utf-8",
+            case_sensitive=False,
+            extra="ignore"
+        )
+
+        super().__init__(**kwargs)
     
     # Database Configuration
     db_dsn: str = Field(
@@ -188,6 +223,48 @@ class Settings(BaseSettings):
         description="URL for OCR service (Tesseract/Azure)"
     )
     
+    # ClickUp Configuration
+    clickup_api_base_url: str = Field(
+        default="https://api.clickup.com/api/v2",
+        description="Base URL for ClickUp API"
+    )
+
+    clickup_api_key: Optional[str] = Field(
+        default=None,
+        description="ClickUp API token for authentication"
+    )
+
+    clickup_sav_folder_id: Optional[str] = Field(
+        default=None,
+        description="ClickUp folder ID for SAV (Service Après Vente) tasks"
+    )
+
+    clickup_rabotage_list_id: Optional[str] = Field(
+        default=None,
+        description="ClickUp list ID for Rabotage (Regrinding) tasks"
+    )
+
+    # Zendesk Configuration
+    zendesk_api_base_url: str = Field(
+        default="https://api.zendesk.com",
+        description="Base URL for Zendesk API"
+    )
+
+    zendesk_subdomain: Optional[str] = Field(
+        default=None,
+        description="Zendesk subdomain (e.g., 'company' for company.zendesk.com)"
+    )
+
+    zendesk_api_key: Optional[str] = Field(
+        default=None,
+        description="Zendesk API token for authentication"
+    )
+
+    zendesk_username: Optional[str] = Field(
+        default=None,
+        description="Zendesk username (email) for authentication"
+    )
+
     # Application Configuration
     app_name: str = Field(
         default="LPG Core Platform API",
