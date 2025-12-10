@@ -1,0 +1,50 @@
+services:
+  # Main API service for production
+  api:
+    image: ${DOCKER_REGISTRY:-your-registry}/lpg-core-platform-api:latest
+    container_name: lpg-core-platform-api-prod
+    working_dir: /app
+    ports:
+      - "7003:7003"
+    env_file:
+      - .env.prod
+    environment:
+      # Production environment settings
+      APP_ENV: prod
+      ENVIRONMENT: production
+      DEBUG: false
+      # Production feature flags
+      ENABLE_SCHEDULER: true
+      ENABLE_OCR: true
+      ENABLE_AI_ASSISTANCE: true
+    volumes:
+      - ./logs:/app/logs
+      - ./cert:/app/certs:ro
+    networks:
+      - lpg-prod-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    # Production security settings
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+networks:
+  lpg-prod-network:
+    driver: bridge
+    name: lpg-prod-network

@@ -152,59 +152,61 @@ jobs:
           # if your app imports MSSQL at import-time, mock or guard it
           ENV: test
         run: pytest -q
-8) GitHub Actions — 
-Deploy on main
+8) GitHub Actions — CD (Continuous Deployment)
 
-Create .github/workflows/deploy.yml:
-name: Deploy
+Create .github/workflows/cd.yml for production deployment:
+
+```yaml
+name: CD
 
 on:
   push:
-    branches: [ main ]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+    branches: [main]
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
+  build-and-deploy:
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Set up Docker Buildx
+      uses: actions/setup-buildx-action@v3
 
-      - name: Compute version
-        id: ver
-        run: echo "TAG=$(bash scripts/version.sh)" >> $GITHUB_OUTPUT
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build image
-        run: |
-          docker build -t $REGISTRY/${IMAGE_NAME}:latest -t $REGISTRY/${IMAGE_NAME}:${{ steps.ver.outputs.TAG }} .
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64
+        push: true
+        tags: ${{ secrets.DOCKER_HUB_USERNAME }}/lpg-core-platform-api:latest
 
-      - name: Push image
-        run: |
-          docker push $REGISTRY/${IMAGE_NAME}:latest
-          docker push $REGISTRY/${IMAGE_NAME}:${{ steps.ver.outputs.TAG }}
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.PRODUCTION_HOST }}
+        username: ${{ secrets.PRODUCTION_USER }}
+        key: ${{ secrets.PRODUCTION_SSH_KEY }}
+        script: |
+          cd /opt/lpg-core-platform-api
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/lpg-core-platform-api:latest
+          docker-compose -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.prod.yml up -d
+          docker image prune -f
+```
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: ${{ success() && secrets.PORTAINER_WEBHOOK_URL != '' }}
-    steps:
-      - name: Trigger Portainer webhook (optional)
-        run: |
-          curl -sSf -X POST "${{ secrets.PORTAINER_WEBHOOK_URL }}"
-If you don’t use Portainer, replace the webhook with your deploy step (SSH, k8s, etc.). Keep it minimal.
+**Required GitHub Secrets:**
+- `DOCKER_HUB_USERNAME`
+- `DOCKER_HUB_TOKEN`
+- `PRODUCTION_HOST`
+- `PRODUCTION_USER`
+- `PRODUCTION_SSH_KEY`
 
 9) Branch protection (enforced by you in GitHub UI)
 •	Protect main:

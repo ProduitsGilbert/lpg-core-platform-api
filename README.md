@@ -69,6 +69,92 @@ To terminate TLS directly in the API container with an existing certificate:
 
 The `entrypoint.sh` script enables TLS automatically when both `TLS_CERT_FILE` and `TLS_KEY_FILE` point to readable files. Leave the variables blank to run HTTP only.
 
+## Development Workflow
+
+### Git Branching Strategy
+
+This project follows a Git flow with protected branches:
+
+- **`main`**: Production-ready code, automatically deployed on push
+- **`dev`**: Integration branch for ongoing development
+- **`feature/*`**: Feature branches for new development
+
+#### Development Process
+
+1. **Start Development**
+   ```bash
+   # Create feature branch from dev
+   git checkout dev
+   git pull origin dev
+   git checkout -b feature/your-feature-name
+   ```
+
+2. **Make Changes**
+   - Follow the [Agent Guidelines](Agent.md) for coding standards
+   - Test locally using appropriate environment
+   - Commit with clear messages using conventional format
+
+3. **Create Pull Request**
+   ```bash
+   # Push feature branch
+   git push origin feature/your-feature-name
+
+   # Create PR to dev branch via GitHub
+   ```
+
+4. **Merge to Production**
+   - After dev merge and testing, create PR from dev → main
+   - CI/CD automatically deploys to production on main merge
+
+### Environment Setup
+
+#### Development Environment
+```bash
+# Copy development configuration
+cp .env.example .env.dev
+# Edit .env.dev with your local settings
+
+# Run development environment
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+#### Production Environment
+```bash
+# Copy production configuration
+cp .env.example .env.prod
+# Edit .env.prod with production settings
+
+# Run production environment
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+### CI/CD Pipeline
+
+#### Continuous Integration (CI)
+- **Triggers**: Pull requests to `main`/`dev`, pushes to `dev`
+- **Actions**:
+  - Install dependencies
+  - Run tests with pytest
+  - Optional linting with ruff
+- **Requirements**: All checks must pass before merge
+
+#### Continuous Deployment (CD)
+- **Triggers**: Push to `main` branch only
+- **Actions**:
+  - Build Docker image with latest tag + commit SHA
+  - Push to Docker registry
+  - SSH to production server
+  - Pull new image and restart containers
+
+#### Required GitHub Secrets
+Set these in your repository settings:
+- `DOCKER_HUB_USERNAME`: Docker Hub username
+- `DOCKER_HUB_TOKEN`: Docker Hub access token
+- `PRODUCTION_HOST`: Production server hostname
+- `PRODUCTION_USER`: SSH username
+- `PRODUCTION_SSH_KEY`: Private SSH key
+- `PRODUCTION_PORT`: SSH port (optional, defaults to 22)
+
 ### Local Development (without Docker)
 
 1. **Install dependencies**
@@ -255,19 +341,52 @@ pytest --cov=app --cov-report=html
 
 ## Production Deployment
 
-### Docker Deployment
-```bash
-# Build production image
-docker build -t lpg-core-api:latest .
+### Automated Deployment (Recommended)
 
-# Run with production settings
-docker run -d \
-  --name lpg-api \
-  -p 7003:7003 \
-  -e ENVIRONMENT=production \
-  -e DB_DSN="your-production-dsn" \
-  -e LOGFIRE_API_KEY="your-key" \
-  lpg-core-api:latest
+Production deployments are fully automated via GitHub Actions:
+
+1. **Merge to main**: Push code to `main` branch triggers automatic deployment
+2. **CI/CD Pipeline**: Builds, tests, and deploys Docker containers
+3. **Zero-downtime**: Rolling updates with health checks
+
+### Manual Deployment (Fallback)
+
+If automated deployment fails:
+
+```bash
+# Pull latest image
+docker pull your-registry/lpg-core-platform-api:latest
+
+# Stop existing containers
+docker-compose -f docker-compose.prod.yml down
+
+# Start new containers
+docker-compose -f docker-compose.prod.yml up -d
+
+# Check health
+curl http://localhost:7003/healthz
+```
+
+### Rollback Procedure
+
+To rollback to a previous version:
+
+```bash
+# List available images
+docker images your-registry/lpg-core-platform-api
+
+# Run specific version
+docker tag your-registry/lpg-core-platform-api:previous-sha your-registry/lpg-core-platform-api:latest
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+Or rollback via Git:
+
+```bash
+# Reset main to previous commit
+git checkout main
+git reset --hard HEAD~1
+git push --force-with-lease origin main
 ```
 
 ### Kubernetes Deployment
