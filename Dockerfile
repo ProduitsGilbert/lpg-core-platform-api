@@ -49,11 +49,14 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application code  
+# Copy application code
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser migration/ ./migration/
 COPY --chown=appuser:appuser tests/ ./tests/
 COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
+
+# Copy environment files (will be selected at runtime based on APP_ENV)
+COPY --chown=appuser:appuser .env* ./
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/edi/send /app/edi/receive \

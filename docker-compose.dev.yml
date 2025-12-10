@@ -1,0 +1,42 @@
+services:
+  # Main API service for development
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lpg-core-platform-api-dev
+    working_dir: /app
+    ports:
+      - "7005:7003"
+    env_file:
+      - .env.dev
+    environment:
+      # Override with dev-specific settings
+      APP_ENV: dev
+      ENVIRONMENT: development
+      DEBUG: true
+      # Feature flags for development
+      ENABLE_SCHEDULER: false
+      ENABLE_OCR: false
+      ENABLE_AI_ASSISTANCE: false
+    volumes:
+      - ./logs:/app/logs
+      - ./cert:/app/certs:ro
+      # Mount source code for hot reloading during development
+      - ./app:/app/app
+      - ./migration:/app/migration
+      - ./tests:/app/tests
+    networks:
+      - lpg-dev-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+networks:
+  lpg-dev-network:
+    driver: bridge
+    name: lpg-dev-network
