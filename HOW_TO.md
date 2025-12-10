@@ -339,11 +339,11 @@ graph TD
 - ✅ Run pytest suite
 - ✅ Parallel execution for speed
 
-#### Deploy Pipeline (.github/workflows/deploy.yml)
-- ✅ Build Docker image
-- ✅ Tag with version (date-sha)
-- ✅ Push to GitHub Container Registry
-- ✅ Optional Portainer webhook trigger
+#### CD Pipeline (.github/workflows/cd.yml)
+- ✅ Build Docker image with commit SHA tagging
+- ✅ Push to Docker Hub registry
+- ✅ SSH deployment to on-prem production server
+- ✅ Health checks and rollback capabilities
 
 ### Working Agreement
 - 🚫 No direct pushes to `main`
