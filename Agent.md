@@ -181,3 +181,4 @@ As a coding agent working on this project, you must:
 7. **Communicate clearly** in commit messages and PR descriptions
 
 Failure to follow these guidelines may result in rejected Pull Requests and requests for rework.
+

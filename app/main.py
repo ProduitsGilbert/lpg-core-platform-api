@@ -343,7 +343,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=7003,
+        port=settings.port,
         reload=settings.debug,
         log_level="debug" if settings.debug else "info",
         access_log=True

@@ -10,7 +10,7 @@ import logfire
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.domain.erp.business_central_data_service import BusinessCentralODataService
-from app.domain.erp.models import VendorContactResponse
+from app.domain.erp.models import VendorContactResponse, CustomerSalesStatsResponse
 from app.domain.erp.vendor_contact_service import VendorContactService
 
 logger = logging.getLogger(__name__)
@@ -404,3 +404,112 @@ async def list_sales_quote_lines(
             service=service,
         )
     return records
+
+
+@router.get(
+    "/customer-sales-stats",
+    response_model=CustomerSalesStatsResponse,
+    summary="Get sales statistics for a customer",
+    description="Retrieve aggregated sales quote and sales order statistics for a specific customer, including totals and quote-to-order relationships.",
+)
+async def get_customer_sales_stats(
+    customer_id: str = Query(..., min_length=1, description="Customer ID to get sales statistics for."),
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> CustomerSalesStatsResponse:
+    """Return sales statistics for a specific customer."""
+    with logfire.span("bc_api.get_customer_sales_stats", customer_id=customer_id):
+        from decimal import Decimal
+        from app.domain.erp.models import CustomerSalesQuoteStats, CustomerSalesOrderStats
+
+        # Fetch sales quote headers for the customer
+        quote_headers = await _fetch_with_handling(
+            resource="SalesOrderQuotesH",
+            filter_field="Sell_to_Customer_No",
+            filter_value=customer_id,
+            service=service,
+        )
+
+        # Fetch sales order headers for the customer
+        order_headers = await _fetch_with_handling(
+            resource="SalesOrderHeaders",
+            filter_field="Sell_to_Customer_No",
+            filter_value=customer_id,
+            service=service,
+        )
+
+        # Aggregate quote statistics from headers (amounts are typically at header level)
+        total_quote_amount = Decimal("0")
+        quote_numbers = [quote.get("No") for quote in quote_headers if quote.get("No")]
+
+        for quote in quote_headers:
+            if "Amount" in quote and quote["Amount"] is not None:
+                try:
+                    total_quote_amount += Decimal(str(quote["Amount"]))
+                except (ValueError, TypeError):
+                    pass  # Skip invalid amounts
+
+        # For quantities, we need to aggregate from lines
+        total_quote_quantity = Decimal("0")
+        for quote_no in quote_numbers:
+            quote_lines = await _fetch_with_handling(
+                resource="SalesQuoteLines",
+                filter_field="Document_No",
+                filter_value=quote_no,
+                service=service,
+            )
+            for line in quote_lines:
+                if "Quantity" in line and line["Quantity"] is not None:
+                    try:
+                        total_quote_quantity += Decimal(str(line["Quantity"]))
+                    except (ValueError, TypeError):
+                        pass
+
+        # Aggregate order statistics
+        total_order_amount = Decimal("0")
+        total_order_quantity = Decimal("0")
+        orders_based_on_quotes = 0
+        order_numbers = [order.get("No") for order in order_headers if order.get("No")]
+
+        for order in order_headers:
+            # Check if order is based on a quote
+            if order.get("Quote_No"):
+                orders_based_on_quotes += 1
+
+            # Aggregate amounts from headers
+            if "Amount" in order and order["Amount"] is not None:
+                try:
+                    total_order_amount += Decimal(str(order["Amount"]))
+                except (ValueError, TypeError):
+                    pass
+
+        # Aggregate quantities from order lines
+        for order_no in order_numbers:
+            order_lines = await _fetch_with_handling(
+                resource="Gilbert_SalesOrderLines",
+                filter_field="DocumentNo",
+                filter_value=order_no,
+                service=service,
+            )
+            for line in order_lines:
+                if "Quantity" in line and line["Quantity"] is not None:
+                    try:
+                        total_order_quantity += Decimal(str(line["Quantity"]))
+                    except (ValueError, TypeError):
+                        pass
+
+        return CustomerSalesStatsResponse(
+            customer_id=customer_id,
+            quotes=CustomerSalesQuoteStats(
+                total_quotes=len(quote_headers),
+                total_amount=total_quote_amount,
+                total_quantity=total_quote_quantity,
+                quotes=quote_headers,
+            ),
+            orders=CustomerSalesOrderStats(
+                total_orders=len(order_headers),
+                total_amount=total_order_amount,
+                total_quantity=total_order_quantity,
+                orders_based_on_quotes=orders_based_on_quotes,
+                orders=order_headers,
+            ),
+        )

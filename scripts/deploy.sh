@@ -245,3 +245,4 @@ case "${COMMAND:-deploy}" in
         exit 1
         ;;
 esac
+

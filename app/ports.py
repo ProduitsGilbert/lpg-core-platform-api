@@ -302,3 +302,70 @@ class FrontClientProtocol(Protocol):
     async def download_attachment(self, attachment_id: str) -> bytes:
         """Download attachment content by attachment ID."""
         ...
+
+
+class ClickUpClientProtocol(Protocol):
+    """Protocol for ClickUp API client adapters."""
+
+    async def get_lists_in_folder(self, folder_id: str) -> List[Dict[str, Any]]:
+        """Get all lists in a specific folder."""
+        ...
+
+    async def get_tasks_in_list(
+        self,
+        list_id: str,
+        include_closed: bool = False,
+        page: Optional[int] = None,
+        archived: bool = False
+    ) -> Dict[str, Any]:
+        """Get tasks from a specific list."""
+        ...
+
+    async def get_task(self, task_id: str) -> Dict[str, Any]:
+        """Get a specific task by ID."""
+        ...
+
+    async def get_folder(self, folder_id: str) -> Dict[str, Any]:
+        """Get folder information."""
+        ...
+
+    async def get_list(self, list_id: str) -> Dict[str, Any]:
+        """Get list information."""
+        ...
+
+
+class ZendeskClientProtocol(Protocol):
+    """Protocol for Zendesk API client adapters."""
+
+    async def search_tickets(
+        self,
+        query: str,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Search for tickets using Zendesk search API."""
+        ...
+
+    async def list_tickets(
+        self,
+        status: Optional[str] = None,
+        page: Optional[int] = None,
+        per_page: Optional[int] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """List tickets with optional filtering."""
+        ...
+
+    async def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
+        """Get a specific ticket by ID."""
+        ...
+
+    async def export_search_results(
+        self,
+        query: str,
+        page_size: Optional[int] = None,
+        after_cursor: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Export search results using cursor-based pagination."""
+        ...

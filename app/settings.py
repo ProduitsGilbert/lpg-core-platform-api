@@ -60,7 +60,13 @@ class Settings(BaseSettings):
         )
 
         super().__init__(**kwargs)
-    
+
+    # Server Configuration
+    port: int = Field(
+        default=7003,
+        description="Port to run the FastAPI server on"
+    )
+
     # Database Configuration
     db_dsn: str = Field(
         default="mssql+pyodbc://user:pass@SERVER/DB?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes",
@@ -263,6 +269,55 @@ class Settings(BaseSettings):
     zendesk_username: Optional[str] = Field(
         default=None,
         description="Zendesk username (email) for authentication"
+    )
+
+    # Sandvik API Configuration
+    sandvik_api_enabled: bool = Field(
+        default=False,
+        description="Enable Sandvik API integration"
+    )
+
+    sandvik_base_url: str = Field(
+        default="https://machininginsights.sandvikcoromant.com",
+        description="Base URL for Sandvik Machining Insights API"
+    )
+
+    sandvik_username: Optional[str] = Field(
+        default=None,
+        description="Sandvik API username"
+    )
+
+    sandvik_password: Optional[str] = Field(
+        default=None,
+        description="Sandvik API password"
+    )
+
+    sandvik_client_id: Optional[str] = Field(
+        default=None,
+        description="Sandvik API client ID"
+    )
+
+    sandvik_client_secret: Optional[str] = Field(
+        default=None,
+        description="Sandvik API client secret"
+    )
+
+    sandvik_tenant: str = Field(
+        default="produitsgilbert",
+        description="Sandvik tenant identifier"
+    )
+
+    sandvik_api_timeout: int = Field(
+        default=30,
+        ge=1,
+        description="Timeout for Sandvik API requests in seconds"
+    )
+
+    sandvik_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum retry attempts for Sandvik API requests"
     )
 
     # Application Configuration

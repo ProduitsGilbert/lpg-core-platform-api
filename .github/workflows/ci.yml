@@ -17,7 +17,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11'
+        python-version: '3.12'
 
     - name: Cache pip dependencies
       uses: actions/cache@v3
@@ -33,12 +33,19 @@ jobs:
         pip install -r requirements.txt
         pip install -r requirements-dev.txt
 
-    - name: Run tests
-      run: |
-        python -m pytest tests/ -v --tb=short
+    - name: Type check (mypy)
+      env:
+        # Set minimal required environment variables for mypy to work
+        ERP_BASE_URL: https://dummy-erp-url.com
+        DB_DSN: mssql+pyodbc://dummy:dummy@dummy/dummy?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes
+      run: mypy app
 
-    - name: Run linting (optional)
+    - name: Run unit tests
+      env:
+        # Set minimal required environment variables for tests
+        ERP_BASE_URL: https://dummy-erp-url.com
+        DB_DSN: mssql+pyodbc://dummy:dummy@dummy/dummy?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes
+        APP_ENV: test
       run: |
-        # Install and run ruff if available, otherwise skip
-        pip install ruff || echo "Ruff not available, skipping linting"
-        ruff check . --exclude __pycache__ || echo "Linting completed with warnings"
+        # Run unit tests only (integration tests require a running server)
+        python -m pytest tests/ --ignore=tests/integration/ -v --tb=short

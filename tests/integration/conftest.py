@@ -3,7 +3,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:7005").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:3003").rstrip("/")
 DEFAULT_TIMEOUT = int(os.environ.get("TEST_HTTP_TIMEOUT", "120"))
 
 

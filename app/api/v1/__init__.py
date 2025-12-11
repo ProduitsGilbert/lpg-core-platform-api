@@ -11,6 +11,9 @@ from .documents import router as documents_router
 from .ocr import router as ocr_router
 from .toolkit import router as toolkit_router
 from .usinage import router as usinage_router
+from .sandvik import router as sandvik_router
+from .clickup.router import router as clickup_router
+from .zendesk.router import router as zendesk_router
 
 # Create main v1 router
 router = APIRouter(prefix="/api/v1")
@@ -23,3 +26,6 @@ router.include_router(documents_router)
 router.include_router(ocr_router)
 router.include_router(toolkit_router)
 router.include_router(usinage_router)
+router.include_router(sandvik_router)
+router.include_router(clickup_router)
+router.include_router(zendesk_router)

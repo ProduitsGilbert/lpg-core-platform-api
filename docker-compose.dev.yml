@@ -7,7 +7,7 @@ services:
     container_name: lpg-core-platform-api-dev
     working_dir: /app
     ports:
-      - "7005:7003"
+      - "3003:7003"
     env_file:
       - .env.dev
     environment:
@@ -15,6 +15,7 @@ services:
       APP_ENV: dev
       ENVIRONMENT: development
       DEBUG: true
+      PORT: 7003
       # Feature flags for development
       ENABLE_SCHEDULER: false
       ENABLE_OCR: false
@@ -29,7 +30,7 @@ services:
     networks:
       - lpg-dev-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:$${PORT}/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -40,3 +41,4 @@ networks:
   lpg-dev-network:
     driver: bridge
     name: lpg-dev-network
+

@@ -13,6 +13,7 @@ services:
       APP_ENV: prod
       ENVIRONMENT: production
       DEBUG: false
+      PORT: 7003
       # Production feature flags
       ENABLE_SCHEDULER: true
       ENABLE_OCR: true
@@ -23,7 +24,7 @@ services:
     networks:
       - lpg-prod-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:$${PORT}/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -48,3 +49,4 @@ networks:
   lpg-prod-network:
     driver: bridge
     name: lpg-prod-network
+

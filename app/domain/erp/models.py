@@ -280,3 +280,46 @@ class PurchaseOrderReopenResponse(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict, description="Raw ERP response payload")
 
     model_config = ConfigDict(extra="ignore")
+
+
+# Sales Stats models
+class CustomerSalesQuoteStats(BaseModel):
+    """Aggregated statistics for sales quotes for a specific customer."""
+
+    total_quotes: int = Field(default=0, description="Total number of sales quotes")
+    total_amount: Decimal = Field(default=Decimal("0"), description="Total amount across all quotes")
+    total_quantity: Decimal = Field(default=Decimal("0"), description="Total quantity across all quotes")
+    quotes: List[Dict[str, Any]] = Field(default_factory=list, description="List of individual quotes")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+        }
+
+
+class CustomerSalesOrderStats(BaseModel):
+    """Aggregated statistics for sales orders for a specific customer."""
+
+    total_orders: int = Field(default=0, description="Total number of sales orders")
+    total_amount: Decimal = Field(default=Decimal("0"), description="Total amount across all orders")
+    total_quantity: Decimal = Field(default=Decimal("0"), description="Total quantity across all orders")
+    orders_based_on_quotes: int = Field(default=0, description="Number of orders based on quotes")
+    orders: List[Dict[str, Any]] = Field(default_factory=list, description="List of individual orders")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+        }
+
+
+class CustomerSalesStatsResponse(BaseModel):
+    """Complete sales statistics for a customer including both quotes and orders."""
+
+    customer_id: str = Field(..., description="Customer ID")
+    quotes: CustomerSalesQuoteStats = Field(default_factory=CustomerSalesQuoteStats, description="Quote statistics")
+    orders: CustomerSalesOrderStats = Field(default_factory=CustomerSalesOrderStats, description="Order statistics")
+
+    class Config:
+        json_encoders = {
+            Decimal: lambda v: float(v),
+        }

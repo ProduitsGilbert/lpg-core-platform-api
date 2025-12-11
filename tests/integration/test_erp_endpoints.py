@@ -8,6 +8,7 @@ PURCHASE_ORDER_ID = os.environ.get("TEST_PURCHASE_ORDER_ID", "PO030214")
 VENDOR_ID = os.environ.get("TEST_VENDOR_ID", "MOTCA01")
 SALES_ORDER_ID = os.environ.get("TEST_SALES_ORDER_ID", "GI021698")
 SALES_QUOTE_ID = os.environ.get("TEST_SALES_QUOTE_ID", "QT030235")
+CUSTOMER_ID = os.environ.get("TEST_CUSTOMER_ID", "CUST001")
 
 REQUIRED_ERP_VARS = ("ERP_BASE_URL", "BC_API_USERNAME", "BC_API_PASSWORD")
 
@@ -184,3 +185,21 @@ def test_list_bc_sales_quote_lines(http_session, base_url, default_timeout) -> N
     assert response.status_code == 200, response.text
     lines = response.json()
     assert lines, "Expected at least one sales quote line record"
+
+
+def test_get_customer_sales_stats(http_session, base_url, default_timeout) -> None:
+    _require_erp_env()
+
+    response = http_session.get(
+        _erp_url(base_url, "/bc/customer-sales-stats"),
+        params={"customer_id": CUSTOMER_ID},
+        timeout=default_timeout,
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["customer_id"] == CUSTOMER_ID
+    assert "quotes" in data
+    assert "orders" in data
+    assert "total_quotes" in data["quotes"]
+    assert "total_orders" in data["orders"]
+    assert "orders_based_on_quotes" in data["orders"]
