@@ -29,21 +29,21 @@ class TestSandvikEndpoints:
         """Settings fixture."""
         return Settings()
 
-    @patch('app.settings.settings.sandvik_api_enabled', False)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', False)
     def test_get_machines_disabled(self, client):
         """Test getting machines when API is disabled."""
         response = client.get("/api/v1/sandvik/machines")
         assert response.status_code == 404
         assert "disabled" in response.json()["detail"].lower()
 
-    @patch('app.settings.settings.sandvik_api_enabled', False)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', False)
     def test_get_machine_groups_disabled(self, client):
         """Test getting machine groups when API is disabled."""
         response = client.get("/api/v1/sandvik/machine-groups")
         assert response.status_code == 404
         assert "disabled" in response.json()["detail"].lower()
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machines_enabled(self, client):
         """Test getting machines when API is enabled."""
         response = client.get("/api/v1/sandvik/machines")
@@ -59,7 +59,7 @@ class TestSandvikEndpoints:
         assert "NLX2500" in groups
         assert "MZ350" in groups
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machine_groups_enabled(self, client):
         """Test getting machine group names when API is enabled."""
         response = client.get("/api/v1/sandvik/machine-groups")
@@ -75,15 +75,17 @@ class TestSandvikEndpoints:
         assert "DMC_100" in groups
         assert "NLX2500" in groups
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
-    @patch('app.domain.sandvik.service.SandvikService._process_timeseries_data')
-    @patch('app.domain.sandvik.client.SandvikAPIClient.fetch_timeseries_data')
-    @patch('app.domain.sandvik.client.SandvikAPIClient.get_access_token')
-    def test_get_timeseries_metrics(self, mock_token, mock_fetch, mock_process, client):
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.SandvikService')
+    def test_get_timeseries_metrics(self, mock_service_class, client):
         """Test getting timeseries metrics."""
+        # Mock the service instance
+        mock_service = mock_service_class.return_value
+        mock_client = mock_service.client
+
         # Mock the API responses
-        mock_token.return_value = "test_token"
-        mock_fetch.return_value = [
+        mock_client.get_access_token.return_value = "test_token"
+        mock_client.fetch_timeseries_data.return_value = [
             {
                 "device": "produitsgilbert_DMC_100_01_5a1286",
                 "workday": "2024-01-01",
@@ -92,13 +94,24 @@ class TestSandvikEndpoints:
                 "cycle_time": 300000
             }
         ]
-        mock_process.return_value = [
+        mock_service._process_timeseries_data.return_value = [
             {
                 "device": "DMC_100_01",
                 "workday": date(2024, 1, 1),
                 "kind": "1234567_001-1OP",
+                "duration_sum": 3600000,
                 "total_part_count": 100,
-                "cycle_time": 300000
+                "good_part_count": 95,
+                "bad_part_count": 5,
+                "cycle_time": 300000,
+                "producing_duration": 3000000,
+                "pdt_duration": 200000,
+                "udt_duration": 100000,
+                "setup_duration": 300000,
+                "producing_percentage": 0.833,
+                "pdt_percentage": 0.056,
+                "udt_percentage": 0.028,
+                "setup_percentage": 0.083
             }
         ]
 
@@ -117,16 +130,19 @@ class TestSandvikEndpoints:
         assert data["count"] == 1
         assert len(data["data"]) == 1
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
-    @patch('app.domain.sandvik.service.SandvikService.get_machine_history')
-    def test_get_machine_history(self, mock_history, client):
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.SandvikService')
+    def test_get_machine_history(self, mock_service_class, client):
         """Test getting machine history."""
+        # Mock the service instance
+        mock_service = mock_service_class.return_value
+
         # Mock the service response
         mock_response = MagicMock()
         mock_response.machine_summaries = []
         mock_response.group_summaries = []
         mock_response.date_range = {"start": date.today(), "end": date.today()}
-        mock_history.return_value = mock_response
+        mock_service.get_machine_history.return_value = mock_response
 
         request_data = {
             "machine_group": "DMC_100",
@@ -137,20 +153,23 @@ class TestSandvikEndpoints:
         response = client.post("/api/v1/sandvik/machines/history", json=request_data)
         assert response.status_code == 200
 
-        mock_history.assert_called_once()
-        call_args = mock_history.call_args
+        mock_service.get_machine_history.assert_called_once()
+        call_args = mock_service.get_machine_history.call_args
         assert call_args[1]["machine_group"] == "DMC_100"
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
-    @patch('app.domain.sandvik.service.SandvikService.get_live_metrics')
-    def test_get_live_metrics(self, mock_live, client):
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.SandvikService')
+    def test_get_live_metrics(self, mock_service_class, client):
         """Test getting live metrics."""
+        # Mock the service instance
+        mock_service = mock_service_class.return_value
+
         # Mock the service response
         mock_response = MagicMock()
         mock_response.machine_summaries = []
         mock_response.last_updated = "2024-01-01T12:00:00"
         mock_response.lookback_hours = 24
-        mock_live.return_value = mock_response
+        mock_service.get_live_metrics.return_value = mock_response
 
         request_data = {
             "machine_group": "DMC_100",
@@ -160,20 +179,20 @@ class TestSandvikEndpoints:
         response = client.post("/api/v1/sandvik/machines/live", json=request_data)
         assert response.status_code == 200
 
-        mock_live.assert_called_once_with(
+        mock_service.get_live_metrics.assert_called_once_with(
             machine_group="DMC_100",
             machine_names=None,
             lookback_hours=48
         )
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machine_group_history_invalid_group(self, client):
         """Test getting history for invalid machine group."""
         response = client.get("/api/v1/sandvik/groups/invalid_group/history")
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machine_group_history_valid_group(self, client):
         """Test getting history for valid machine group."""
         # This would normally call the service, but we're just testing the endpoint routing
@@ -183,14 +202,14 @@ class TestSandvikEndpoints:
         # but we can at least verify the endpoint exists and validates the group
         assert response.status_code in [200, 500]  # 200 if service works, 500 if not mocked
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machine_group_live_invalid_group(self, client):
         """Test getting live metrics for invalid machine group."""
         response = client.get("/api/v1/sandvik/groups/invalid_group/live")
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
-    @patch('app.settings.settings.sandvik_api_enabled', True)
+    @patch('app.api.v1.sandvik.router.settings.sandvik_api_enabled', True)
     def test_get_machine_group_live_invalid_lookback(self, client):
         """Test getting live metrics with invalid lookback hours."""
         response = client.get("/api/v1/sandvik/groups/DMC_100/live?lookback_hours=200")
@@ -212,7 +231,7 @@ class TestSandvikService:
 
         # Test expanding all groups
         all_machines = expand_machine_groups()
-        assert len(all_machines) == 14  # Total machines across all groups
+        assert len(all_machines) == 15  # Total machines across all groups
 
         # Test expanding with direct machine names
         direct_machines = expand_machine_groups(["produitsgilbert_DMC_100_01_5a1286"])
