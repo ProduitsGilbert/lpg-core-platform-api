@@ -45,15 +45,18 @@ class Settings(BaseSettings):
     )
 
     def __init__(self, **kwargs):
-        # Load APP_ENV first to determine which .env file to use
+        # Load from .env first, then override with environment-specific file if it exists
+        env_files = [".env"]  # Always load from .env first
+
         app_env = os.getenv("APP_ENV", "dev")
+        env_specific_file = ".env.prod" if app_env == "prod" else ".env.dev"
 
-        # Set the env_file based on APP_ENV
-        env_file_path = ".env.prod" if app_env == "prod" else ".env.dev"
+        if os.path.exists(env_specific_file):
+            env_files.append(env_specific_file)  # Override with environment-specific file
 
-        # Update model_config with the correct env_file
+        # Update model_config with the correct env_file list
         self.__class__.model_config = SettingsConfigDict(
-            env_file=env_file_path if os.path.exists(env_file_path) else ".env",
+            env_file=env_files,
             env_file_encoding="utf-8",
             case_sensitive=False,
             extra="ignore"
@@ -97,6 +100,28 @@ class Settings(BaseSettings):
     cedule_sql_driver: str = Field(
         default="ODBC Driver 18 for SQL Server",
         description="ODBC driver to use for Cedule SQL connections"
+    )
+
+    # Business Central SQL Server (for Continia CDC tables)
+    bc_sql_server: Optional[str] = Field(
+        default=None,
+        description="SQL Server host for Business Central database (e.g., server\\instance)",
+    )
+    bc_sql_database: Optional[str] = Field(
+        default=None,
+        description="Business Central database name",
+    )
+    bc_sql_username: Optional[str] = Field(
+        default=None,
+        description="Business Central SQL username",
+    )
+    bc_sql_password: Optional[str] = Field(
+        default=None,
+        description="Business Central SQL password",
+    )
+    bc_sql_driver: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver to use for Business Central SQL connections",
     )
 
     fastems1_autopilot_db_dsn: Optional[str] = Field(
@@ -145,6 +170,7 @@ class Settings(BaseSettings):
         description="Base URL for Gilbert Tech internal toolkit services"
     )
 
+    # File Share (HTTP API)
     file_share_base_url: str = Field(
         default="https://api.gilbert-tech.com:7776/api/v1",
         description="Base URL for Gilbert Tech file share API"
@@ -153,6 +179,40 @@ class Settings(BaseSettings):
     file_share_requester_id: Optional[str] = Field(
         default=None,
         description="Requester user identifier for file share API calls"
+    )
+
+    # File Share (SMB/NTFS)
+    file_share_enabled: bool = Field(
+        default=False,
+        description="Enable direct SMB file share access"
+    )
+    file_share_server: Optional[str] = Field(
+        default=None,
+        description="Hostname or IP of the SMB file server"
+    )
+    file_share_share: Optional[str] = Field(
+        default=None,
+        description="Name of the SMB share (e.g., 'commun')"
+    )
+    file_share_base_path: str = Field(
+        default="/",
+        description="Base path inside the SMB share to scope file operations"
+    )
+    file_share_username: Optional[str] = Field(
+        default=None,
+        description="SMB username for the file share"
+    )
+    file_share_password: Optional[str] = Field(
+        default=None,
+        description="SMB password for the file share"
+    )
+    file_share_domain: Optional[str] = Field(
+        default=None,
+        description="Domain for SMB authentication"
+    )
+    file_share_port: int = Field(
+        default=445,
+        description="TCP port for SMB (usually 445)"
     )
 
     # Fastems1 Autopilot configuration
@@ -238,6 +298,11 @@ class Settings(BaseSettings):
     clickup_api_key: Optional[str] = Field(
         default=None,
         description="ClickUp API token for authentication"
+    )
+
+    clickup_access_token: Optional[str] = Field(
+        default=None,
+        description="ClickUp OAuth access token for authentication"
     )
 
     clickup_sav_folder_id: Optional[str] = Field(

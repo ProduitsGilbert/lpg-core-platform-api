@@ -67,7 +67,7 @@ class ERPClient(ERPClientProtocol):
         if self._http_client is None:
             self._http_client = httpx.AsyncClient(
                 base_url=self._base_url or "",
-                timeout=30.0,
+                timeout=float(getattr(settings, "request_timeout", 60)),
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/json",
@@ -78,34 +78,85 @@ class ERPClient(ERPClientProtocol):
         )
         return self._http_client
     
-    async def _fetch_odata_collection(self, resource_path: str) -> List[Dict[str, Any]]:
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, max=20),
+        retry=retry_if_exception_type((ERPUnavailable, httpx.TimeoutException)),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    async def _fetch_odata_collection(
+        self,
+        resource_path: str,
+        *,
+        fail_on_404: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         Retrieve an OData collection and return the raw values list.
         """
         try:
-            response = await self.http_client.get(resource_path)
-            response.raise_for_status()
-            payload = response.json()
-            values = payload.get("value", [])
-            if not isinstance(values, list):
-                logger.warning(
-                    "Unexpected payload structure from Business Central",
-                    extra={"resource_path": resource_path, "payload_type": type(payload)},
+            all_values: List[Dict[str, Any]] = []
+            next_url: Optional[str] = resource_path
+
+            # Follow @odata.nextLink to ensure completeness (critical for finance accuracy).
+            while next_url:
+                response = await self.http_client.get(next_url)
+                response.raise_for_status()
+                payload = response.json()
+                values = payload.get("value", [])
+                if not isinstance(values, list):
+                    logger.warning(
+                        "Unexpected payload structure from Business Central",
+                        extra={"resource_path": resource_path, "payload_type": type(payload)},
+                    )
+                    break
+                all_values.extend(values)
+
+                next_url = (
+                    payload.get("@odata.nextLink")
+                    or payload.get("odata.nextLink")
+                    or payload.get("@odata.nextlink")
                 )
-                return []
-            return values
+            return all_values
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code if exc.response else None
+            body_text = ""
+            try:
+                body_text = (exc.response.text or "")[:800] if exc.response is not None else ""
+            except Exception:
+                body_text = ""
             logger.error(
                 "Business Central HTTP error",
                 extra={"resource_path": resource_path, "status_code": status_code},
             )
             if status_code == 404:
+                if fail_on_404:
+                    raise ERPError(
+                        f"Business Central returned 404 for required resource: {resource_path}"
+                        + (f" | body: {body_text}" if body_text else ""),
+                        context={"resource_path": resource_path, "status_code": 404},
+                    )
                 return []
+            # Treat transient 5xx as unavailable so we retry.
+            if status_code in (500, 502, 503, 504):
+                raise ERPUnavailable(
+                    f"Business Central transient error {status_code} for {resource_path}"
+                    + (f" | body: {body_text}" if body_text else "")
+                )
+            # Business Central sometimes returns 400 with an Internal_ServerError payload for transient UI refreshes:
+            # "Sorry, we just updated this page. Reopen it, and try again."
+            if status_code == 400 and body_text:
+                lowered = body_text.lower()
+                if "sorry, we just updated this page" in lowered or "internal_servererror" in lowered:
+                    raise ERPUnavailable(
+                        f"Business Central transient error (400/Internal_ServerError) for {resource_path}"
+                        + (f" | body: {body_text}" if body_text else "")
+                    )
             if status_code == 503:
                 raise ERPUnavailable()
             raise ERPError(
-                f"Business Central request failed with status {status_code}: {exc.response.text if exc.response else 'unknown error'}"
+                f"Business Central request failed with status {status_code} for {resource_path}"
+                + (f": {body_text}" if body_text else "")
             )
         except httpx.RequestError as exc:
             logger.error(
@@ -1140,3 +1191,118 @@ class ERPClient(ERPClientProtocol):
                 "Failed to retrieve posted receipt lines",
                 context={"receipt_id": receipt_id, "status_code": status_code},
             )
+
+    async def get_posted_sales_invoices(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve posted sales invoices with remaining amount > 0, optionally filtered by Due_Date."""
+        filters = ["Remaining_Amount gt 0"]
+        if start_date:
+            filters.append(f"Due_Date ge {start_date.isoformat()}")
+        if end_date:
+            filters.append(f"Due_Date le {end_date.isoformat()}")
+        resource = "PostedSalesInvoiceHeaders?$filter=" + " and ".join(filters)
+        return await self._fetch_odata_collection(resource)
+
+    async def get_job_planning_lines(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve job planning lines for billing.
+        Filtering by Job Task No '6.FACTURATION' as specified.
+        """
+        filters = ["Job_Task_No eq '6.FACTURATION'"]
+        # Planning_Date is the base date for projection in our service.
+        if start_date:
+            filters.append(f"Planning_Date ge {start_date.isoformat()}")
+        if end_date:
+            filters.append(f"Planning_Date le {end_date.isoformat()}")
+        resource = "JobPlanningLines?$filter=" + " and ".join(filters)
+        return await self._fetch_odata_collection(resource)
+
+    async def get_open_purchase_invoices(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve open purchase invoices, optionally filtered by Due_Date (preferred) or Document_Date."""
+        if not start_date and not end_date:
+            return await self._fetch_odata_collection("PurchaseInvoices")
+        filters: List[str] = []
+        if start_date:
+            # Prefer Due_Date since that's the payment schedule field in BC.
+            filters.append(f"Due_Date ge {start_date.isoformat()}")
+        if end_date:
+            filters.append(f"Due_Date le {end_date.isoformat()}")
+        resource = "PurchaseInvoices?$filter=" + " and ".join(filters)
+        return await self._fetch_odata_collection(resource)
+
+    async def get_posted_purchase_invoices(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve posted purchase invoices with remaining amount > 0, optionally filtered by Due_Date."""
+        filters = ["Remaining_Amount gt 0"]
+        if start_date:
+            filters.append(f"Due_Date ge {start_date.isoformat()}")
+        if end_date:
+            filters.append(f"Due_Date le {end_date.isoformat()}")
+        resource = "PostedPurchaseInvoiceHeaders?$filter=" + " and ".join(filters)
+        return await self._fetch_odata_collection(resource)
+
+    async def get_continia_invoices(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve Continia invoices.
+
+        Important: Schema differs from standard BC entities (e.g. may not have Document_Date),
+        so we avoid server-side date filtering here and instead filter client-side.
+
+        Fail-closed requirement: if the endpoint is missing (404), raise an error.
+        """
+        _ = (start_date, end_date)  # filtered client-side in service
+        # Force smaller pages to reduce load / timeouts; pagination will follow @odata.nextLink.
+        return await self._fetch_odata_collection("Continia?$top=1000", fail_on_404=True)
+
+    async def get_customer_payment_terms(self) -> List[Dict[str, Any]]:
+        """Retrieve customer payment terms mappings."""
+        return await self._fetch_odata_collection("Customers?$select=No,Payment_Terms_Code")
+
+    async def get_vendor_payment_terms(self) -> List[Dict[str, Any]]:
+        """Retrieve vendor payment terms mappings."""
+        # Include Currency_Code so downstream cashflow can map payables to the correct bank account.
+        return await self._fetch_odata_collection("Vendors?$select=No,Payment_Terms_Code,Currency_Code")
+
+    async def get_payment_terms_definitions(self) -> List[Dict[str, Any]]:
+        """Retrieve payment terms definitions (e.g. Due Date Calculation)."""
+        return await self._fetch_odata_collection("PaymentTerms")
+
+    async def get_job(self, job_no: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a single job header (used to resolve customer/payment terms for job planning lines)."""
+        if not job_no:
+            return None
+        sanitized = job_no.replace("'", "''")
+        rows = await self._fetch_odata_collection(f"Jobs?$filter=No eq '{sanitized}'")
+        return rows[0] if rows else None
+
+    async def get_open_po_lines(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve open purchase order lines (to be received).
+        Using Gilbert_PurchaseOrderLines as requested.
+        Filtering for outstanding quantity > 0 to get only what is yet to be received/invoiced.
+        """
+        # Assuming Outstanding_Quantity is available or we filter by Quantity > Quantity_Received
+        # Note: In BC OData, calculated fields like Outstanding_Quantity might not always be filterable 
+        # depending on the page type. If this fails, we might need to fetch more and filter in python,
+        # but let's try a standard filter first or just fetch recent ones.
+        # For safety/performance, let's try to filter where Quantity > 0.
+        # The user said "you'll get the BuyFromVendor in that endpoint".
+        # Prefer Quantity_Invoiced to represent "not invoiced yet" remaining.
+        filters = ["Quantity gt 0", "Quantity_Invoiced lt Quantity"]
+        # Use Expected_Receipt_Date for date scoping (when present).
+        if start_date:
+            filters.append(f"Expected_Receipt_Date ge {start_date.isoformat()}")
+        if end_date:
+            filters.append(f"Expected_Receipt_Date le {end_date.isoformat()}")
+        resource = "Gilbert_PurchaseOrderLines?$filter=" + " and ".join(filters)
+        return await self._fetch_odata_collection(resource)
