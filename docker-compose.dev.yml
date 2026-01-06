@@ -8,29 +8,30 @@ services:
     working_dir: /app
     ports:
       - "3003:7003"
-    env_file:
-      - .env.dev
     environment:
       # Override with dev-specific settings
       APP_ENV: dev
       ENVIRONMENT: development
       DEBUG: true
       PORT: 7003
+      # Required by Settings (must be http/https)
+      ERP_BASE_URL: ${ERP_BASE_URL:-https://example.com}
+      # Database DSN (ensure Driver 18; Settings will normalize any lingering Driver 17)
+      DB_DSN: ${DB_DSN:-mssql+pyodbc://username:password@your-sql-server-host:1433/YourDatabase?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes}
+      # OCR / AI
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-4.1-mini}
       # Feature flags for development
       ENABLE_SCHEDULER: false
-      ENABLE_OCR: false
+      ENABLE_OCR: true
       ENABLE_AI_ASSISTANCE: false
     volumes:
       - ./logs:/app/logs
       - ./cert:/app/certs:ro
-      # Mount source code for hot reloading during development
-      - ./app:/app/app
-      - ./migration:/app/migration
-      - ./tests:/app/tests
     networks:
       - lpg-dev-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:$${PORT}/healthz"]
+      test: ["CMD-SHELL", "curl -f \"http://localhost:7003/healthz\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -39,6 +40,6 @@ services:
 
 networks:
   lpg-dev-network:
-    driver: bridge
     name: lpg-dev-network
+    external: true
 

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 # Set required environment variables for tests
 os.environ.setdefault("ERP_BASE_URL", "http://test.example.com")
-os.environ.setdefault("DB_DSN", "mssql+pyodbc://test:test@localhost:1433/test?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes")
+os.environ.setdefault("DB_DSN", "mssql+pyodbc://test:test@localhost:1433/test?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes")
 
 from app.main import app
 from app.settings import Settings

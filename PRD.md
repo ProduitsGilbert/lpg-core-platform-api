@@ -52,7 +52,7 @@ docker-compose.yml
 .env.example
 README.md
 Configuration (env)
-•	DB_DSN=mssql+pyodbc://user:pass@SERVER/DB?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes
+•	DB_DSN=mssql+pyodbc://user:pass@SERVER/DB?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes
 •	ERP_MODE=legacy|official|canary (default legacy)
 •	ERP_BASE_URL= (if using official API later)
 •	LOGFIRE_API_KEY=...

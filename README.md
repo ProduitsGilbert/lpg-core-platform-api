@@ -19,7 +19,7 @@ Minimal FastAPI Core Platform API for Business Central (On-Prem v18 / MS SQL Ser
 - Python 3.11+
 - Docker and Docker Compose
 - Microsoft SQL Server (or use the included Docker container)
-- ODBC Driver 17 for SQL Server
+- ODBC Driver 18 for SQL Server
 
 ### Setup
 
@@ -448,7 +448,7 @@ All write operations support idempotency via the `Idempotency-Key` header:
 1. **Database Connection Failed**
    - Verify MSSQL is running: `docker-compose ps`
    - Check connection string in `.env`
-   - Ensure ODBC Driver 17 is installed
+   - Ensure ODBC Driver 18 is installed
 
 2. **ERP Operations Failing**
    - Check `ERP_MODE` setting

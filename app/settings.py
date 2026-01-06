@@ -72,7 +72,7 @@ class Settings(BaseSettings):
 
     # Database Configuration
     db_dsn: str = Field(
-        default="mssql+pyodbc://user:pass@SERVER/DB?driver=ODBC+Driver+17+for+SQL+Server&TrustServerCertificate=yes",
+        default="mssql+pyodbc://user:pass@SERVER/DB?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes",
         description="MSSQL database connection string with pyodbc driver"
     )
     
@@ -128,6 +128,36 @@ class Settings(BaseSettings):
         default=None,
         description="Override MSSQL DSN for Fastems1 Autopilot tables (if different from DB_DSN)"
     )
+
+    @staticmethod
+    def _normalize_odbc_driver_17_to_18(value: str) -> str:
+        """
+        Enforce ODBC Driver 18 usage.
+
+        We historically had references to ODBC Driver 17 in env files/DSNs.
+        Since our containers install msodbcsql18, normalize any 17 references to 18.
+        """
+        return (
+            value.replace("ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server")
+            .replace("ODBC+Driver+17+for+SQL+Server", "ODBC+Driver+18+for+SQL+Server")
+            .replace("{ODBC Driver 17 for SQL Server}", "{ODBC Driver 18 for SQL Server}")
+        )
+
+    @field_validator(
+        "db_dsn",
+        "cedule_db_dsn",
+        "fastems1_autopilot_db_dsn",
+        "cedule_sql_driver",
+        "bc_sql_driver",
+        mode="before",
+    )
+    @classmethod
+    def _enforce_odbc_driver_18(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, str):
+            return v
+        return cls._normalize_odbc_driver_17_to_18(v)
 
     # Business Central API Configuration
     erp_base_url: str = Field(
@@ -472,6 +502,11 @@ class Settings(BaseSettings):
     enable_ai_assistance: bool = Field(
         default=False,
         description="Enable AI-powered assistance features"
+    )
+
+    enable_docs: bool = Field(
+        default=False,
+        description="Expose OpenAPI/Swagger docs endpoints even in production"
     )
     
     # Idempotency Configuration
