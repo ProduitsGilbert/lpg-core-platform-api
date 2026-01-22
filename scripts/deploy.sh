@@ -50,9 +50,9 @@ pre_deployment_checks() {
         exit 1
     fi
 
-    # Check if .env.prod exists
-    if [ ! -f ".env.prod" ]; then
-        log_error ".env.prod file not found. Please create it from .env.example"
+# Check if .env exists
+    if [ ! -f ".env" ]; then
+        log_error ".env file not found. Please create it from .env.example"
         exit 1
     fi
 
@@ -245,4 +245,6 @@ case "${COMMAND:-deploy}" in
         exit 1
         ;;
 esac
+
+
 

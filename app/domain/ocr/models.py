@@ -4,7 +4,7 @@ Pydantic models for OCR document extraction.
 These models define the structure of extracted data from various document types.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import date
 from decimal import Decimal
 from pydantic import BaseModel, Field
@@ -106,11 +106,11 @@ class InvoiceExtraction(BaseModel):
 class AccountStatementTransaction(BaseModel):
     """Common transaction structure for account statements."""
     transaction_date: date = Field(..., description="Transaction posting date")
-    description: str = Field(..., description="Transaction description or memo")
+    description: Optional[str] = Field(None, description="Transaction description or memo")
     reference: Optional[str] = Field(None, description="Reference or document number")
     debit: Optional[Decimal] = Field(None, description="Debit amount applied to the account")
     credit: Optional[Decimal] = Field(None, description="Credit amount applied to the account")
-    balance: Decimal = Field(..., description="Running balance after the transaction")
+    balance: Optional[Decimal] = Field(None, description="Running balance after the transaction")
     currency: Optional[str] = Field(None, description="Currency code for the transaction")
 
 
@@ -120,13 +120,13 @@ class SupplierAccountStatementExtraction(BaseModel):
     supplier_id: Optional[str] = Field(None, description="Internal supplier identifier")
     account_number: Optional[str] = Field(None, description="Supplier account number")
     statement_number: Optional[str] = Field(None, description="Statement identifier or reference")
-    statement_period_start: date = Field(..., description="Statement period start date")
-    statement_period_end: date = Field(..., description="Statement period end date")
+    statement_period_start: Optional[date] = Field(None, description="Statement period start date")
+    statement_period_end: Optional[date] = Field(None, description="Statement period end date")
     currency: str = Field(default="USD", description="Currency used for the statement")
-    opening_balance: Decimal = Field(..., description="Balance at the start of the period")
-    total_debits: Decimal = Field(..., description="Total debits during the period")
-    total_credits: Decimal = Field(..., description="Total credits during the period")
-    closing_balance: Decimal = Field(..., description="Balance at the end of the period")
+    opening_balance: Optional[Decimal] = Field(None, description="Balance at the start of the period")
+    total_debits: Optional[Decimal] = Field(None, description="Total debits during the period")
+    total_credits: Optional[Decimal] = Field(None, description="Total credits during the period")
+    closing_balance: Optional[Decimal] = Field(None, description="Balance at the end of the period")
     statement_date: Optional[date] = Field(None, description="Date the statement was issued")
     contact_information: Optional[str] = Field(None, description="Supplier contact details")
     transactions: List[AccountStatementTransaction] = Field(
@@ -237,6 +237,143 @@ class CommercialInvoiceExtraction(BaseModel):
     line_items: List[CommercialInvoiceItem] = Field(..., description="Line items included in the commercial invoice")
     additional_documents: Optional[str] = Field(None, description="References to packing lists, certificates, etc.")
     remarks: Optional[str] = Field(None, description="Additional notes or regulatory statements")
+
+
+class PaymentTermMilestone(BaseModel):
+    """Single payment milestone from a contract payment schedule."""
+
+    sequence: int = Field(..., description="Order of the milestone as it appears in the document (1-based)")
+    percent: Optional[Decimal] = Field(
+        default=None,
+        description="Percent of total amount for this milestone (0-100). Prefer percent when available."
+    )
+    amount: Optional[Decimal] = Field(
+        default=None,
+        description="Absolute amount due for this milestone (if specified explicitly in the document)."
+    )
+    currency: Optional[str] = Field(
+        default=None,
+        description="Currency code for amount if specified explicitly (ISO 4217)."
+    )
+    trigger: Optional[
+        Literal[
+            "purchase_order",
+            "contract_signature",
+            "invoice",
+            "shipment",
+            "delivery",
+            "acceptance",
+            "milestone",
+            "other",
+        ]
+    ] = Field(
+        default=None,
+        description="Best-effort classification of what this milestone is tied to."
+    )
+    days_after_trigger: Optional[int] = Field(
+        default=None,
+        description="Number of days after the trigger event (e.g., 30 for '30 days after Purchase Order')."
+    )
+    timing_text: str = Field(
+        ...,
+        description="Original timing description for the milestone (e.g., '10% at Purchase Order', '40% 30 days after Purchase Order')."
+    )
+    notes: Optional[str] = Field(default=None, description="Any additional constraints or clarifications for this milestone.")
+
+
+class ContractPaymentTermsExtraction(BaseModel):
+    """Extracted payment terms + total amount from a customer contract."""
+
+    payment_terms_text: str = Field(
+        ...,
+        description="Verbatim payment terms section text (or best-available reconstruction)."
+    )
+    milestones: List[PaymentTermMilestone] = Field(
+        ...,
+        description="Parsed payment milestones in order."
+    )
+    total_amount: Decimal = Field(
+        ...,
+        description="Total contract amount (decimal number, no currency symbols)."
+    )
+    currency: Optional[str] = Field(
+        default=None,
+        description="Currency code for the total amount (ISO 4217), if present."
+    )
+    total_amount_label: Optional[str] = Field(
+        default=None,
+        description="Label as written in the document near the total amount (e.g., 'Total Contract Value', 'Grand Total')."
+    )
+    total_amount_text: Optional[str] = Field(
+        default=None,
+        description="Verbatim text snippet around the total amount, if available."
+    )
+    confidence_score: Optional[float] = Field(default=None, description="Extraction confidence score")
+    processing_time_ms: Optional[int] = Field(default=None, description="Processing time in milliseconds")
+    document_category: Optional[str] = Field(default=None, description="Document category identifier")
+
+
+class BoundingBox(BaseModel):
+    """Normalized bounding box for a block on a page (0-1 coordinates)."""
+    page: int = Field(..., description="1-based page number")
+    x0: float = Field(..., description="Left coordinate (0-1)")
+    y0: float = Field(..., description="Top coordinate (0-1)")
+    x1: float = Field(..., description="Right coordinate (0-1)")
+    y1: float = Field(..., description="Bottom coordinate (0-1)")
+
+
+class TableExtraction(BaseModel):
+    """Extracted table data from a document."""
+    title: Optional[str] = Field(None, description="Table title or caption, if present")
+    headers: List[str] = Field(default_factory=list, description="Table column headers")
+    rows: List[List[str]] = Field(default_factory=list, description="Table rows as list of cell strings")
+
+
+class FigureValue(BaseModel):
+    """A numeric value read from a figure/chart/graph."""
+    label: Optional[str] = Field(None, description="Label for the value (e.g., series or axis label)")
+    value: Optional[str] = Field(None, description="Value as shown in the figure")
+    unit: Optional[str] = Field(None, description="Unit for the value if available")
+    notes: Optional[str] = Field(None, description="Any qualifiers or context about the value")
+
+
+class FigureExtraction(BaseModel):
+    """Extracted figure or chart with a brief description and values."""
+    title: Optional[str] = Field(None, description="Figure title or caption, if present")
+    figure_type: Literal["diagram", "chart", "graph", "image", "unknown"] = Field(
+        default="unknown",
+        description="Best-effort classification of the figure",
+    )
+    description: Optional[str] = Field(None, description="Short description of what the figure shows")
+    values: List[FigureValue] = Field(default_factory=list, description="Values read from the figure")
+
+
+class LayoutBlock(BaseModel):
+    """A single layout block from the document."""
+    block_id: str = Field(..., description="Unique block identifier within the document")
+    block_type: Literal["heading", "text", "table", "figure", "list", "footer", "header", "other"] = Field(
+        ...,
+        description="Type of layout block",
+    )
+    page: int = Field(..., description="1-based page number where the block appears")
+    text: Optional[str] = Field(None, description="Text content for text/heading/list blocks")
+    table: Optional[TableExtraction] = Field(None, description="Table data when block_type is table")
+    figure: Optional[FigureExtraction] = Field(None, description="Figure data when block_type is figure")
+    bbox: Optional[BoundingBox] = Field(None, description="Optional bounding box for the block")
+
+
+class ComplexDocumentExtraction(BaseModel):
+    """Model for complex document layout + text + figures/tables extraction."""
+    document_title: Optional[str] = Field(None, description="Detected document title if present")
+    language: Optional[str] = Field(None, description="Document language if detected")
+    summary_markdown: str = Field(..., description="Concise markdown summary of the document contents")
+    full_text: Optional[str] = Field(None, description="Concatenated document text if available")
+    blocks: List[LayoutBlock] = Field(..., description="Ordered layout blocks extracted from the document")
+    tables: List[TableExtraction] = Field(default_factory=list, description="All tables extracted")
+    figures: List[FigureExtraction] = Field(default_factory=list, description="All figures/graphs extracted")
+    confidence_score: Optional[float] = Field(default=None, description="Extraction confidence score")
+    processing_time_ms: Optional[int] = Field(default=None, description="Processing time in milliseconds")
+    document_category: Optional[str] = Field(default=None, description="Document category identifier")
 
 
 class OCRExtractionRequest(BaseModel):

@@ -28,16 +28,7 @@ types-requests>=2.31.0
 Create a `.env` file in your project root:
 
 ```env
-# Sandvik API Credentials
-SANDVIK_USERNAME=apiuser
-SANDVIK_PASSWORD=V1MANAAP!user
-SANDVIK_CLIENT_ID=tenant_produitsgilbert
-SANDVIK_CLIENT_SECRET=oZBPsF@PtaJOrcUcs5U!6^!ok#@U!#EH
-SANDVIK_TENANT=produitsgilbert
 
-# Optional: API timeouts and retries
-SANDVIK_API_TIMEOUT=30
-SANDVIK_MAX_RETRIES=3
 ```
 
 ### API Endpoints

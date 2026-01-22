@@ -76,6 +76,7 @@ async def list_sav_rabotage_tasks(
     except HTTPException:
         raise
     except BaseAPIException:
+        # Let BaseAPIException bubble up to global handler
         raise
     except Exception as exc:
         logger.error("Error retrieving SAV/Rabotage tasks: %s", exc)
@@ -90,6 +91,73 @@ async def list_sav_rabotage_tasks(
             },
         )
 
+
+@router.get(
+    "/space/{space_id}/customer/{customer_id}",
+    response_model=CollectionResponse[ClickUpTaskResponse],
+    responses={
+        200: {"description": "Tasks retrieved successfully"},
+        400: {"description": "Invalid request parameters", "model": ErrorResponse},
+        500: {"description": "Internal server error", "model": ErrorResponse},
+    },
+    summary="List tasks for a customer in a space",
+    description="""
+    Retrieve tasks from a specific ClickUp space filtered by customer ID.
+
+    - Includes tasks from all lists within the space (folder and folderless lists)
+    - Includes closed/completed tasks by default
+    - Supports pagination with `page` parameter (per ClickUp list pagination)
+    """,
+)
+async def list_tasks_for_customer_in_space(
+    space_id: str,
+    customer_id: str,
+    include_closed: bool = Query(
+        True,
+        description="Whether to include closed/completed tasks",
+        example=True
+    ),
+    page: Optional[int] = Query(
+        None,
+        description="Page number for pagination (optional)",
+        ge=1,
+        example=1
+    ),
+    db: Session = Depends(get_db),
+) -> CollectionResponse[ClickUpTaskResponse]:
+    """List tasks for a specific customer in a space."""
+    try:
+        with logfire.span(
+            "list_tasks_for_customer_in_space",
+            space_id=space_id,
+            customer_id=customer_id,
+            include_closed=include_closed,
+            page=page
+        ):
+            result = await clickup_service.get_tasks_for_customer_in_space(
+                space_id=space_id,
+                customer_id=customer_id,
+                include_closed=include_closed,
+                page=page
+            )
+
+        return CollectionResponse(data=result.tasks)
+    except HTTPException:
+        raise
+    except BaseAPIException:
+        raise
+    except Exception as exc:
+        logger.error("Error retrieving tasks for customer %s in space %s: %s", customer_id, space_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to retrieve ClickUp tasks",
+                    "trace_id": getattr(db, "trace_id", "unknown"),
+                }
+            },
+        )
 
 @router.get(
     "/sav-rabotage/{task_id}",
@@ -127,6 +195,7 @@ async def get_task_by_id(
     except HTTPException:
         raise
     except BaseAPIException:
+        # Let BaseAPIException bubble up to global handler
         raise
     except Exception as exc:
         logger.error("Error retrieving task %s: %s", task_id, exc)
@@ -140,4 +209,5 @@ async def get_task_by_id(
                 }
             },
         )
+
 

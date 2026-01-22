@@ -59,12 +59,9 @@ COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
 COPY --chown=appuser:appuser .env* ./
 
 # Create necessary directories
-RUN mkdir -p /app/logs /app/edi/send /app/edi/receive \
-    && chown -R appuser:appuser /app/logs /app/edi \
+RUN mkdir -p /app/logs /app/edi/send /app/edi/receive /app/data \
+    && chown -R appuser:appuser /app/logs /app/edi /app/data \
     && chmod +x /app/entrypoint.sh
-
-# Switch to non-root user
-USER appuser
 
 # Environment variables (can be overridden)
 ENV PYTHONUNBUFFERED=1 \

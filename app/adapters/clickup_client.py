@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 import logfire
+from fastapi import status
 
 from app.settings import settings
 from app.errors import BaseAPIException
@@ -14,27 +15,62 @@ from app.errors import BaseAPIException
 
 class ClickUpError(BaseAPIException):
     """ClickUp API error."""
-    pass
+
+    def __init__(self, detail: str, status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            status_code=status_code,
+            detail=detail,
+            error_code="CLICKUP_ERROR",
+            context=context
+        )
 
 
 class ClickUpUnauthorized(ClickUpError):
     """ClickUp authentication error."""
-    pass
+
+    def __init__(self, detail: str = "ClickUp authentication failed", context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            detail=detail,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            context=context
+        )
 
 
 class ClickUpNotFound(ClickUpError):
     """ClickUp resource not found."""
-    pass
+
+    def __init__(self, resource: str, resource_id: str, context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            detail=f"ClickUp {resource} '{resource_id}' not found",
+            status_code=status.HTTP_404_NOT_FOUND,
+            context=context
+        )
 
 
 class ClickUpRateLimited(ClickUpError):
     """ClickUp rate limit exceeded."""
-    pass
+
+    def __init__(self, retry_after: Optional[int] = None, context: Optional[Dict[str, Any]] = None):
+        detail = "ClickUp API rate limit exceeded"
+        if retry_after:
+            detail += f". Retry after {retry_after} seconds"
+
+        super().__init__(
+            detail=detail,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            context=context
+        )
 
 
 class ClickUpConfigurationError(ClickUpError):
     """ClickUp configuration error."""
-    pass
+
+    def __init__(self, detail: str = "ClickUp is not properly configured", context: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            detail=detail,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            context=context
+        )
 
 
 class ClickUpClient:
@@ -44,11 +80,13 @@ class ClickUpClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "ClickUpClient":
-        if not settings.clickup_api_key:
-            raise ClickUpConfigurationError("ClickUp API key is not configured")
+        # Try access token first, then fall back to API key
+        token = settings.clickup_access_token or settings.clickup_api_key
+        if not token:
+            raise ClickUpConfigurationError("ClickUp API key or access token is not configured")
 
         headers = {
-            "Authorization": settings.clickup_api_key,
+            "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
@@ -142,12 +180,15 @@ class ClickUpClient:
         archived: bool = False
     ) -> Dict[str, Any]:
         """Get tasks from a specific list."""
-        params = {
-            "include_closed": str(include_closed).lower(),
-            "archived": str(archived).lower(),
-        }
-        if page:
-            params["page"] = str(page)
+        params = {}
+        if include_closed:
+            params["include_closed"] = str(include_closed).lower()
+        if archived:
+            params["archived"] = str(archived).lower()
+        if page is not None:
+            # ClickUp uses 0-based pagination, so convert from 1-based
+            clickup_page = max(0, page - 1) if page > 0 else 0
+            params["page"] = str(clickup_page)
 
         return await self._request("GET", f"/list/{list_id}/task", params=params)
 
@@ -162,4 +203,15 @@ class ClickUpClient:
     async def get_list(self, list_id: str) -> Dict[str, Any]:
         """Get list information."""
         return await self._request("GET", f"/list/{list_id}")
+
+    async def get_folders_in_space(self, space_id: str) -> List[Dict[str, Any]]:
+        """Get all folders in a specific space."""
+        response = await self._request("GET", f"/space/{space_id}/folder")
+        return response.get("folders", [])
+
+    async def get_lists_in_space(self, space_id: str) -> List[Dict[str, Any]]:
+        """Get all folderless lists in a specific space."""
+        response = await self._request("GET", f"/space/{space_id}/list")
+        return response.get("lists", [])
+
 

@@ -59,4 +59,13 @@ if [[ -n "${TLS_CERT_FILE:-}" && -n "${TLS_KEY_FILE:-}" ]]; then
     fi
 fi
 
+if [[ "$(id -u)" == "0" ]]; then
+    # Ensure mounted volumes are writable for the app user.
+    mkdir -p /app/logs /app/edi /app/data
+    chown -R appuser:appuser /app/logs /app/edi /app/data || true
+    # Drop privileges to appuser for runtime.
+    uvicorn_cmd_str="$(printf '%q ' "${UVICORN_CMD[@]}")"
+    exec su -s /bin/bash appuser -c "${uvicorn_cmd_str}"
+fi
+
 exec "${UVICORN_CMD[@]}"

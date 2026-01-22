@@ -93,3 +93,9 @@ class CashflowProjection(BaseModel):
     end_date: date
     daily_flows: List[DailyCashflow]
 
+
+
+
+
+
+

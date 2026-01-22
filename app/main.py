@@ -7,6 +7,7 @@ routers, exception handlers, and lifecycle events.
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+import asyncio
 import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +23,7 @@ from app.errors import register_exception_handlers
 from app.routers import health, purchasing
 from app.audit import cleanup_expired_idempotency_keys, cleanup_old_audit_logs
 from app.db import get_db_session
+from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
 
 # Configure logging
@@ -34,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize scheduler if enabled
 scheduler = None
+geocode_warmup_task: asyncio.Task | None = None
 if settings.enable_scheduler:
     jobstores = {"default": MemoryJobStore()}
     scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="UTC")
@@ -116,6 +119,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         
         scheduler.start()
         logger.info("APScheduler started with cleanup jobs")
+
+    if settings.google_geocode_persist_enabled:
+        logger.info("Loading geocode cache from disk")
+        await customer_geocode_cache.load_from_storage()
+
+    if settings.google_api_key:
+        logger.info("Starting customer geocode cache warm-up")
+        global geocode_warmup_task
+        geocode_warmup_task = asyncio.create_task(customer_geocode_cache.warm_from_bc())
+    else:
+        logger.warning("GOOGLE_API_KEY not configured; geocode cache warm-up skipped")
     
     logger.info(f"{settings.app_name} startup complete")
     
@@ -128,6 +142,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if scheduler and scheduler.running:
         scheduler.shutdown()
         logger.info("APScheduler stopped")
+
+    if geocode_warmup_task and not geocode_warmup_task.done():
+        geocode_warmup_task.cancel()
     
     # Dispose database connections
     dispose_engine()
@@ -146,9 +163,9 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Minimal FastAPI Core Platform API for ERP integration",
-    docs_url="/docs" if not settings.is_production else None,
-    redoc_url="/redoc" if not settings.is_production else None,
-    openapi_url="/openapi.json" if not settings.is_production else None,
+    docs_url="/docs" if (settings.enable_docs or not settings.is_production) else None,
+    redoc_url="/redoc" if (settings.enable_docs or not settings.is_production) else None,
+    openapi_url="/openapi.json" if (settings.enable_docs or not settings.is_production) else None,
     lifespan=lifespan
 )
 

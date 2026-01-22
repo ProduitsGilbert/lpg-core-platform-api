@@ -9,6 +9,7 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from functools import lru_cache
 
 from app.api.v1.usinage.fastems1.autopilot.schemas import (
     NextRequest,
@@ -39,40 +40,84 @@ from app.settings import settings
 
 router = APIRouter(prefix="/autopilot", tags=["Fastems1 Autopilot"])
 
-WORKORDER_PROVIDER = WorkOrderProvider()
-FIXTURE_PROVIDER = FixtureProvider()
-TOOLING_PROVIDER = ToolingProvider()
-MATERIAL_PROVIDER = MaterialProvider()
-PALLET_ROUTE_PROVIDER = PalletRouteProvider()
-
-
 def ensure_enabled() -> None:
     if not settings.fastems1_autopilot_enabled:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Fastems1 Autopilot is disabled")
+
+
+@lru_cache(maxsize=1)
+def _get_providers() -> tuple[WorkOrderProvider, FixtureProvider, ToolingProvider, MaterialProvider, PalletRouteProvider]:
+    """
+    Lazily build provider singletons.
+
+    Important: Some providers may require optional DB drivers (e.g., ODBC). By deferring
+    instantiation, we avoid import-time failures in environments where those drivers are absent,
+    and we only initialize providers when the Autopilot feature is enabled.
+    """
+    return (
+        WorkOrderProvider(),
+        FixtureProvider(),
+        ToolingProvider(),
+        MaterialProvider(),
+        PalletRouteProvider(),
+    )
+
+
+def get_workorder_provider(_: None = Depends(ensure_enabled)) -> WorkOrderProvider:
+    return _get_providers()[0]
+
+
+def get_fixture_provider(_: None = Depends(ensure_enabled)) -> FixtureProvider:
+    return _get_providers()[1]
+
+
+def get_tooling_provider(_: None = Depends(ensure_enabled)) -> ToolingProvider:
+    return _get_providers()[2]
+
+
+def get_material_provider(_: None = Depends(ensure_enabled)) -> MaterialProvider:
+    return _get_providers()[3]
+
+
+def get_pallet_route_provider(_: None = Depends(ensure_enabled)) -> PalletRouteProvider:
+    return _get_providers()[4]
 
 
 def get_repository(db: Session = Depends(get_autopilot_db)) -> AutopilotRepository:
     return AutopilotRepository(db)
 
 
-def get_planner_service(repo: AutopilotRepository = Depends(get_repository)) -> AutopilotPlannerService:
+def get_planner_service(
+    repo: AutopilotRepository = Depends(get_repository),
+    workorder_provider: WorkOrderProvider = Depends(get_workorder_provider),
+    fixture_provider: FixtureProvider = Depends(get_fixture_provider),
+    tooling_provider: ToolingProvider = Depends(get_tooling_provider),
+    material_provider: MaterialProvider = Depends(get_material_provider),
+    pallet_route_provider: PalletRouteProvider = Depends(get_pallet_route_provider),
+) -> AutopilotPlannerService:
     return AutopilotPlannerService(
         repo,
-        WORKORDER_PROVIDER,
-        FIXTURE_PROVIDER,
-        TOOLING_PROVIDER,
-        MATERIAL_PROVIDER,
-        PALLET_ROUTE_PROVIDER,
+        workorder_provider,
+        fixture_provider,
+        tooling_provider,
+        material_provider,
+        pallet_route_provider,
     )
 
 
-def get_suggestion_service(repo: AutopilotRepository = Depends(get_repository)) -> AutopilotSuggestionService:
+def get_suggestion_service(
+    repo: AutopilotRepository = Depends(get_repository),
+    fixture_provider: FixtureProvider = Depends(get_fixture_provider),
+    tooling_provider: ToolingProvider = Depends(get_tooling_provider),
+    pallet_route_provider: PalletRouteProvider = Depends(get_pallet_route_provider),
+    workorder_provider: WorkOrderProvider = Depends(get_workorder_provider),
+) -> AutopilotSuggestionService:
     return AutopilotSuggestionService(
         repo,
-        FIXTURE_PROVIDER,
-        TOOLING_PROVIDER,
-        PALLET_ROUTE_PROVIDER,
-        WORKORDER_PROVIDER,
+        fixture_provider,
+        tooling_provider,
+        pallet_route_provider,
+        workorder_provider,
     )
 
 

@@ -106,6 +106,10 @@ celerybeat.pid
 
 # Environments
 .env
+.env.dev
+.env.prod
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -168,3 +172,6 @@ cert/
 # Test output
 test-results/
 test-reports/
+
+# Local OCR fixtures (do not commit customer/vendor PDFs)
+tests/fixtures/ocr/*.pdf

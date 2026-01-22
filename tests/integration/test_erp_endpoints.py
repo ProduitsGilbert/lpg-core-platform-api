@@ -133,6 +133,31 @@ def test_list_bc_vendors(http_session, base_url, default_timeout) -> None:
     assert any(str(vendor.get("No")) == VENDOR_ID for vendor in vendors)
 
 
+def test_list_bc_customers_with_geocode(http_session, base_url, default_timeout) -> None:
+    _require_erp_env()
+
+    response = http_session.get(
+        _erp_url(base_url, "/bc/customers"),
+        params={"top": 1},
+        timeout=default_timeout,
+    )
+    assert response.status_code == 200, response.text
+    customers = response.json()
+    assert customers, "Expected at least one customer record"
+    customer = customers[0]
+    for field in (
+        "address_1",
+        "address_2",
+        "address_3",
+        "address_4",
+        "postal_code",
+        "city",
+        "country",
+        "geocode",
+    ):
+        assert field in customer
+
+
 def test_list_bc_sales_order_headers(http_session, base_url, default_timeout) -> None:
     _require_erp_env()
 

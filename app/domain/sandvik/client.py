@@ -7,7 +7,7 @@ the Sandvik Machining Insights API.
 
 import logging
 import re
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timezone, timedelta
 from typing import Dict, List, Optional, Any
 import requests
 from requests.adapters import HTTPAdapter
@@ -106,7 +106,7 @@ class SandvikAPIClient:
         self._access_token = token_data["access_token"]
 
         # Cache token with expiration (assuming 1 hour validity)
-        self._token_expires = datetime.now(timezone.utc) + datetime.timedelta(hours=1)
+        self._token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
 
         logger.info("Successfully obtained Sandvik API access token")
         return self._access_token
@@ -173,7 +173,7 @@ class SandvikAPIClient:
         """
         # Default to last 10 days if no dates provided
         if not start_date:
-            start_date = date.today() - datetime.timedelta(days=10)
+            start_date = date.today() - timedelta(days=10)
         if not end_date:
             end_date = date.today()
 

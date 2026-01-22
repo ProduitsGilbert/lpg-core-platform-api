@@ -298,6 +298,56 @@ class Settings(BaseSettings):
         default=None,
         description="OpenRouter API key for alternative LLM providers"
     )
+
+    google_api_key: Optional[str] = Field(
+        default=None,
+        description="Google API key for geocoding"
+    )
+
+    google_geocode_cache_ttl_days: int = Field(
+        default=7,
+        ge=1,
+        description="Days to keep cached customer geocodes"
+    )
+
+    google_geocode_max_concurrency: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max concurrent Google geocoding requests"
+    )
+
+    google_geocode_block_on_miss: bool = Field(
+        default=False,
+        description="Block /bc/customers responses until missing geocodes are fetched"
+    )
+
+    google_geocode_block_timeout_seconds: int = Field(
+        default=15,
+        ge=0,
+        description="Max seconds to wait for geocoding before returning partial results"
+    )
+
+    bc_ship_to_timeout_seconds: int = Field(
+        default=8,
+        ge=1,
+        description="Max seconds to wait for ShipToAddress lookups per customer"
+    )
+
+    google_geocode_persist_enabled: bool = Field(
+        default=True,
+        description="Persist geocode cache to disk between container restarts"
+    )
+
+    google_geocode_cache_db_path: str = Field(
+        default="/app/data/geocode_cache.sqlite",
+        description="SQLite path for persisted geocode cache"
+    )
+
+    google_geocode_cache_source: str = Field(
+        default="ship_to_address_v2",
+        description="Cache namespace to invalidate when address source changes"
+    )
     
     openai_model: str = Field(
         default="gpt-5-2025-08-07",

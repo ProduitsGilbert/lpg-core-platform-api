@@ -206,10 +206,30 @@ class OCRClientProtocol(Protocol):
         """
         ...
 
+    def extract_generic_text(
+        self,
+        document_text: str,
+        document_type: str,
+        output_model: Type[BaseModel]
+    ) -> BaseModel:
+        """
+        Extract structured data from plain text (no vision/file upload) using a custom model.
+
+        Args:
+            document_text: Extracted text content to parse
+            document_type: Type of document for prompt customization
+            output_model: Pydantic model class defining expected output structure
+
+        Returns:
+            Extracted data in the specified model format
+        """
+        ...
+
     def extract_supplier_account_statement(
         self,
         file_content: bytes,
-        filename: str
+        filename: str,
+        additional_instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract structured data from a supplier account statement document."""
         ...
@@ -244,6 +264,25 @@ class OCRClientProtocol(Protocol):
         filename: str
     ) -> Dict[str, Any]:
         """Extract structured data from a commercial invoice document."""
+        ...
+
+    def extract_complex_document(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> BaseModel:
+        """
+        Extract layout, tables, figures, and text from complex documents.
+
+        Args:
+            file_content: Binary content of the PDF/image file
+            filename: Name of the file for identification
+            additional_instructions: Optional extra guidance for extraction
+
+        Returns:
+            Extracted data in a complex document model format
+        """
         ...
 
 

@@ -22,6 +22,7 @@ def get_assembly_components_service() -> AssemblyComponentsService:
 @router.post(
     "/components",
     response_model=AssemblyComponentsResponse,
+    response_model_exclude_none=True,
     summary="Extract assembly component list (BOM) from an item technical drawing",
 )
 async def extract_assembly_components(
@@ -37,6 +38,7 @@ async def extract_assembly_components(
                 item_no=body.itemNo,
                 revision=body.revision,
                 extraction_type=body.type,
+                include_pdf_position=body.includePdfPosition,
             )
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail=f"PDF file not found for item '{body.itemNo}'")

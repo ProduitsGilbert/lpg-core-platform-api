@@ -27,6 +27,7 @@ router = APIRouter(
 
 ALLOWED_EXTENSIONS = ('.pdf', '.png', '.jpg', '.jpeg', '.tiff')
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+MAX_CONTRACT_FILE_SIZE_BYTES = 50 * 1024 * 1024
 DOCUMENT_HANDLER_MAP = {
     "purchase_order": "extract_purchase_order",
     "invoice": "extract_invoice",
@@ -35,6 +36,7 @@ DOCUMENT_HANDLER_MAP = {
     "supplier_invoice": "extract_supplier_invoice",
     "shipping_bill": "extract_shipping_bill",
     "commercial_invoice": "extract_commercial_invoice",
+    "complex_document": "extract_complex_document",
 }
 
 
@@ -51,6 +53,23 @@ async def _read_and_validate_upload(file: UploadFile) -> bytes:
         raise HTTPException(
             status_code=400,
             detail="File size must not exceed 10MB"
+        )
+    return file_content
+
+
+async def _read_and_validate_contract_pdf(file: UploadFile) -> bytes:
+    """Validate a (potentially large) contract PDF upload."""
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be PDF format (.pdf)",
+        )
+
+    file_content = await file.read()
+    if len(file_content) > MAX_CONTRACT_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="File size must not exceed 50MB for contract extraction",
         )
     return file_content
 
@@ -118,7 +137,7 @@ async def extract_purchase_order(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -188,7 +207,7 @@ async def extract_invoice(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -208,6 +227,55 @@ async def extract_invoice(
             )
 
 
+@router.post("/customer-payment-terms/extract", response_model=OCRExtractionResponse)
+async def extract_customer_payment_terms(
+    file: UploadFile = File(..., description="PDF contract document containing customer payment terms"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service),
+):
+    """
+    Extract customer payment terms + total contract amount from a contract PDF.
+
+    Returns:
+    - payment_terms_text (verbatim)
+    - milestones (percent/amount + timing)
+    - total_amount (+ currency if present)
+    """
+    with logfire.span('api_extract_customer_payment_terms'):
+        try:
+            file_content = await _read_and_validate_contract_pdf(file)
+
+            logfire.info(f'Processing customer payment terms extraction for file: {file.filename}')
+
+            result = ocr_service.extract_customer_payment_terms_contract(
+                file_content=file_content,
+                filename=file.filename,
+                additional_instructions=additional_instructions,
+            )
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(mode="json"),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "customer_payment_terms_contract",
+                        "filename": file.filename,
+                    },
+                },
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract customer payment terms: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract customer payment terms: {str(e)}",
+            )
+
+
 @router.post("/supplier-account-statements/extract", response_model=OCRExtractionResponse)
 async def extract_supplier_account_statement(
     file: UploadFile = File(..., description="PDF or image file containing the supplier account statement"),
@@ -222,7 +290,8 @@ async def extract_supplier_account_statement(
 
             result = ocr_service.extract_supplier_account_statement(
                 file_content=file_content,
-                filename=file.filename
+                filename=file.filename,
+                additional_instructions=additional_instructions,
             )
 
             if result.success:
@@ -237,7 +306,7 @@ async def extract_supplier_account_statement(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -286,7 +355,7 @@ async def extract_customer_account_statement(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -335,7 +404,7 @@ async def extract_supplier_invoice(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -384,7 +453,7 @@ async def extract_shipping_bill(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -433,7 +502,7 @@ async def extract_commercial_invoice(
             return JSONResponse(
                 status_code=200 if result.success else 422,
                 content={
-                    "data": result.model_dump(),
+                    "data": result.model_dump(mode="json"),
                     "meta": {
                         "timestamp": datetime.utcnow().isoformat(),
                         "version": "1.0",
@@ -450,6 +519,49 @@ async def extract_commercial_invoice(
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract commercial invoice: {str(e)}"
+            )
+
+
+@router.post("/complex/extract", response_model=OCRExtractionResponse)
+async def extract_complex_document(
+    file: UploadFile = File(..., description="PDF or image file containing a complex document"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service),
+):
+    """
+    Extract layout-aware content from complex documents, including text, tables, and figures.
+    """
+    with logfire.span('api_extract_complex_document'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing complex document extraction for file: {file.filename}')
+
+            result = ocr_service.extract_complex_document(
+                file_content=file_content,
+                filename=file.filename,
+                additional_instructions=additional_instructions,
+            )
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(mode="json"),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "complex_document",
+                        "filename": file.filename,
+                    },
+                },
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract complex document: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract complex document: {str(e)}",
             )
 
 
@@ -504,7 +616,7 @@ async def extract_batch_documents(
                     results.append({
                         "filename": file.filename,
                         "success": result.success,
-                        "data": result.extracted_data if result.success else None,
+                        "data": result.model_dump(mode="json").get("extracted_data") if result.success else None,
                         "error": result.error_message if not result.success else None
                     })
                     

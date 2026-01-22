@@ -20,7 +20,7 @@ services:
       
       # ERP configuration
       ERP_MODE: ${ERP_MODE:-legacy}
-      ERP_BASE_URL: ${ERP_BASE_URL:-}
+      ERP_BASE_URL: ${ERP_BASE_URL:-https://example.com}
       CANARY_PERCENT: ${CANARY_PERCENT:-0}
       
       # External services
@@ -28,12 +28,13 @@ services:
       LOGFIRE_IGNORE_NO_PROJECT: "1"  # Disable Logfire auto-config when no API key
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-2025-08-07}
+      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-4.1-mini}
       LOCAL_AGENT_BASE_URL: ${LOCAL_AGENT_BASE_URL:-}
       OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
       
       # Feature flags
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-false}
-      ENABLE_OCR: ${ENABLE_OCR:-false}
+      ENABLE_OCR: ${ENABLE_OCR:-true}
       ENABLE_AI_ASSISTANCE: ${ENABLE_AI_ASSISTANCE:-false}
       APP_PORT: ${APP_PORT:-7003}
       TLS_CERT_FILE: ${TLS_CERT_FILE:-}
@@ -42,6 +43,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./cert:/app/certs:ro
+      - geocode-cache:/app/data
     networks:
       - lpg-network
     healthcheck:
@@ -58,3 +60,7 @@ networks:
   lpg-network:
     driver: bridge
     name: lpg-network
+
+volumes:
+  geocode-cache:
+    name: lpg-geocode-cache

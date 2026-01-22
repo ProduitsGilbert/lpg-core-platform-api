@@ -1,4 +1,3 @@
-from datetime import datetime
 from unittest.mock import AsyncMock
 
 import httpx
@@ -67,6 +66,17 @@ SAMPLE_IN_ROWS = [
     },
     {
         "$type": "GilbertAPI.Model.MRP.InProd, GilbertAPI",
+        "prodOrderNo": "M176567",
+        "name": "M176567",
+        "itemNo": "8218725",
+        "description": "MEC DOUILLE FIXATION ASS.",
+        "quantity": 2,
+        "remainingQuantity": 2,
+        "jobNo": "GI022960",
+        "startingDate": "2025-08-01T00:00:00",
+    },
+    {
+        "$type": "GilbertAPI.Model.MRP.InProd, GilbertAPI",
         "itemNo": "8315108",
         "description": "DOUILLE DE FIXATION",
         "qtyCanApply": 1,
@@ -86,24 +96,37 @@ async def test_generate_excel_from_sample_data(monkeypatch, tmp_path):
         return SAMPLE_OUT_ROWS, SAMPLE_IN_ROWS
 
     monkeypatch.setattr(MissingPartsReportService, "_fetch_mrp_data", fake_fetch)
-    content = await service.generate_excel("GI022960")
+    content = await service.generate_excel("gi022960")
 
     output_path = tmp_path / "missing_parts.xlsx"
     output_path.write_bytes(content)
     workbook = load_workbook(output_path)
-    sheet = workbook["Missing Parts"]
+    sheet = workbook["Export"]
 
-    rows = list(sheet.iter_rows(min_row=2, values_only=True))
-    assert len(rows) == 3
+    parent_row = None
+    for row in range(1, sheet.max_row + 1):
+        if sheet.cell(row=row, column=2).value == "M176567":
+            parent_row = row
+            break
 
-    # Missing qty is at index 7; ensure shortages and inbound hints are captured.
-    item_lookup = {row[2]: row for row in rows}
-    assert item_lookup["8218725"][7] == 2
-    assert item_lookup["622411"][7] == 12  # 16 required, 4 supplied
-    assert item_lookup["8315108"][7] == 1
+    assert parent_row is not None
+    assert sheet.cell(row=parent_row, column=3).value == 8218725
+    assert sheet.cell(row=parent_row, column=11).value == 3
 
-    inbound_date = item_lookup["8315108"][11]
-    assert isinstance(inbound_date, datetime)
+    child_items = []
+    row_idx = parent_row + 1
+    while row_idx <= sheet.max_row:
+        if sheet.cell(row=row_idx, column=2).value:
+            break
+        value = sheet.cell(row=row_idx, column=14).value
+        if value not in (None, "", "Item"):
+            child_items.append(str(value))
+        row_idx += 1
+
+    assert set(child_items) == {"8218725", "622411", "8315108"}
+
+    fill_color = sheet.cell(row=parent_row, column=2).fill.fgColor.value
+    assert fill_color in {"FFE1E8D3", "00E1E8D3"}
 
 
 @pytest.mark.asyncio

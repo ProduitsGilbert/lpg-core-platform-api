@@ -39,8 +39,8 @@ class ClickUpTask(BaseModel):
             description=data.get("description", ""),
             status=ClickUpTaskStatus.from_api_response(data["status"]),
             priority=ClickUpPriority.from_api_response(data.get("priority")) if data.get("priority") else None,
-            due_date=datetime.fromtimestamp(data["due_date"] / 1000) if data.get("due_date") else None,
-            start_date=datetime.fromtimestamp(data["start_date"] / 1000) if data.get("start_date") else None,
+            due_date=datetime.fromtimestamp(int(data["due_date"]) / 1000) if data.get("due_date") else None,
+            start_date=datetime.fromtimestamp(int(data["start_date"]) / 1000) if data.get("start_date") else None,
             time_estimate=data.get("time_estimate"),
             time_spent=data.get("time_spent"),
             assignees=[ClickUpUser.from_api_response(user) for user in data.get("assignees", [])],
@@ -50,8 +50,8 @@ class ClickUpTask(BaseModel):
             folder=ClickUpFolder.from_api_response(data["folder"]),
             space=ClickUpSpace.from_api_response(data["space"]),
             url=data["url"],
-            created_at=datetime.fromtimestamp(data["date_created"] / 1000),
-            updated_at=datetime.fromtimestamp(data["date_updated"] / 1000),
+            created_at=datetime.fromtimestamp(int(data["date_created"]) / 1000),
+            updated_at=datetime.fromtimestamp(int(data["date_updated"]) / 1000),
             archived=data.get("archived", False),
             creator=ClickUpUser.from_api_response(data["creator"])
         )
@@ -127,22 +127,22 @@ class ClickUpTag(BaseModel):
 class ClickUpCustomField(BaseModel):
     """ClickUp custom field model."""
     id: str
-    name: str
-    type: str
-    type_config: Dict[str, Any]
-    value: Any
-    required: bool
+    name: Optional[str] = None
+    type: Optional[str] = None
+    type_config: Dict[str, Any] = Field(default_factory=dict)
+    value: Any = None
+    required: bool = False
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> ClickUpCustomField:
         """Create a ClickUpCustomField from ClickUp API response."""
         return cls(
             id=data["id"],
-            name=data["name"],
-            type=data["type"],
-            type_config=data["type_config"],
-            value=data["value"],
-            required=data["required"]
+            name=data.get("name"),
+            type=data.get("type"),
+            type_config=data.get("type_config", {}),
+            value=data.get("value"),
+            required=bool(data.get("required", False))
         )
 
 
@@ -175,8 +175,8 @@ class ClickUpFolder(BaseModel):
 class ClickUpSpace(BaseModel):
     """ClickUp space model."""
     id: str
-    name: str
-    access: bool
+    name: Optional[str] = None
+    access: Optional[bool] = None
 
     @classmethod
     def from_api_response(cls, data: Dict[str, Any]) -> ClickUpSpace:
@@ -206,4 +206,5 @@ class ClickUpTasksResponse(BaseModel):
     tasks: List[ClickUpTaskResponse]
     total_count: int
     has_more: bool = False
+
 

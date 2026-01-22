@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import base64
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -14,27 +15,41 @@ from app.errors import BaseAPIException
 
 class ZendeskError(BaseAPIException):
     """Zendesk API error."""
-    pass
+
+    def __init__(self, detail: str, status_code: int = 500):
+        super().__init__(
+            status_code=status_code,
+            detail=detail,
+            error_code="ZENDESK_ERROR"
+        )
 
 
 class ZendeskUnauthorized(ZendeskError):
     """Zendesk authentication error."""
-    pass
+
+    def __init__(self, detail: str = "Zendesk authentication failed"):
+        super().__init__(detail=detail, status_code=401)
 
 
 class ZendeskNotFound(ZendeskError):
     """Zendesk resource not found."""
-    pass
+
+    def __init__(self, detail: str = "Zendesk resource not found"):
+        super().__init__(detail=detail, status_code=404)
 
 
 class ZendeskRateLimited(ZendeskError):
     """Zendesk rate limit exceeded."""
-    pass
+
+    def __init__(self, detail: str = "Zendesk rate limit exceeded"):
+        super().__init__(detail=detail, status_code=429)
 
 
 class ZendeskConfigurationError(ZendeskError):
     """Zendesk configuration error."""
-    pass
+
+    def __init__(self, detail: str = "Zendesk configuration error"):
+        super().__init__(detail=detail, status_code=500)
 
 
 class ZendeskClient:
@@ -44,11 +59,22 @@ class ZendeskClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "ZendeskClient":
-        if not settings.zendesk_api_key or not settings.zendesk_username:
-            raise ZendeskConfigurationError("Zendesk API key and username are not configured")
+        """
+        Initialize the HTTP client with Zendesk API authentication.
+
+        Zendesk supports API tokens via Basic auth:
+        Authorization: Basic base64("<email>/token:<api_token>")
+        """
+        if not settings.zendesk_api_key or not settings.zendesk_username or not settings.zendesk_subdomain:
+            raise ZendeskConfigurationError("Zendesk API key, username, or subdomain are not configured")
+
+        # Build Basic auth header for API token
+        basic_cred = base64.b64encode(
+            f"{settings.zendesk_username}/token:{settings.zendesk_api_key}".encode("utf-8")
+        ).decode("utf-8")
 
         headers = {
-            "Authorization": f"Bearer {settings.zendesk_api_key}",
+            "Authorization": f"Basic {basic_cred}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }

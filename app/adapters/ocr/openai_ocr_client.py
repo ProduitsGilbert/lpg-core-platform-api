@@ -6,7 +6,7 @@ data from PDF and image documents.
 """
 
 import io
-from typing import Dict, Any, Type
+from typing import Dict, Any, Type, Optional
 import time
 import logfire
 from openai import OpenAI
@@ -20,7 +20,8 @@ from app.domain.ocr.models import (
     CustomerAccountStatementExtraction,
     SupplierInvoiceExtraction,
     ShippingBillExtraction,
-    CommercialInvoiceExtraction
+    CommercialInvoiceExtraction,
+    ComplexDocumentExtraction
 )
 
 
@@ -56,7 +57,7 @@ class OpenAIOCRClient(OCRClientProtocol):
         file_buffer.name = filename
         return self.client.files.create(
             file=file_buffer,
-            purpose="vision"
+            purpose="assistants"
         )
 
     def _cleanup_document(self, file_id: str) -> None:
@@ -84,6 +85,21 @@ class OpenAIOCRClient(OCRClientProtocol):
 
         try:
             logfire.info(f'File uploaded with ID: {uploaded_file.id}')
+            is_pdf = file_content[:4] == b"%PDF" or filename.lower().endswith(".pdf")
+
+            if is_pdf:
+                file_input = {
+                    "type": "input_file",
+                    "file_id": uploaded_file.id,
+                }
+            else:
+                file_input = {
+                    "type": "input_image",
+                    "image": {
+                        "file_id": uploaded_file.id,
+                        "detail": "high",
+                    },
+                }
 
             response = self.client.responses.parse(
                 model=self.model,
@@ -99,13 +115,7 @@ class OpenAIOCRClient(OCRClientProtocol):
                                 "type": "input_text",
                                 "text": user_prompt
                             },
-                            {
-                                "type": "input_image",
-                                "image": {
-                                    "file_id": uploaded_file.id,
-                                    "detail": "high"
-                                }
-                            }
+                            file_input
                         ]
                     }
                 ],
@@ -116,6 +126,27 @@ class OpenAIOCRClient(OCRClientProtocol):
 
         finally:
             self._cleanup_document(uploaded_file.id)
+
+    def _extract_with_text(
+        self,
+        document_category: str,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: Type[BaseModel],
+    ) -> BaseModel:
+        """Shared helper that parses extracted document text (no vision/file upload)."""
+        if not self.enabled:
+            raise ValueError("OpenAI client is not enabled")
+
+        response = self.client.responses.parse(
+            model=self.model,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            text_format=response_model,
+        )
+        return response.output_parsed
 
     def extract_purchase_order(
         self,
@@ -281,16 +312,83 @@ class OpenAIOCRClient(OCRClientProtocol):
                 logfire.error(f'Failed to extract {document_type} from {filename}: {str(e)}')
                 raise
 
+    def extract_generic_text(
+        self,
+        document_text: str,
+        document_type: str,
+        output_model: Type[BaseModel]
+    ) -> BaseModel:
+        """
+        Extract structured data from plain text using a custom model.
+
+        This is used as a fallback for large PDFs where uploading the whole document
+        for vision processing would be inefficient or exceed provider limits.
+        """
+        with logfire.span('openai_extract_generic_text'):
+            start_time = time.time()
+
+            if not document_text or not document_text.strip():
+                raise ValueError("document_text is empty")
+
+            try:
+                field_descriptions = []
+                for field_name, field_info in output_model.model_fields.items():
+                    desc = field_info.description or field_name.replace("_", " ").title()
+                    field_descriptions.append(f"- {desc}")
+
+                fields_prompt = "\n".join(field_descriptions)
+
+                extracted_data = self._extract_with_text(
+                    document_category=document_type,
+                    system_prompt=f"""You are an expert at extracting structured data from {document_type} documents.
+Extract ALL information from the provided text that matches these fields:
+{fields_prompt}
+
+Guidelines:
+- Only use information that is present in the text.
+- Preserve the exact meaning of payment terms and timing.
+- For monetary amounts, extract decimal numbers without currency symbols.
+- For percent values, use numbers from 0 to 100.
+- If currency is present, return ISO 4217 codes (e.g., USD, CAD, EUR).""",
+                    user_prompt=f"""Extract the required structured data from this document text:
+
+--- BEGIN DOCUMENT TEXT ---
+{document_text}
+--- END DOCUMENT TEXT ---""",
+                    response_model=output_model
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                logfire.info(f'Successfully extracted {document_type} data from text in {processing_time}ms')
+
+                # Add metadata if model supports it
+                if hasattr(extracted_data, "confidence_score"):
+                    extracted_data.confidence_score = 0.9
+                if hasattr(extracted_data, "processing_time_ms"):
+                    extracted_data.processing_time_ms = processing_time
+                if hasattr(extracted_data, "document_category"):
+                    extracted_data.document_category = document_type
+
+                return extracted_data
+
+            except Exception as e:
+                logfire.error(f'Failed to extract {document_type} from text: {str(e)}')
+                raise
+
     def extract_supplier_account_statement(
         self,
         file_content: bytes,
-        filename: str
+        filename: str,
+        additional_instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Extract structured data from a supplier account statement document."""
         with logfire.span('openai_extract_supplier_account_statement'):
             start_time = time.time()
 
             try:
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
                 statement_data = self._extract_with_vision(
                     file_content=file_content,
                     filename=filename,
@@ -299,7 +397,10 @@ class OpenAIOCRClient(OCRClientProtocol):
                     Capture the supplier identifiers, statement period, opening/closing balances, totals, and every transaction line.
                     Ensure debits, credits, and balances are returned as decimal numbers.
                     Dates must be formatted as ISO YYYY-MM-DD.""",
-                    user_prompt="Extract all supplier account statement details including summary balances and the full list of transactions.",
+                    user_prompt=(
+                        "Extract all supplier account statement details including summary balances and the full list of transactions."
+                        f"{extra}"
+                    ),
                     response_model=SupplierAccountStatementExtraction
                 )
 
@@ -442,4 +543,68 @@ class OpenAIOCRClient(OCRClientProtocol):
 
             except Exception as exc:
                 logfire.error(f'Failed to extract commercial invoice from {filename}: {exc}')
+                raise
+
+    def extract_complex_document(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> BaseModel:
+        """Extract layout-aware content (text, tables, figures) from complex documents."""
+        with logfire.span('openai_extract_complex_document'):
+            start_time = time.time()
+
+            try:
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
+
+                complex_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="complex_document",
+                    system_prompt=(
+                        "You are an expert at layout-aware OCR for complex documents. "
+                        "Extract the document layout into ordered blocks and capture tables and figures. "
+                        "Rules:\n"
+                        "- Preserve reading order.\n"
+                        "- For text blocks, return the verbatim text.\n"
+                        "- For tables, return headers and rows exactly as shown.\n"
+                        "- For figures/graphs, provide a short description and list only values explicitly shown. "
+                        "Do not infer missing values.\n"
+                        "- Use normalized bounding boxes (0-1) only when confident; otherwise omit.\n"
+                        "- Keep summary_markdown concise and factual.\n"
+                    ),
+                    user_prompt=(
+                        "Extract layout blocks, tables, figures, and a concise markdown summary "
+                        "from this document. Include any numeric values shown in graphs or diagrams."
+                        f"{extra}"
+                    ),
+                    response_model=ComplexDocumentExtraction,
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+
+                # Fill top-level tables/figures from blocks if not provided.
+                if getattr(complex_data, "tables", None) in (None, []):
+                    complex_data.tables = [
+                        block.table for block in complex_data.blocks if block.table is not None
+                    ]
+                if getattr(complex_data, "figures", None) in (None, []):
+                    complex_data.figures = [
+                        block.figure for block in complex_data.blocks if block.figure is not None
+                    ]
+
+                if hasattr(complex_data, "confidence_score"):
+                    complex_data.confidence_score = 0.88
+                if hasattr(complex_data, "processing_time_ms"):
+                    complex_data.processing_time_ms = processing_time
+                if hasattr(complex_data, "document_category"):
+                    complex_data.document_category = "complex_document"
+
+                return complex_data
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract complex document from {filename}: {exc}')
                 raise

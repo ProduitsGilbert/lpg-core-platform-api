@@ -72,12 +72,7 @@ class ZendeskService:
                 for result in response.get("results", []):
                     if result.get("result_type") == "ticket":
                         ticket_data = result.get("ticket", result)
-                        try:
-                            ticket = ZendeskTicket(**ticket_data)
-                            tickets.append(ticket)
-                        except Exception as e:
-                            logger.warning(f"Failed to parse ticket {ticket_data.get('id')}: {e}")
-                            continue
+                        tickets.append(ticket_data)
 
                 return ZendeskTicketsResponse(
                     tickets=tickets,
@@ -100,22 +95,22 @@ class ZendeskService:
         """Get all currently open tickets."""
         try:
             with logfire.span("get_open_tickets", page=page, per_page=per_page):
+                # Use search API to filter active tickets (anything not solved/closed)
+                query = "type:ticket status<solved"
+
                 async with self._client() as client:
-                    response = await client.list_tickets(
-                        status="open",
+                    response = await client.search_tickets(
+                        query=query,
                         page=page,
                         per_page=per_page
                     )
 
                 # Convert raw response to our domain models
                 tickets = []
-                for ticket_data in response.get("tickets", []):
-                    try:
-                        ticket = ZendeskTicket(**ticket_data)
-                        tickets.append(ticket)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse ticket {ticket_data.get('id')}: {e}")
-                        continue
+                for result in response.get("results", []):
+                    if result.get("result_type") == "ticket":
+                        ticket_data = result.get("ticket", result)
+                        tickets.append(ticket_data)
 
                 return ZendeskTicketsResponse(
                     tickets=tickets,
@@ -139,33 +134,33 @@ class ZendeskService:
                 one_year_ago = datetime.now() - timedelta(days=365)
                 date_str = one_year_ago.strftime("%Y-%m-%d")
 
-                # Use search with created date filter
+                # Use export search to fetch ALL tickets from past year, no paging exposed
                 query = f"type:ticket created>{date_str}"
+                tickets: List[dict] = []
+                after_cursor: Optional[str] = None
 
                 async with self._client() as client:
-                    response = await client.search_tickets(
-                        query=query,
-                        page=page,
-                        per_page=per_page
-                    )
+                    while True:
+                        response = await client.export_search_results(
+                            query=query,
+                            page_size=1000,
+                            after_cursor=after_cursor
+                        )
 
-                # Convert raw response to our domain models
-                tickets = []
-                for result in response.get("results", []):
-                    if result.get("result_type") == "ticket":
-                        ticket_data = result.get("ticket", result)
-                        try:
-                            ticket = ZendeskTicket(**ticket_data)
-                            tickets.append(ticket)
-                        except Exception as e:
-                            logger.warning(f"Failed to parse ticket {ticket_data.get('id')}: {e}")
-                            continue
+                        tickets.extend(response.get("results", []))
+
+                        meta = response.get("meta", {}) or {}
+                        has_more = meta.get("has_more")
+                        after_cursor = meta.get("after_cursor")
+
+                        if not has_more or not after_cursor:
+                            break
 
                 return ZendeskTicketsResponse(
                     tickets=tickets,
-                    count=response.get("count", len(tickets)),
-                    next_page=response.get("next_page"),
-                    previous_page=response.get("previous_page")
+                    count=len(tickets),
+                    next_page=None,
+                    previous_page=None
                 )
         except Exception as exc:
             logger.error("Error retrieving past year tickets: %s", exc)
@@ -180,7 +175,7 @@ class ZendeskService:
 
                 ticket_data = response.get("ticket", response)
                 if ticket_data:
-                    return ZendeskTicket(**ticket_data)
+                    return ticket_data
                 return None
         except Exception as exc:
             logger.error("Error retrieving ticket %s: %s", ticket_id, exc)

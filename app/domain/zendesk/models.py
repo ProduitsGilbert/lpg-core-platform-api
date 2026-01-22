@@ -62,15 +62,15 @@ class ZendeskTicket(BaseModel):
 
 
 class ZendeskTicketResponse(BaseModel):
-    """Response containing a single Zendesk ticket."""
+    """Response containing a single Zendesk ticket (raw dict to preserve all fields)."""
 
-    ticket: ZendeskTicket
+    ticket: Dict[str, Any]
 
 
 class ZendeskTicketsResponse(BaseModel):
-    """Response containing multiple Zendesk tickets."""
+    """Response containing multiple Zendesk tickets (raw dicts)."""
 
-    tickets: List[ZendeskTicket]
+    tickets: List[Dict[str, Any]]
     count: Optional[int] = Field(default=None, description="The number of resources returned")
     next_page: Optional[str] = Field(default=None, description="URL to the next page of results")
     previous_page: Optional[str] = Field(default=None, description="URL to the previous page of results")

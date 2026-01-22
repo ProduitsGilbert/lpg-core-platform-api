@@ -128,6 +128,54 @@ class VendorContactResponse(BaseModel):
     communication_language: str = Field(..., description="Alias mirroring language field for compatibility")
 
 
+class GeocodedLocation(BaseModel):
+    """Geocoded address information."""
+
+    latitude: Optional[float] = Field(None, description="Latitude")
+    longitude: Optional[float] = Field(None, description="Longitude")
+    formatted_address: Optional[str] = Field(None, description="Google-formatted address")
+    place_id: Optional[str] = Field(None, description="Google place ID")
+    location_type: Optional[str] = Field(None, description="Google location type")
+    status: Optional[str] = Field(None, description="Google geocoding status")
+
+
+class CustomerAddressResponse(BaseModel):
+    """Customer address entry (ship-to or primary)."""
+
+    source: str = Field("customer", description="Address source: customer|ship_to")
+    ship_to_code: Optional[str] = Field(None, description="Ship-to address code")
+    name: Optional[str] = Field(None, description="Address name")
+    address_1: Optional[str] = Field(None, description="Address line 1")
+    address_2: Optional[str] = Field(None, description="Address line 2")
+    address_3: Optional[str] = Field(None, description="Address line 3")
+    address_4: Optional[str] = Field(None, description="Address line 4")
+    city: Optional[str] = Field(None, description="City")
+    county: Optional[str] = Field(None, description="County/State/Province")
+    postal_code: Optional[str] = Field(None, description="Postal code")
+    country: Optional[str] = Field(None, description="Country/Region code")
+    geocode: Optional[GeocodedLocation] = Field(None, description="Geocoded location details")
+
+
+class CustomerSummaryResponse(BaseModel):
+    """Minimal customer fields exposed from Business Central."""
+
+    customer_no: str = Field("", description="Customer number (No)")
+    name: str = Field("", description="Customer name")
+    city: Optional[str] = Field(None, description="City")
+    postal_code: Optional[str] = Field(None, description="Postal code")
+    address_1: Optional[str] = Field(None, description="Address line 1")
+    address_2: Optional[str] = Field(None, description="Address line 2")
+    address_3: Optional[str] = Field(None, description="Address line 3")
+    address_4: Optional[str] = Field(None, description="Address line 4")
+    county: Optional[str] = Field(None, description="County/State/Province")
+    country: Optional[str] = Field(None, description="Country/Region code")
+    geocode: Optional[GeocodedLocation] = Field(None, description="Geocoded location details")
+    ship_to_addresses: List[CustomerAddressResponse] = Field(
+        default_factory=list,
+        description="Ship-to addresses (fallbacks to customer address when empty).",
+    )
+
+
 class TariffMaterialResponse(BaseModel):
     """Single BOM component output from the tariff calculator."""
 
@@ -288,7 +336,15 @@ class CustomerSalesQuoteStats(BaseModel):
 
     total_quotes: int = Field(default=0, description="Total number of sales quotes")
     total_amount: Decimal = Field(default=Decimal("0"), description="Total amount across all quotes")
+    total_amount_including_tax: Decimal = Field(
+        default=Decimal("0"),
+        description="Total amount including tax across all quotes",
+    )
     total_quantity: Decimal = Field(default=Decimal("0"), description="Total quantity across all quotes")
+    total_distinct_products: int = Field(
+        default=0,
+        description="Total number of distinct products across all quote lines",
+    )
     quotes: List[Dict[str, Any]] = Field(default_factory=list, description="List of individual quotes")
 
     class Config:
@@ -302,7 +358,15 @@ class CustomerSalesOrderStats(BaseModel):
 
     total_orders: int = Field(default=0, description="Total number of sales orders")
     total_amount: Decimal = Field(default=Decimal("0"), description="Total amount across all orders")
+    total_amount_including_tax: Decimal = Field(
+        default=Decimal("0"),
+        description="Total amount including tax across all orders",
+    )
     total_quantity: Decimal = Field(default=Decimal("0"), description="Total quantity across all orders")
+    total_distinct_products: int = Field(
+        default=0,
+        description="Total number of distinct products across all order lines",
+    )
     orders_based_on_quotes: int = Field(default=0, description="Number of orders based on quotes")
     orders: List[Dict[str, Any]] = Field(default_factory=list, description="List of individual orders")
 

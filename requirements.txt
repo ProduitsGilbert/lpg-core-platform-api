@@ -26,9 +26,16 @@ openai==1.58.1
 # PDF Processing
 pypdf==6.3.0
 fillpdf==0.7.3
+PyMuPDF==1.23.8
+
+# Data Processing
+pandas>=2.0.0
 
 # Utilities
 openpyxl==3.1.5
+
+# SMB / File Share
+pysmb==1.2.10
 
 # Scheduler (optional, disabled by default)
 apscheduler==3.10.4

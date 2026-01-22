@@ -126,3 +126,40 @@ def test_extract_assembly_components_from_item_pdf(client, monkeypatch):
     assert dummy_client.requested_headers["RequesterUserID"] == "GIRDA01"
 
 
+def test_extract_assembly_components_with_pdf_positions(client, monkeypatch):
+    pdf_bytes = Path("tests/7260012.pdf").read_bytes()
+    response = DummyResponse(
+        status_code=200,
+        content=pdf_bytes,
+        headers={
+            "Content-Type": "application/pdf",
+            "Content-Disposition": 'attachment; filename="7260012.pdf"',
+        },
+    )
+
+    dummy_client = DummyAsyncClient(response=response)
+    monkeypatch.setattr(
+        "app.domain.documents.file_share_service.httpx.AsyncClient",
+        lambda *args, **kwargs: dummy_client,
+    )
+
+    api_response = client.post(
+        "/api/v1/ocr/assemblies/components",
+        json={"itemNo": "7260012", "revision": "08", "type": "Assembly", "includePdfPosition": True},
+    )
+
+    assert api_response.status_code == 200, api_response.text
+    payload = api_response.json()
+
+    comps = payload["components"]
+    # Find a few known positions that should exist on page 1 in this drawing
+    by_pos = {c["position"]: c for c in comps}
+    for pos in ["1", "2", "10", "21", "27"]:
+        assert pos in by_pos
+        # best-effort: for this sample drawing these should be locatable as text on page 1
+        assert "PdfPosition" in by_pos[pos]
+        assert by_pos[pos]["PdfPosition"]["page"] == 1
+        assert by_pos[pos]["PdfPosition"]["left"] >= 0
+        assert by_pos[pos]["PdfPosition"]["top"] >= 0
+
+

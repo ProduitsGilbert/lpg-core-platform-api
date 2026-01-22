@@ -1,24 +1,53 @@
 """
 Documents File Share endpoints
-Implements file sharing functionality for item PDFs and other documents
+Implements file sharing functionality for item PDFs and other documents.
+Adds direct SMB access to the Windows NTFS file share.
 """
-from fastapi import APIRouter, Depends, HTTPException, Body
+import base64
+import io
+import mimetypes
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 import logging
 import logfire
 from typing import Optional, Dict, Any
-import io
+
+from pydantic import BaseModel
 
 from app.deps import get_db
 from app.domain.documents.file_share_service import FileShareService
+from app.domain.documents.file_share_connector import (
+    SMBFileShareConnector,
+    FileShareConnectorError,
+    FileShareDisabledError,
+    FileSharePathError,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/file-share", tags=["Documents - File Share"])
 
-# Initialize service
+# Initialize services
 file_share_service = FileShareService()
+file_share_connector = SMBFileShareConnector()
+
+
+class FileWriteRequest(BaseModel):
+    path: str
+    content_base64: str
+    overwrite: bool = True
+
+
+class FileListResponse(BaseModel):
+    name: str
+    is_dir: bool
+    size: int | None = None
+    last_modified: Any | None = None
+    path: str
 
 @router.get(
     "/items/{item_no}/pdf",
@@ -218,4 +247,228 @@ async def fill_technical_sheet(
                     "trace_id": getattr(db, 'trace_id', 'unknown')
                 }
             }
+        )
+
+
+@router.get(
+    "/files",
+    summary="Read a file from SMB share",
+    description="Reads any file from the Windows NTFS SMB share using configured credentials.",
+)
+async def read_file_from_share(
+    path: str = Query(..., description="Path inside the SMB share (relative to base path)"),
+    db: Session = Depends(get_db)
+) -> StreamingResponse:
+    try:
+        with logfire.span("file_share.read_file", path=path):
+            content: bytes = await run_in_threadpool(file_share_connector.read_file, path)
+
+        media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        filename = os.path.basename(path) or "file"
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": str(len(content)),
+            },
+        )
+    except FileShareDisabledError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_DISABLED",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileSharePathError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "FILE_NOT_FOUND",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileShareConnectorError as exc:
+        logger.error(f"SMB read error for path {path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_ERROR",
+                    "message": "Failed to read file from SMB share",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except Exception as exc:
+        logger.error(f"Unexpected error reading file {path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected error while reading file",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+
+
+@router.get(
+    "/files/list",
+    summary="List folder contents on SMB share",
+    description="Lists files and subfolders inside the specified path on the Windows NTFS SMB share.",
+)
+async def list_files_on_share(
+    path: str = Query("/", description="Directory path inside the SMB share (relative to base path)"),
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    try:
+        with logfire.span("file_share.list_directory", path=path):
+            entries = await run_in_threadpool(file_share_connector.list_directory, path)
+
+        return {
+            "success": True,
+            "path": path,
+            "entries": entries,
+        }
+    except FileShareDisabledError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_DISABLED",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileSharePathError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "FILE_NOT_FOUND",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileShareConnectorError as exc:
+        logger.error(f"SMB list error for path {path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_ERROR",
+                    "message": "Failed to list directory from SMB share",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except Exception as exc:
+        logger.error(f"Unexpected error listing directory {path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected error while listing directory",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+
+
+@router.put(
+    "/files",
+    summary="Write a file to SMB share",
+    description="Writes a file to the Windows NTFS SMB share. Content must be base64 encoded.",
+)
+async def write_file_to_share(
+    payload: FileWriteRequest,
+    db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    try:
+        with logfire.span("file_share.write_file", path=payload.path, overwrite=payload.overwrite):
+            try:
+                content_bytes = base64.b64decode(payload.content_base64)
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": {
+                            "code": "INVALID_BASE64",
+                            "message": "content_base64 is not valid base64",
+                            "trace_id": getattr(db, 'trace_id', 'unknown')
+                        }
+                    }
+                )
+
+            await run_in_threadpool(
+                file_share_connector.write_file,
+                payload.path,
+                content_bytes,
+                payload.overwrite,
+            )
+
+        return {
+            "success": True,
+            "path": payload.path,
+            "size": len(content_bytes),
+        }
+    except FileShareDisabledError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_DISABLED",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileSharePathError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "FILE_PATH_ERROR",
+                    "message": str(exc),
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except FileShareConnectorError as exc:
+        logger.error(f"SMB write error for path {payload.path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "FILE_SHARE_ERROR",
+                    "message": "Failed to write file to SMB share",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Unexpected error writing file {payload.path}: {exc}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Unexpected error while writing file",
+                    "trace_id": getattr(db, 'trace_id', 'unknown')
+                }
+            },
         )

@@ -94,16 +94,20 @@ class TestZendeskService:
         assert "status<solved" in call_args[1]["query"]
 
     @pytest.mark.asyncio
+    @pytest.mark.asyncio
     async def test_get_open_tickets(self, service, mock_client):
         """Test getting open tickets."""
-        mock_client.list_tickets.return_value = {
-            "tickets": [
+        mock_client.search_tickets.return_value = {
+            "results": [
                 {
+                    "result_type": "ticket",
+                    "ticket": {
                     "id": 124,
                     "subject": "Open Ticket",
                     "status": "open",
                     "requester_id": 457,
                     "created_at": "2024-01-02T00:00:00Z"
+                    }
                 }
             ],
             "count": 1
@@ -115,13 +119,10 @@ class TestZendeskService:
         assert len(result.tickets) == 1
         assert result.tickets[0].status == "open"
 
-        # Verify list_tickets was called with status=open
-        mock_client.list_tickets.assert_called_once_with(
-            status="open",
-            page=None,
-            per_page=None,
-            sort_by=None,
-            sort_order=None
+        # Verify search_tickets was called with status:open query
+        mock_client.search_tickets.assert_called_once()
+        args, kwargs = mock_client.search_tickets.call_args
+        assert "status:open" in kwargs["query"]
         )
 
     @pytest.mark.asyncio
