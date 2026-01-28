@@ -348,6 +348,19 @@ class Settings(BaseSettings):
         default="ship_to_address_v2",
         description="Cache namespace to invalidate when address source changes"
     )
+
+    planner_kpi_cache_db_path: str = Field(
+        default="/app/data/planner_kpi_cache.sqlite",
+        description="SQLite path for persisted planner KPI cache",
+    )
+    planner_kpi_cache_retention_days: int = Field(
+        default=90,
+        description="Days to keep cached planner KPI history",
+    )
+    planner_daily_report_cache_retention_days: int = Field(
+        default=30,
+        description="Days to keep cached planner daily reports",
+    )
     
     openai_model: str = Field(
         default="gpt-5-2025-08-07",

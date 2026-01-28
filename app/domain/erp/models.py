@@ -249,6 +249,17 @@ class CreateItemRequest(BaseModel):
 
     item_no: str = Field(..., min_length=1, description="Destination item number")
 
+
+class CreatePurchasedItemRequest(BaseModel):
+    """Request body for creating a purchased item from the template."""
+
+    item_no: str = Field(..., min_length=1, description="Destination item number")
+    description: str = Field(..., min_length=1, description="Item description")
+    vendor_item_no: str = Field(..., min_length=1, description="Vendor item number")
+    vendor_no: Optional[str] = Field(None, description="Primary vendor number")
+    price: Optional[Decimal] = Field(None, description="Unit price for the item")
+    item_category_code: Optional[str] = Field(None, description="Item category code")
+
 # Purchase Order models
 class PurchaseOrderResponse(BaseModel):
     """Purchase Order header from Business Central"""

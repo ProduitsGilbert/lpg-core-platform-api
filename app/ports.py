@@ -190,7 +190,8 @@ class OCRClientProtocol(Protocol):
         file_content: bytes,
         filename: str,
         document_type: str,
-        output_model: Type[BaseModel]
+        output_model: Type[BaseModel],
+        additional_instructions: Optional[str] = None
     ) -> BaseModel:
         """
         Extract structured data from any document type using a custom model.
@@ -200,6 +201,7 @@ class OCRClientProtocol(Protocol):
             filename: Name of the file for identification
             document_type: Type of document for prompt customization
             output_model: Pydantic model class defining expected output structure
+            additional_instructions: Optional extra guidance for extraction
             
         Returns:
             Extracted data in the specified model format
@@ -248,6 +250,24 @@ class OCRClientProtocol(Protocol):
         filename: str
     ) -> Dict[str, Any]:
         """Extract structured data from a supplier invoice document."""
+        ...
+
+    def extract_vendor_quote(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Extract structured data from a vendor quote document."""
+        ...
+
+    def extract_order_confirmation(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Extract structured data from an order confirmation document."""
         ...
 
     def extract_shipping_bill(

@@ -53,3 +53,4 @@ def test_complex_document_returns_422_when_ocr_client_disabled(monkeypatch):
     assert payload["data"]["success"] is False
     assert payload["data"]["error_message"] == "OCR client is not enabled"
 
+

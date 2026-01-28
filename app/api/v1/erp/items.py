@@ -15,6 +15,7 @@ from app.domain.erp.models import (
     ItemResponse,
     ItemUpdateRequest,
     CreateItemRequest,
+    CreatePurchasedItemRequest,
     ItemPricesResponse,
     TariffCalculationResponse,
     ItemAvailabilityResponse,
@@ -389,15 +390,25 @@ async def update_item(
     status_code=status.HTTP_201_CREATED,
     response_model=SingleResponse[ItemResponse],
     summary="Create purchased item",
-    description="Create a purchased item by copying template 000 in Business Central."
+    description=(
+        "Create a purchased item by copying template 000 in Business Central, then "
+        "patching required metadata after the copy completes."
+    ),
 )
 async def create_purchased_item(
-    payload: CreateItemRequest,
+    payload: CreatePurchasedItemRequest,
     item_service: ItemService = Depends(get_item_service)
 ) -> SingleResponse[ItemResponse]:
     try:
         with logfire.span("create_purchased_item", item_no=payload.item_no):
-            created = await item_service.create_purchased_item(payload.item_no)
+            created = await item_service.create_purchased_item(
+                item_no=payload.item_no,
+                description=payload.description,
+                vendor_item_no=payload.vendor_item_no,
+                vendor_no=payload.vendor_no,
+                price=payload.price,
+                item_category_code=payload.item_category_code,
+            )
         return SingleResponse(data=created)
     except ERPConflict as exc:
         raise HTTPException(status_code=exc.status_code, detail=_error_payload(exc))

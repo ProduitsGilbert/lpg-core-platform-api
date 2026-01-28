@@ -88,7 +88,7 @@ async def get_planner_daily_report_history(
     days: int = Query(
         default=7,
         ge=1,
-        le=120,
+        le=90,
         description="Number of calendar days to look back (week=7, month≈30).",
     ),
     work_center_no: str = Query(

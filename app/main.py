@@ -22,6 +22,7 @@ from app.db import verify_database_connection, dispose_engine
 from app.errors import register_exception_handlers
 from app.routers import health, purchasing
 from app.audit import cleanup_expired_idempotency_keys, cleanup_old_audit_logs
+from app.domain.kpi.planner_daily_report_jobs import refresh_planner_kpi_cache
 from app.db import get_db_session
 from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
@@ -115,6 +116,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             id="cleanup_audit",
             args=[get_db_session],
             name="Cleanup old audit logs"
+        )
+
+        scheduler.add_job(
+            refresh_planner_kpi_cache,
+            "cron",
+            hour=1,
+            minute=0,
+            id="planner_kpi_refresh",
+            name="Refresh planner KPI cache",
+            replace_existing=True,
         )
         
         scheduler.start()

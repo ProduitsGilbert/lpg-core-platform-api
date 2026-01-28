@@ -81,3 +81,4 @@ def test_supplier_account_statement_wajax_live_extracts_invoice_dates_and_amount
         ), f"Missing invoice/date/amount for {invoice_number}"
 
 
+

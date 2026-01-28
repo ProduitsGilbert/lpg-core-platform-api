@@ -19,6 +19,8 @@ from app.domain.ocr.models import (
     SupplierAccountStatementExtraction,
     CustomerAccountStatementExtraction,
     SupplierInvoiceExtraction,
+    VendorQuoteExtraction,
+    OrderConfirmationExtraction,
     ShippingBillExtraction,
     CommercialInvoiceExtraction,
     ComplexDocumentExtraction
@@ -256,7 +258,8 @@ class OpenAIOCRClient(OCRClientProtocol):
         file_content: bytes,
         filename: str,
         document_type: str,
-        output_model: Type[BaseModel]
+        output_model: Type[BaseModel],
+        additional_instructions: Optional[str] = None,
     ) -> BaseModel:
         """
         Extract structured data from any document type using a custom model.
@@ -281,6 +284,10 @@ class OpenAIOCRClient(OCRClientProtocol):
 
                 fields_prompt = "\n".join(field_descriptions)
 
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
+
                 extracted_data = self._extract_with_vision(
                     file_content=file_content,
                     filename=filename,
@@ -291,8 +298,11 @@ class OpenAIOCRClient(OCRClientProtocol):
 
                     Ensure all data is accurately extracted and properly formatted.
                     For dates, use ISO format (YYYY-MM-DD).
-                    For monetary amounts, extract as decimal numbers without currency symbols.""",
-                    user_prompt=f"Extract all relevant information from this {document_type} document according to the specified structure.",
+                    For monetary amounts, extract as decimal numbers without currency symbols.{extra}""",
+                    user_prompt=(
+                        f"Extract all relevant information from this {document_type} document according to the specified structure."
+                        f"{extra}"
+                    ),
                     response_model=output_model
                 )
 
@@ -479,6 +489,92 @@ Guidelines:
 
             except Exception as exc:
                 logfire.error(f'Failed to extract supplier invoice from {filename}: {exc}')
+                raise
+
+    def extract_vendor_quote(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Extract structured data from a vendor quote document."""
+        with logfire.span('openai_extract_vendor_quote'):
+            start_time = time.time()
+
+            try:
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
+
+                quote_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="vendor_quote",
+                    system_prompt="""You are an expert at extracting structured data from vendor quote documents.
+                    Capture the quote number, quote date, supplier name, and every line item.
+                    Line items must include item numbers (if present), vendor item numbers, descriptions, quantities,
+                    unit prices, line totals, and estimated delivery time (as stated in the document).
+                    Ensure all quantities and monetary amounts are returned as decimal numbers.
+                    Dates must use ISO YYYY-MM-DD format.""",
+                    user_prompt=(
+                        "Extract vendor quote details including header information and all line items."
+                        f"{extra}"
+                    ),
+                    response_model=VendorQuoteExtraction,
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = quote_data.model_dump()
+                result["document_category"] = "vendor_quote"
+                result["confidence_score"] = 0.92
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract vendor quote from {filename}: {exc}')
+                raise
+
+    def extract_order_confirmation(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Extract structured data from an order confirmation document."""
+        with logfire.span('openai_extract_order_confirmation'):
+            start_time = time.time()
+
+            try:
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
+
+                confirmation_data = self._extract_with_vision(
+                    file_content=file_content,
+                    filename=filename,
+                    document_category="order_confirmation",
+                    system_prompt="""You are an expert at extracting structured data from order confirmation documents.
+                    Capture the order confirmation number, confirmation date, supplier name, and the buyer PO reference number.
+                    Line items must include item numbers (if present), vendor item numbers, descriptions, quantities,
+                    unit prices, line totals, and expected delivery dates.
+                    Ensure all quantities and monetary amounts are returned as decimal numbers.
+                    Dates must use ISO YYYY-MM-DD format.""",
+                    user_prompt=(
+                        "Extract order confirmation details including header information and all line items."
+                        f"{extra}"
+                    ),
+                    response_model=OrderConfirmationExtraction,
+                )
+
+                processing_time = int((time.time() - start_time) * 1000)
+                result = confirmation_data.model_dump()
+                result["document_category"] = "order_confirmation"
+                result["confidence_score"] = 0.92
+                result["processing_time_ms"] = processing_time
+                return result
+
+            except Exception as exc:
+                logfire.error(f'Failed to extract order confirmation from {filename}: {exc}')
                 raise
 
     def extract_shipping_bill(

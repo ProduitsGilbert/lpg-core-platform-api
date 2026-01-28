@@ -19,6 +19,8 @@ from app.domain.kpi.models import (
     PlannerDailyWorkCenter,
     PlannerDailyWorkcenterHistoryResponse,
 )
+from app.domain.kpi.planner_daily_report_cache import planner_kpi_cache
+from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +125,17 @@ class PlannerDailyReportService:
         tasklist_filter: Optional[str] = None,
         work_center_no: Optional[str] = None,
     ) -> PlannerDailyReportResponse:
+        cache_key = self._build_daily_report_cache_key(
+            posting_date=posting_date,
+            tasklist_filter=tasklist_filter,
+            work_center_no=work_center_no,
+        )
+        retention_cutoff = posting_date - dt.timedelta(days=settings.planner_daily_report_cache_retention_days)
+        await planner_kpi_cache.prune_older_than(retention_cutoff)
+        cached_payload = await planner_kpi_cache.get_daily_report(cache_key)
+        if cached_payload:
+            return PlannerDailyReportResponse.model_validate(cached_payload)
+
         with logfire.span(
             "planner_daily_report.generate_report",
             posting_date=posting_date.isoformat(),
@@ -166,11 +179,22 @@ class PlannerDailyReportService:
             hours_remaining=round(remaining_minutes / 60.0, 2),
         )
 
-        return PlannerDailyReportResponse(
+        response = PlannerDailyReportResponse(
             posting_date=posting_date.isoformat(),
             customer_load_gi=customer_load,
             workcenters=workcenters,
         )
+        snapshot_points = [
+            (r.work_center_no, posting_date.isoformat(), r.mo_done, r.mo_remaining)
+            for r in response.workcenters
+        ]
+        await planner_kpi_cache.upsert_workcenter_snapshots(snapshot_points)
+        await planner_kpi_cache.set_daily_report(
+            cache_key=cache_key,
+            posting_date=posting_date.isoformat(),
+            payload=response.model_dump(),
+        )
+        return response
 
     async def generate_workcenter_history(
         self,
@@ -186,31 +210,73 @@ class PlannerDailyReportService:
         start_date = posting_date - dt.timedelta(days=days - 1)
         business_days = _business_days_between(start_date, posting_date)
 
-        tasklist_rows = await self._fetch_tasklist_rows(
-            tasklist_filter=tasklist_filter,
-            work_center_no=work_center_no,
-        )
+        await planner_kpi_cache.register_workcenter(work_center_no)
+        retention_cutoff = posting_date - dt.timedelta(days=settings.planner_kpi_cache_retention_days)
+        await planner_kpi_cache.prune_older_than(retention_cutoff)
 
-        async def _fetch_for_day(day: dt.date) -> tuple[dt.date, List[Dict[str, Any]]]:
-            rows = await self._fetch_capacity_ledger_rows(
-                posting_date=day,
+        cached_points = await planner_kpi_cache.get_points(
+            work_center_no=work_center_no,
+            start_date=start_date,
+            end_date=posting_date,
+        )
+        snapshot_points = await planner_kpi_cache.get_workcenter_snapshots(
+            work_center_no=work_center_no,
+            start_date=start_date,
+            end_date=posting_date,
+        )
+        missing_days = [day for day in business_days if day.isoformat() not in cached_points]
+
+        tasklist_rows: List[Dict[str, Any]] = []
+        if missing_days:
+            tasklist_rows = await self._fetch_tasklist_rows(
+                tasklist_filter=tasklist_filter,
+                work_center_no=work_center_no,
+                start_date=start_date,
+            )
+
+        done_by_date: Dict[dt.date, List[Dict[str, Any]]] = {}
+        if missing_days:
+            range_start = min(missing_days)
+            range_end = max(missing_days)
+            range_rows = await self._fetch_capacity_ledger_rows_range(
+                start_date=range_start,
+                end_date=range_end,
                 work_center_no=work_center_no,
                 allow_empty=True,
             )
-            return day, rows
-
-        semaphore = asyncio.Semaphore(5)
-
-        async def _with_limit(day: dt.date) -> tuple[dt.date, List[Dict[str, Any]]]:
-            async with semaphore:
-                return await _fetch_for_day(day)
-
-        results = await asyncio.gather(*[_with_limit(day) for day in business_days])
-        done_by_date: Dict[dt.date, List[Dict[str, Any]]] = {day: rows for day, rows in results}
+            for row in range_rows:
+                row_date = _parse_odata_date(row.get("Posting_Date") or row.get("PostingDate"))
+                if row_date is None:
+                    continue
+                done_by_date.setdefault(row_date, []).append(row)
 
         work_center_name = None
         points: List[PlannerDailyHistoryPoint] = []
+        to_cache: List[tuple[str, int, int]] = []
         for day in business_days:
+            snapshot = snapshot_points.get(day.isoformat())
+            if snapshot:
+                mo_done, mo_remaining = snapshot
+                points.append(
+                    PlannerDailyHistoryPoint(
+                        date=day.isoformat(),
+                        mo_done=mo_done,
+                        mo_remaining=mo_remaining,
+                    )
+                )
+                continue
+            cached = cached_points.get(day.isoformat())
+            if cached:
+                mo_done, mo_remaining = cached
+                points.append(
+                    PlannerDailyHistoryPoint(
+                        date=day.isoformat(),
+                        mo_done=mo_done,
+                        mo_remaining=mo_remaining,
+                    )
+                )
+                continue
+
             rows = done_by_date.get(day, [])
             accomplished, _ = self._aggregate_accomplished_from_rows(rows)
             accumulator = accomplished.get(work_center_no)
@@ -218,13 +284,18 @@ class PlannerDailyReportService:
                 work_center_name = accumulator.name_hint
 
             remaining = self._count_remaining_for_day(tasklist_rows, day)
+            mo_done = accumulator.mo_count() if accumulator else 0
             points.append(
                 PlannerDailyHistoryPoint(
                     date=day.isoformat(),
-                    mo_done=accumulator.mo_count() if accumulator else 0,
+                    mo_done=mo_done,
                     mo_remaining=remaining,
                 )
             )
+            to_cache.append((day.isoformat(), mo_done, remaining))
+
+        if to_cache:
+            await planner_kpi_cache.upsert_points(work_center_no, to_cache)
 
         return PlannerDailyWorkcenterHistoryResponse(
             work_center_no=work_center_no,
@@ -257,6 +328,7 @@ class PlannerDailyReportService:
         rows = await self._fetch_tasklist_rows(
             tasklist_filter=tasklist_filter,
             work_center_no=work_center_no,
+            start_date=None,
         )
 
         aggregates: Dict[str, _WorkCenterAccumulator] = {}
@@ -297,6 +369,7 @@ class PlannerDailyReportService:
         *,
         tasklist_filter: Optional[str],
         work_center_no: Optional[str],
+        start_date: Optional[dt.date],
     ) -> List[Dict[str, Any]]:
         status_filter = "Status eq 'Released'"
         combined_filter = f"({status_filter})"
@@ -304,6 +377,10 @@ class PlannerDailyReportService:
             combined_filter = f"({tasklist_filter}) and ({status_filter})"
         if work_center_no:
             combined_filter = f"({combined_filter}) and (WorkCenterNo eq '{work_center_no}')"
+        if start_date:
+            start_iso = start_date.isoformat()
+            # OData in this tenant rejects OR across distinct fields; prefer Ending_Date filter.
+            combined_filter = f"({combined_filter}) and (Ending_Date ge {start_iso})"
 
         resource = f"WorkCenterTaskList?$filter={combined_filter}"
         try:
@@ -433,6 +510,127 @@ class PlannerDailyReportService:
             )
         return rows
 
+    async def _fetch_capacity_ledger_rows_range(
+        self,
+        *,
+        start_date: dt.date,
+        end_date: dt.date,
+        work_center_no: Optional[str],
+        allow_empty: bool,
+        page_size: int = 2000,
+        max_pages: int = 100,
+    ) -> List[Dict[str, Any]]:
+        select_fields = ",".join(
+            [
+                "Posting_Date",
+                "Work_Center_No",
+                "Order_No",
+                "Quantity",
+                "WSI_Job_No",
+                "Setup_Time",
+                "Run_Time",
+                "Description",
+            ]
+        )
+        filter_parts = [
+            f"Posting_Date ge {start_date.isoformat()}",
+            f"Posting_Date le {end_date.isoformat()}",
+        ]
+        if work_center_no:
+            filter_parts.append(f"Work_Center_No eq '{work_center_no}'")
+        filtered_query = (
+            "CapacityLedgerEntries"
+            f"?$filter={' and '.join(filter_parts)}&$select={select_fields}&$orderby=Posting_Date desc,Entry_No desc"
+        )
+        try:
+            filtered_rows = await self._client._fetch_odata_collection(filtered_query)
+        except ERPError:
+            filtered_rows = []
+
+        in_range: List[Dict[str, Any]] = []
+        for row in filtered_rows or []:
+            row_date = _parse_odata_date(row.get("Posting_Date") or row.get("PostingDate"))
+            if row_date is None:
+                continue
+            if row_date < start_date or row_date > end_date:
+                continue
+            if work_center_no:
+                row_wc = (
+                    row.get("Work_Center_No")
+                    or row.get("WorkCenterNo")
+                    or row.get("WorkCenter_No")
+                )
+                if str(row_wc or "") != work_center_no:
+                    continue
+            in_range.append(row)
+
+        if in_range:
+            return in_range
+
+        # Fallback scan with ordering if filters were ignored.
+        rows: List[Dict[str, Any]] = []
+        pages = 0
+        skip = 0
+        base_query = (
+            "CapacityLedgerEntries"
+            f"?$orderby=Posting_Date desc,Entry_No desc&$top={page_size}&$select={select_fields}"
+        )
+
+        while pages < max_pages:
+            pages += 1
+            resource = f"{base_query}&$skip={skip}" if skip else base_query
+            try:
+                response = await self._client.http_client.get(resource)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise ERPError(
+                    "Business Central returned an error while fetching CapacityLedgerEntries",
+                    context={"status_code": exc.response.status_code},
+                ) from exc
+            except httpx.RequestError as exc:
+                raise ERPUnavailable("Business Central service unreachable") from exc
+
+            payload = response.json()
+            values = payload.get("value", [])
+            if not isinstance(values, list) or not values:
+                break
+
+            stop = False
+            for row in values:
+                row_date = _parse_odata_date(row.get("Posting_Date") or row.get("PostingDate"))
+                if row_date is None:
+                    continue
+                if row_date < start_date:
+                    stop = True
+                    break
+                if row_date > end_date:
+                    continue
+                if work_center_no:
+                    row_wc = (
+                        row.get("Work_Center_No")
+                        or row.get("WorkCenterNo")
+                        or row.get("WorkCenter_No")
+                    )
+                    if str(row_wc or "") != work_center_no:
+                        continue
+                rows.append(row)
+
+            if stop:
+                break
+            skip += page_size
+
+        if not rows and not allow_empty:
+            raise ValidationException(
+                "No CapacityLedgerEntries found for posting date range.",
+                field="date",
+                context={
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "pages_scanned": pages,
+                },
+            )
+        return rows
+
     def _aggregate_accomplished_from_rows(
         self,
         rows: List[Dict[str, Any]],
@@ -468,6 +666,17 @@ class PlannerDailyReportService:
                 gi_minutes_total += _extract_minutes(row)
 
         return aggregates, gi_minutes_total
+
+    @staticmethod
+    def _build_daily_report_cache_key(
+        *,
+        posting_date: dt.date,
+        tasklist_filter: Optional[str],
+        work_center_no: Optional[str],
+    ) -> str:
+        normalized_filter = (tasklist_filter or "").strip().lower()
+        normalized_work_center = (work_center_no or "").strip()
+        return f"{posting_date.isoformat()}|{normalized_work_center}|{normalized_filter}"
 
     def _count_remaining_for_day(
         self,

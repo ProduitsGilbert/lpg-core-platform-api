@@ -26,7 +26,8 @@ from app.domain.erp.item_service import ItemService
 from app.domain.erp.models import (
     ItemResponse,
     ItemUpdateRequest,
-    CreateItemRequest
+    CreateItemRequest,
+    CreatePurchasedItemRequest,
 )
 from app.domain.dtos import (
     POLineDTO,
@@ -524,13 +525,20 @@ async def update_item_fields(
     include_in_schema=False
 )
 async def create_purchased_item(
-    body: CreateItemRequest,
+    body: CreatePurchasedItemRequest,
     ctx: RequestContext = Depends(get_request_context)
 ) -> ItemResponse:
     """Create a purchased item from template 000."""
     with logfire.span("POST /items/purchased", item_no=body.item_no, actor=ctx.actor):
         service = _get_item_service()
-        return await service.create_purchased_item(body.item_no)
+        return await service.create_purchased_item(
+            item_no=body.item_no,
+            description=body.description,
+            vendor_item_no=body.vendor_item_no,
+            vendor_no=body.vendor_no,
+            price=body.price,
+            item_category_code=body.item_category_code,
+        )
 
 
 @router.post(

@@ -1,6 +1,7 @@
 """
 Item service for Business Central integration
 """
+import asyncio
 import logging
 import logfire
 from typing import Optional, List, Dict, Any, Tuple
@@ -217,9 +218,58 @@ class ItemService:
 
             return self._map_item(created, item_id)
 
-    async def create_purchased_item(self, item_id: str) -> ItemResponse:
-        """Create a purchased item using template '000'."""
-        return await self.create_item_from_template(item_id, template_item="000")
+    async def create_purchased_item(
+        self,
+        item_no: str,
+        description: str,
+        vendor_item_no: str,
+        vendor_no: Optional[str] = None,
+        price: Optional[Decimal] = None,
+        item_category_code: Optional[str] = None,
+    ) -> ItemResponse:
+        """Create a purchased item using template '000' and patch required fields."""
+        with logfire.span(
+            "item_service.create_purchased_item",
+            item_no=item_no,
+            vendor_no=vendor_no,
+        ):
+            existing = await self.erp_client.get_item(item_no)
+            if existing:
+                raise ERPConflict(f"Item {item_no} already exists in ERP")
+
+            await self.erp_client.copy_item_from_template("000", item_no)
+
+            await asyncio.sleep(1)
+
+            created = await self.erp_client.get_item(item_no)
+            if not created:
+                raise ERPError("Item creation succeeded but item could not be retrieved")
+
+            system_id = created.get("SystemId")
+            etag = created.get("@odata.etag")
+            if not system_id:
+                raise ERPError("ERP response missing SystemId for item update")
+            if not etag:
+                raise ERPError("ERP response missing etag for item update")
+
+            updates: Dict[str, Any] = {
+                "Description": description,
+                "Vendor_Item_No": vendor_item_no,
+            }
+            if vendor_no:
+                updates["Vendor_No"] = vendor_no
+            if price is not None:
+                updates["Unit_Price"] = float(price)
+            if item_category_code:
+                updates["Item_Category_Code"] = item_category_code
+
+            await self.erp_client.update_item_record(system_id, updates, etag)
+
+            updated = await self.erp_client.get_item(item_no)
+            if not updated:
+                raise ERPError("Failed to load item after update")
+
+            return self._map_item(updated, item_no)
 
     async def create_manufactured_item(self, item_id: str) -> ItemResponse:
         """Create a manufactured item using template '00000'."""

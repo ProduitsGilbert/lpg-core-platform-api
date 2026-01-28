@@ -83,12 +83,26 @@ def test_create_purchased_item_success(client, monkeypatch):
     service = _setup_item_service(monkeypatch)
     service.create_purchased_item.return_value = item_response
 
-    response = client.post("/api/v1/erp/items/purchased", json={"item_no": "ITEM-200"})
+    response = client.post(
+        "/api/v1/erp/items/purchased",
+        json={
+            "item_no": "ITEM-200",
+            "description": "New purchased item",
+            "vendor_item_no": "V-200",
+        },
+    )
 
     assert response.status_code == 201
     body = response.json()
     assert body["data"]["id"] == "ITEM-200"
-    service.create_purchased_item.assert_awaited_once_with("ITEM-200")
+    service.create_purchased_item.assert_awaited_once_with(
+        item_no="ITEM-200",
+        description="New purchased item",
+        vendor_item_no="V-200",
+        vendor_no=None,
+        price=None,
+        item_category_code=None,
+    )
 
 
 def test_create_manufactured_item_conflict(client, monkeypatch):

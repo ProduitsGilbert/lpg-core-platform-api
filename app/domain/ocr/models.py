@@ -51,6 +51,50 @@ class PurchaseOrderExtraction(BaseModel):
     notes: Optional[str] = Field(None, description="Additional PO notes/comments")
 
 
+class VendorQuoteLine(BaseModel):
+    """Model for a vendor quote line item."""
+    line_number: int = Field(..., description="Line item number")
+    item_no: Optional[str] = Field(None, description="Buyer item number or internal item code")
+    vendor_item_no: Optional[str] = Field(None, description="Vendor item number or SKU")
+    description: str = Field(..., description="Item description")
+    quantity: Decimal = Field(..., description="Quoted quantity")
+    unit_price: Decimal = Field(..., description="Price per unit")
+    line_total: Decimal = Field(..., description="Total amount for this line")
+    estimated_delivery_time: Optional[str] = Field(
+        None,
+        description="Estimated delivery time as stated (e.g., '2-3 weeks')",
+    )
+
+
+class VendorQuoteExtraction(BaseModel):
+    """Model for extracted vendor quote data."""
+    quote_number: str = Field(..., description="Vendor quote number")
+    quote_date: date = Field(..., description="Quote date")
+    supplier_name: str = Field(..., description="Supplier/vendor name")
+    lines: List[VendorQuoteLine] = Field(..., description="Vendor quote line items")
+
+
+class OrderConfirmationLine(BaseModel):
+    """Model for an order confirmation line item."""
+    line_number: int = Field(..., description="Line item number")
+    item_no: Optional[str] = Field(None, description="Buyer item number or internal item code")
+    vendor_item_no: Optional[str] = Field(None, description="Vendor item number or SKU")
+    description: str = Field(..., description="Item description")
+    quantity: Decimal = Field(..., description="Confirmed quantity")
+    unit_price: Decimal = Field(..., description="Price per unit")
+    line_total: Decimal = Field(..., description="Total amount for this line")
+    expected_delivery_date: Optional[date] = Field(None, description="Expected delivery date")
+
+
+class OrderConfirmationExtraction(BaseModel):
+    """Model for extracted order confirmation data."""
+    order_confirmation_number: str = Field(..., description="Order confirmation number")
+    order_confirmation_date: date = Field(..., description="Order confirmation date")
+    supplier_name: str = Field(..., description="Supplier/vendor name")
+    po_reference_number: str = Field(..., description="Buyer purchase order reference number")
+    lines: List[OrderConfirmationLine] = Field(..., description="Order confirmation line items")
+
+
 class InvoiceLine(BaseModel):
     """Model for an invoice line item."""
     line_number: int = Field(..., description="Line item number")

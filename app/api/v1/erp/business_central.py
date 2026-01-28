@@ -133,6 +133,45 @@ async def _fetch_ship_to_addresses(
     return []
 
 
+async def _fetch_ship_to_map(
+    customer_nos: set[str],
+    service: BusinessCentralODataService,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Fetch all ShipToAddress entries once and group by customer number."""
+    resource_candidates = (
+        "ShipToAddress",
+        "ShipToAddresses",
+        "Ship_to_Address",
+        "Ship_to_Addresses",
+    )
+    ship_to_records: List[Dict[str, Any]] = []
+    for resource in resource_candidates:
+        try:
+            ship_to_records = await service.fetch_collection_paged(resource)
+            if ship_to_records:
+                break
+        except httpx.HTTPStatusError:
+            continue
+        except httpx.RequestError:
+            return {}
+
+    ship_to_map: Dict[str, List[Dict[str, Any]]] = {}
+    for ship_to in ship_to_records:
+        customer_no = (
+            ship_to.get("Customer_No")
+            or ship_to.get("CustomerNo")
+            or ship_to.get("Customer_No_")
+            or ship_to.get("CustomerNumber")
+        )
+        if not customer_no:
+            continue
+        customer_no = str(customer_no)
+        if customer_no not in customer_nos:
+            continue
+        ship_to_map.setdefault(customer_no, []).append(ship_to)
+    return ship_to_map
+
+
 def _ship_to_code(record: Dict[str, Any]) -> Optional[str]:
     for key in ("Code", "ShipToCode", "Ship_to_Code", "ShipTo_Code"):
         value = record.get(key)
@@ -278,16 +317,25 @@ async def list_customers(
         summaries: List[CustomerSummaryResponse] = []
         refresh_tasks: List[asyncio.Task] = []
         blocking_pairs: List[tuple[Any, asyncio.Task]] = []
-        ship_to_semaphore = asyncio.Semaphore(settings.google_geocode_max_concurrency)
-        ship_to_tasks: Dict[str, asyncio.Task] = {}
+        ship_to_map: Dict[str, List[Dict[str, Any]]] = {}
 
-        for record in records:
-            customer_no = str(record.get("No") or "")
-            if not customer_no:
-                continue
-            ship_to_tasks[customer_no] = asyncio.create_task(
-                _fetch_ship_to_addresses(customer_no, service, ship_to_semaphore)
-            )
+        if records:
+            customer_nos = {
+                str(record.get("No"))
+                for record in records
+                if record.get("No") is not None
+            }
+            if no:
+                ship_to_semaphore = asyncio.Semaphore(settings.google_geocode_max_concurrency)
+                ship_to_map = {}
+                for customer_no in customer_nos:
+                    if not customer_no:
+                        continue
+                    ship_to_map[customer_no] = await _fetch_ship_to_addresses(
+                        customer_no, service, ship_to_semaphore
+                    )
+            else:
+                ship_to_map = await _fetch_ship_to_map(customer_nos, service)
 
         for record in records:
             customer_no = str(record.get("No") or "")
@@ -334,16 +382,7 @@ async def list_customers(
                         )
                     )
 
-            ship_to_records = []
-            if customer_no in ship_to_tasks:
-                try:
-                    ship_to_records = await asyncio.wait_for(
-                        ship_to_tasks[customer_no],
-                        timeout=settings.bc_ship_to_timeout_seconds,
-                    )
-                except asyncio.TimeoutError:
-                    ship_to_tasks[customer_no].cancel()
-                    ship_to_records = []
+            ship_to_records = ship_to_map.get(customer_no, [])
 
             if ship_to_records:
                 for ship_to in ship_to_records:

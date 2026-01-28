@@ -53,6 +53,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser migration/ ./migration/
 COPY --chown=appuser:appuser tests/ ./tests/
+COPY --chown=appuser:appuser docs/ ./docs/
 COPY --chown=appuser:appuser entrypoint.sh /app/entrypoint.sh
 
 # Copy environment files (will be selected at runtime based on APP_ENV)

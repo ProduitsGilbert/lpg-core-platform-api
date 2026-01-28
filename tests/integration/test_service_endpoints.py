@@ -51,3 +51,4 @@ def test_list_customer_service_assets(http_session, base_url, default_timeout, c
     for item in payload["data"]:
         assert item["customer_id"].strip().upper() == customer_id.upper()
 
+

@@ -6,6 +6,7 @@ These endpoints handle document uploads and extraction using AI/LLM models.
 
 from typing import Optional
 from datetime import datetime
+import json
 import logfire
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form
 from fastapi.responses import JSONResponse
@@ -18,6 +19,7 @@ from app.domain.ocr.models import (
     PurchaseOrderExtraction,
     InvoiceExtraction
 )
+from app.domain.ocr.schema_utils import build_pydantic_model_from_schema
 
 
 router = APIRouter(
@@ -34,6 +36,8 @@ DOCUMENT_HANDLER_MAP = {
     "supplier_account_statement": "extract_supplier_account_statement",
     "customer_account_statement": "extract_customer_account_statement",
     "supplier_invoice": "extract_supplier_invoice",
+    "vendor_quote": "extract_vendor_quote",
+    "order_confirmation": "extract_order_confirmation",
     "shipping_bill": "extract_shipping_bill",
     "commercial_invoice": "extract_commercial_invoice",
     "complex_document": "extract_complex_document",
@@ -424,6 +428,106 @@ async def extract_supplier_invoice(
             )
 
 
+@router.post("/vendor-quotes/extract", response_model=OCRExtractionResponse)
+async def extract_vendor_quote(
+    file: UploadFile = File(..., description="PDF or image file containing the vendor quote"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from vendor quotes."""
+    with logfire.span('api_extract_vendor_quote'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing vendor quote for file: {file.filename}')
+
+            result = ocr_service.extract_vendor_quote(
+                file_content=file_content,
+                filename=file.filename,
+                additional_instructions=additional_instructions,
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "vendor_quote"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(mode="json"),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "vendor_quote",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract vendor quote: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract vendor quote: {str(e)}"
+            )
+
+
+@router.post("/order-confirmations/extract", response_model=OCRExtractionResponse)
+async def extract_order_confirmation(
+    file: UploadFile = File(..., description="PDF or image file containing the order confirmation"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service)
+):
+    """Extract structured data from order confirmations."""
+    with logfire.span('api_extract_order_confirmation'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing order confirmation for file: {file.filename}')
+
+            result = ocr_service.extract_order_confirmation(
+                file_content=file_content,
+                filename=file.filename,
+                additional_instructions=additional_instructions,
+            )
+
+            if result.success:
+                is_valid, error_msg = ocr_service.validate_extraction(
+                    result.extracted_data,
+                    "order_confirmation"
+                )
+                if not is_valid:
+                    result.success = False
+                    result.error_message = f"Validation failed: {error_msg}"
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(mode="json"),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": "order_confirmation",
+                        "filename": file.filename
+                    }
+                }
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract order confirmation: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract order confirmation: {str(e)}"
+            )
+
+
 @router.post("/shipping-bills/extract", response_model=OCRExtractionResponse)
 async def extract_shipping_bill(
     file: UploadFile = File(..., description="PDF or image file containing the shipping bill"),
@@ -564,6 +668,71 @@ async def extract_complex_document(
                 detail=f"Failed to extract complex document: {str(e)}",
             )
 
+
+@router.post("/custom/extract", response_model=OCRExtractionResponse)
+async def extract_custom_document(
+    file: UploadFile = File(..., description="PDF or image file to process"),
+    document_type: str = Form(..., description="Document type label used to guide extraction"),
+    output_schema: str = Form(..., description="JSON schema defining expected output structure"),
+    additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
+    ocr_service: OCRService = Depends(get_ocr_service),
+):
+    """
+    Extract structured data from any document using a custom JSON schema.
+    """
+    with logfire.span('api_extract_custom_document'):
+        try:
+            file_content = await _read_and_validate_upload(file)
+            logfire.info(f'Processing custom extraction for file: {file.filename}')
+
+            try:
+                schema_dict = json.loads(output_schema)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"output_schema must be valid JSON: {exc.msg}"
+                ) from exc
+
+            try:
+                output_model = build_pydantic_model_from_schema(
+                    schema_dict,
+                    model_name=f"{document_type.title().replace('-', '').replace('_', '')}Extraction",
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid output_schema: {exc}"
+                ) from exc
+
+            result = ocr_service.extract_custom_document(
+                file_content=file_content,
+                filename=file.filename,
+                document_type=document_type,
+                output_model=output_model,
+                additional_instructions=additional_instructions,
+            )
+
+            return JSONResponse(
+                status_code=200 if result.success else 422,
+                content={
+                    "data": result.model_dump(mode="json"),
+                    "meta": {
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "version": "1.0",
+                        "document_type": document_type,
+                        "filename": file.filename,
+                    },
+                },
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logfire.error(f'Failed to extract custom document: {str(e)}')
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to extract custom document: {str(e)}",
+            )
 
 @router.post("/batch/extract")
 async def extract_batch_documents(

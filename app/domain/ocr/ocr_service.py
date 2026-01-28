@@ -260,6 +260,88 @@ class OCRService:
                     error_message=str(e)
                 )
 
+    def extract_vendor_quote(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> OCRExtractionResponse:
+        """Extract data from vendor quotes."""
+        with logfire.span('extract_vendor_quote'):
+            try:
+                logfire.info(f'Processing vendor quote: {filename}')
+
+                if not self.ocr_client.enabled:
+                    return OCRExtractionResponse(
+                        success=False,
+                        document_type="vendor_quote",
+                        extracted_data={},
+                        error_message="OCR client is not enabled"
+                    )
+
+                extracted_data = self.ocr_client.extract_vendor_quote(
+                    file_content=file_content,
+                    filename=filename,
+                    additional_instructions=additional_instructions,
+                )
+
+                return OCRExtractionResponse(
+                    success=True,
+                    document_type="vendor_quote",
+                    extracted_data=extracted_data,
+                    confidence_score=extracted_data.get("confidence_score")
+                )
+
+            except Exception as e:
+                logfire.error(f'Failed to extract vendor quote from {filename}: {str(e)}')
+                return OCRExtractionResponse(
+                    success=False,
+                    document_type="vendor_quote",
+                    extracted_data={},
+                    error_message=str(e)
+                )
+
+    def extract_order_confirmation(
+        self,
+        file_content: bytes,
+        filename: str,
+        additional_instructions: Optional[str] = None,
+    ) -> OCRExtractionResponse:
+        """Extract data from order confirmations."""
+        with logfire.span('extract_order_confirmation'):
+            try:
+                logfire.info(f'Processing order confirmation: {filename}')
+
+                if not self.ocr_client.enabled:
+                    return OCRExtractionResponse(
+                        success=False,
+                        document_type="order_confirmation",
+                        extracted_data={},
+                        error_message="OCR client is not enabled"
+                    )
+
+                extracted_data = self.ocr_client.extract_order_confirmation(
+                    file_content=file_content,
+                    filename=filename,
+                    additional_instructions=additional_instructions,
+                )
+
+                return OCRExtractionResponse(
+                    success=True,
+                    document_type="order_confirmation",
+                    extracted_data=extracted_data,
+                    confidence_score=extracted_data.get("confidence_score")
+                )
+
+            except Exception as e:
+                logfire.error(f'Failed to extract order confirmation from {filename}: {str(e)}')
+                return OCRExtractionResponse(
+                    success=False,
+                    document_type="order_confirmation",
+                    extracted_data={},
+                    error_message=str(e)
+                )
+
     def extract_shipping_bill(
         self,
         file_content: bytes,
@@ -386,7 +468,8 @@ class OCRService:
         file_content: bytes,
         filename: str,
         document_type: str,
-        output_model: BaseModel
+        output_model: BaseModel,
+        additional_instructions: Optional[str] = None,
     ) -> OCRExtractionResponse:
         """
         Extract structured data from a custom document type.
@@ -417,7 +500,8 @@ class OCRService:
                     file_content=file_content,
                     filename=filename,
                     document_type=document_type,
-                    output_model=output_model
+                    output_model=output_model,
+                    additional_instructions=additional_instructions,
                 )
 
                 logfire.info(f'Successfully extracted {document_type} data from {filename}')
@@ -692,6 +776,28 @@ class OCRService:
                             return False, f"Missing required field: {field}"
                     if not extracted_data.get("lines"):
                         return False, "Supplier invoice must have at least one line item"
+
+                elif document_type == "vendor_quote":
+                    required_fields = ["quote_number", "quote_date", "supplier_name", "lines"]
+                    for field in required_fields:
+                        if field not in extracted_data or extracted_data[field] in (None, "", []):
+                            return False, f"Missing required field: {field}"
+                    if not extracted_data.get("lines"):
+                        return False, "Vendor quote must have at least one line item"
+
+                elif document_type == "order_confirmation":
+                    required_fields = [
+                        "order_confirmation_number",
+                        "order_confirmation_date",
+                        "supplier_name",
+                        "po_reference_number",
+                        "lines",
+                    ]
+                    for field in required_fields:
+                        if field not in extracted_data or extracted_data[field] in (None, "", []):
+                            return False, f"Missing required field: {field}"
+                    if not extracted_data.get("lines"):
+                        return False, "Order confirmation must have at least one line item"
                 
                 elif document_type == "shipping_bill":
                     required_fields = ["bill_number", "bill_date", "exporter_name", "consignee_name", "line_items"]
