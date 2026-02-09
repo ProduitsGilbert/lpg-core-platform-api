@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Iterable
 
 import logfire
 
@@ -34,15 +34,37 @@ class EDIService:
         self.erp_client = erp_client or ERPClient()
         self.sender_id = sender_id
 
+    @staticmethod
+    def _filter_and_order_lines(lines: Iterable[dict]) -> list[dict]:
+        """Drop empty/comment lines and order by line number for predictable EDI output."""
+
+        filtered: list[dict] = []
+        for line in lines:
+            qty = line.get("Quantity")
+            item = line.get("No") or line.get("Item_No")
+            description = line.get("Description")
+            if (qty in (None, "", 0, "0", 0.0) or str(qty).strip() == "0") and not item and not description:
+                continue
+            filtered.append(line)
+
+        filtered.sort(key=lambda l: l.get("Line_No") or l.get("LineNo") or l.get("LineNumber") or 0)
+        return filtered
+
     async def _fetch_po_data(self, po_number: str):
-        po_header = await self.erp_client.get_purchase_order(po_number)
+        po_header = await self.erp_client.get_purchase_order_for_edi(po_number)
+        if not po_header:
+            po_header = await self.erp_client.get_purchase_order(po_number)
         if not po_header:
             raise PurchaseOrderNotFoundError(po_number)
 
-        lines = await self.erp_client.get_purchase_order_lines(po_number)
+        lines = await self.erp_client.get_purchase_order_lines_for_edi(po_number)
+        if not lines:
+            lines = await self.erp_client.get_purchase_order_lines(po_number)
+
+        lines = self._filter_and_order_lines(lines)
         if not lines:
             raise InvalidPurchaseOrderError(
-                "Purchase order has no lines to include in the EDI document",
+                "Purchase order has no usable lines to include in the EDI document",
                 context={"po_number": po_number},
             )
 

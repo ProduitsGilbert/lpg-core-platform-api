@@ -20,7 +20,8 @@ services:
       DB_DSN: ${DB_DSN:-mssql+pyodbc://username:password@your-sql-server-host:1433/YourDatabase?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes}
       # OCR / AI
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-4.1-mini}
+      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-5-2025-08-07}
+      OCR_PRIMARY_PROVIDER: ${OCR_PRIMARY_PROVIDER:-openrouter}
       # Feature flags for development
       ENABLE_SCHEDULER: false
       ENABLE_OCR: true

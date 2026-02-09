@@ -29,6 +29,17 @@ class TimeseriesRequest(BaseModel):
     part_numbers: Optional[List[str]] = Field(None, description="Optional list of part numbers to filter by")
 
 
+class InsightTimeseriesRequest(BaseModel):
+    """Request model for Insight timeseries metrics API."""
+    devices: List[str] = Field(
+        ...,
+        min_length=1,
+        description="List of Sandvik device identifiers to query"
+    )
+    start_date: Optional[date] = Field(None, description="Start date for data range (defaults to 10 days ago)")
+    end_date: Optional[date] = Field(None, description="End date for data range (defaults to today)")
+
+
 class MachineHistoryRequest(BaseModel):
     """Request model for machine history data."""
     machine_group: Optional[str] = Field(None, description="Machine group name (e.g., 'DMC_100', 'NLX2500')")

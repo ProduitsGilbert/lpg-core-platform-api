@@ -5,12 +5,17 @@ This adapter uses OpenAI's GPT models with structured output to extract
 data from PDF and image documents.
 """
 
+import base64
 import io
+import json
 from typing import Dict, Any, Type, Optional
 import time
 import logfire
+import openai
+import httpx
 from openai import OpenAI
 from pydantic import BaseModel
+from pypdf import PdfReader
 
 from app.ports import OCRClientProtocol
 from app.domain.ocr.models import (
@@ -23,7 +28,8 @@ from app.domain.ocr.models import (
     OrderConfirmationExtraction,
     ShippingBillExtraction,
     CommercialInvoiceExtraction,
-    ComplexDocumentExtraction
+    ComplexDocumentExtraction,
+    ComplexDocumentAnalysis,
 )
 
 
@@ -35,23 +41,272 @@ class OpenAIOCRClient(OCRClientProtocol):
     to extract data from corporate documents.
     """
     
-    def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gpt-5-2025-08-07",
+        openrouter_api_key: Optional[str] = None,
+        openrouter_model: str = "openrouter/auto",
+        primary_provider: str = "openrouter",
+    ):
         """
         Initialize OpenAI OCR client.
         
         Args:
             api_key: OpenAI API key
-            model: Model to use for extraction (default: gpt-4.1-mini)
+            model: Model to use for extraction (default: gpt-5-2025-08-07)
         """
-        self.client = OpenAI(api_key=api_key) if api_key else None
+        # Cap request latency to keep OCR responsive.
+        self._default_timeout = 45.0
+        self.client = OpenAI(api_key=api_key, timeout=self._default_timeout) if api_key else None
         self.model = model
         self._enabled = bool(api_key)
-        logfire.info(f"OpenAI OCR client initialized with model: {model}")
+        self._supports_responses = bool(self.client) and hasattr(self.client, "responses")
+        self._openrouter_key = openrouter_api_key
+        self._openrouter_enabled = bool(openrouter_api_key)
+        self._openrouter_model = openrouter_model
+        self._openrouter_base_url = "https://openrouter.ai/api/v1"
+        normalized_provider = (primary_provider or "openrouter").strip().lower()
+        if normalized_provider not in ("openrouter", "openai"):
+            logfire.warn(
+                "Unknown OCR primary provider; defaulting to openrouter.",
+                provider=normalized_provider,
+            )
+            normalized_provider = "openrouter"
+        self._primary_provider = normalized_provider
+        logfire.info(
+            f"OpenAI OCR client initialized with model: {model} "
+            f"(sdk: {getattr(openai, '__version__', 'unknown')})"
+        )
+        logfire.info("OCR primary provider configured", provider=self._primary_provider)
+        if self._enabled and not self._supports_responses:
+            logfire.warn(
+                "OpenAI SDK lacks responses API; falling back to chat completions. "
+                "Upgrade openai to >=1.58.1 for best results."
+            )
+        if self._openrouter_enabled:
+            logfire.info(f"OpenRouter OCR fallback enabled (model: {openrouter_model})")
     
     @property
     def enabled(self) -> bool:
         """Whether the OCR client is enabled and available."""
         return self._enabled
+
+    @staticmethod
+    def _schema_instructions(response_model: Type[BaseModel]) -> str:
+        schema_json = json.dumps(response_model.model_json_schema(), indent=2)
+        return (
+            "Return ONLY valid JSON that matches this schema:\n"
+            f"{schema_json}"
+        )
+
+    @staticmethod
+    def _strip_code_fences(content: str) -> str:
+        stripped = content.strip()
+        if not stripped.startswith("```"):
+            return stripped
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
+    @staticmethod
+    def _parse_json_output(content: str, response_model: Type[BaseModel]) -> BaseModel:
+        raw = OpenAIOCRClient._strip_code_fences(content or "")
+        if not raw:
+            raise ValueError("Empty response from model")
+
+        try:
+            return response_model.model_validate_json(raw)
+        except Exception:
+            candidates = [raw]
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                candidates.append(raw[start : end + 1])
+            for candidate in candidates:
+                try:
+                    data = json.loads(candidate)
+                except Exception:
+                    continue
+                return response_model.model_validate(data)
+            raise
+
+    @staticmethod
+    def _extract_pdf_text(
+        file_content: bytes,
+        *,
+        max_pages: int = 60,
+        max_chars: int = 40000,
+    ) -> str:
+        reader = PdfReader(io.BytesIO(file_content))
+        pages_text: list[str] = []
+        for i, page in enumerate(reader.pages):
+            if i >= max_pages:
+                break
+            extracted = page.extract_text() or ""
+            if extracted.strip():
+                pages_text.append(extracted.strip())
+        combined = "\n\n".join(pages_text)
+        return combined[:max_chars]
+
+    @staticmethod
+    def _has_meaningful_text(text: str, *, min_chars: int = 800, min_alnum_ratio: float = 0.2) -> bool:
+        if not text:
+            return False
+        stripped = text.strip()
+        if len(stripped) < min_chars:
+            return False
+        alnum = sum(1 for ch in stripped if ch.isalnum())
+        ratio = alnum / max(len(stripped), 1)
+        return ratio >= min_alnum_ratio
+
+    @staticmethod
+    def _supplier_statement_min_valid(statement: SupplierAccountStatementExtraction) -> bool:
+        if not getattr(statement, "supplier_name", None):
+            return False
+        transactions = getattr(statement, "transactions", None)
+        return bool(transactions)
+
+    @staticmethod
+    def _infer_image_mime(file_content: bytes, filename: str) -> str:
+        lower = filename.lower()
+        if lower.endswith(".png") or file_content.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if lower.endswith((".jpg", ".jpeg")) or file_content.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if lower.endswith(".webp") or (
+            file_content[:4] == b"RIFF" and file_content[8:12] == b"WEBP"
+        ):
+            return "image/webp"
+        return "image/png"
+
+    def _image_data_url(self, file_content: bytes, filename: str) -> str:
+        mime = self._infer_image_mime(file_content, filename)
+        encoded = base64.b64encode(file_content).decode("ascii")
+        return f"data:{mime};base64,{encoded}"
+
+    def _base64_file_input(self, file_content: bytes, filename: str, is_pdf: bool) -> Dict[str, Any]:
+        if is_pdf:
+            encoded = base64.b64encode(file_content).decode("ascii")
+            return {
+                "type": "input_file",
+                "filename": filename,
+                "file_data": encoded,
+            }
+        return {
+            "type": "input_image",
+            "image_url": {"url": self._image_data_url(file_content, filename)},
+        }
+
+    def _parse_with_chat_completions(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        response_model: Type[BaseModel],
+    ) -> BaseModel:
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0,
+            response_format={"type": "json_object"},
+            timeout=self._default_timeout,
+        )
+        content = response.choices[0].message.content or ""
+        return self._parse_json_output(content, response_model)
+
+    @staticmethod
+    def _extract_openrouter_content(content: Any) -> str:
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict):
+                    if "text" in part:
+                        parts.append(str(part["text"]))
+                    elif "content" in part:
+                        parts.append(str(part["content"]))
+                else:
+                    parts.append(str(part))
+            return "".join(parts)
+        if content is None:
+            return ""
+        return str(content)
+
+    def _openrouter_request(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: Type[BaseModel],
+        file_content: Optional[bytes] = None,
+        filename: Optional[str] = None,
+        is_pdf: bool = False,
+    ) -> BaseModel:
+        if not self._openrouter_enabled or not self._openrouter_key:
+            raise RuntimeError("OpenRouter API key is not configured")
+
+        system_with_schema = f"{system_prompt}\n\n{self._schema_instructions(response_model)}"
+        content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
+
+        if file_content is not None and filename:
+            if is_pdf:
+                encoded = base64.b64encode(file_content).decode("ascii")
+                data_url = f"data:application/pdf;base64,{encoded}"
+            else:
+                data_url = self._image_data_url(file_content, filename)
+            content.append(
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": filename,
+                        "file_data": data_url,
+                    },
+                }
+            )
+
+        payload = {
+            "model": self._openrouter_model,
+            "messages": [
+                {"role": "system", "content": system_with_schema},
+                {"role": "user", "content": content},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+        if is_pdf:
+            payload["plugins"] = [
+                {
+                    "id": "file-parser",
+                    "pdf": {"engine": "pdf-text"},
+                }
+            ]
+
+        headers = {
+            "Authorization": f"Bearer {self._openrouter_key}",
+            "Content-Type": "application/json",
+        }
+
+        timeout = httpx.Timeout(30.0, connect=10.0)
+        response = httpx.post(
+            f"{self._openrouter_base_url}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, dict) and "error" in data:
+            raise RuntimeError(f"OpenRouter error: {data['error']}")
+
+        try:
+            message = data["choices"][0]["message"]["content"]
+        except Exception as exc:
+            raise RuntimeError(f"Unexpected OpenRouter response format: {data}") from exc
+
+        text = self._extract_openrouter_content(message)
+        return self._parse_json_output(text, response_model)
 
     def _upload_document(self, file_content: bytes, filename: str):
         """Upload a document for vision processing."""
@@ -67,7 +322,11 @@ class OpenAIOCRClient(OCRClientProtocol):
         try:
             self.client.files.delete(file_id)
         except Exception as exc:  # pragma: no cover - cleanup is best effort
-            logfire.warn(f'Failed to delete uploaded file {file_id}: {exc}')
+            logfire.warn(
+                "Failed to delete uploaded file",
+                file_id=file_id,
+                error=str(exc),
+            )
 
     def _extract_with_vision(
         self,
@@ -76,58 +335,270 @@ class OpenAIOCRClient(OCRClientProtocol):
         document_category: str,
         system_prompt: str,
         user_prompt: str,
-        response_model: Type[BaseModel]
+        response_model: Type[BaseModel],
+        prefer_vision: bool = False,
     ) -> BaseModel:
         """Shared helper that sends the document to a vision-capable model."""
         if not self.enabled:
             raise ValueError("OpenAI client is not enabled")
 
-        logfire.info(f'Uploading {document_category} file {filename} for vision OCR')
-        uploaded_file = self._upload_document(file_content, filename)
-
-        try:
-            logfire.info(f'File uploaded with ID: {uploaded_file.id}')
-            is_pdf = file_content[:4] == b"%PDF" or filename.lower().endswith(".pdf")
-
-            if is_pdf:
-                file_input = {
-                    "type": "input_file",
-                    "file_id": uploaded_file.id,
-                }
-            else:
-                file_input = {
-                    "type": "input_image",
-                    "image": {
-                        "file_id": uploaded_file.id,
-                        "detail": "high",
-                    },
-                }
-
-            response = self.client.responses.parse(
-                model=self.model,
-                input=[
-                    {
-                        "role": "system",
-                        "content": system_prompt
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": user_prompt
-                            },
-                            file_input
-                        ]
-                    }
-                ],
-                text_format=response_model
+        is_pdf = file_content[:4] == b"%PDF" or filename.lower().endswith(".pdf")
+        # Fast-path: if the PDF already contains meaningful text, avoid file upload to vision
+        # and parse the text directly with the structured schema.
+        if is_pdf and not prefer_vision:
+            pdf_text = self._extract_pdf_text(
+                file_content,
+                max_pages=20,
+                max_chars=15000,
             )
+            if self._has_meaningful_text(pdf_text):
+                logfire.info(
+                    "Using text fast-path for OCR",
+                    document_category=document_category,
+                    filename=filename,
+                    extracted_chars=len(pdf_text),
+                )
+                text_prompt = (
+                    f"{user_prompt}\n\n--- BEGIN DOCUMENT TEXT ---\n"
+                    f"{pdf_text}\n--- END DOCUMENT TEXT ---"
+                )
+                try:
+                    parsed = self._extract_with_text(
+                        document_category=document_category,
+                        system_prompt=system_prompt,
+                        user_prompt=text_prompt,
+                        response_model=response_model,
+                    )
+                    # Minimal guard for supplier statements: ensure we got transactions.
+                    if isinstance(parsed, SupplierAccountStatementExtraction) and not self._supplier_statement_min_valid(parsed):
+                        logfire.warn(
+                            "Text fast-path parsed but missing required supplier statement fields; using vision fallback.",
+                            filename=filename,
+                        )
+                    else:
+                        return parsed
+                except Exception as exc:
+                    logfire.warn(
+                        "Text fast-path failed; using vision fallback.",
+                        filename=filename,
+                        error=str(exc),
+                    )
+        openrouter_attempted = False
 
-            return response.output_parsed
+        if self._openrouter_enabled and self._primary_provider == "openrouter":
+            openrouter_attempted = True
+            try:
+                logfire.warn("Using OpenRouter as primary OCR provider.")
+                return self._openrouter_request(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_model=response_model,
+                    file_content=file_content,
+                    filename=filename,
+                    is_pdf=is_pdf,
+                )
+            except Exception as exc:
+                logfire.error("OpenRouter OCR request failed", error=str(exc))
 
-        finally:
-            self._cleanup_document(uploaded_file.id)
+        if self._supports_responses:
+            try:
+                file_input = self._base64_file_input(file_content, filename, is_pdf=is_pdf)
+                response = self.client.responses.parse(
+                    model=self.model,
+                    input=[
+                        {
+                            "role": "system",
+                            "content": system_prompt
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "input_text",
+                                    "text": user_prompt
+                                },
+                                file_input
+                            ]
+                        }
+                    ],
+                    text_format=response_model,
+                    timeout=self._default_timeout,
+                )
+
+                return response.output_parsed
+            except Exception as exc:
+                logfire.error("OpenAI OCR vision request failed", error=str(exc))
+                if "file_data" in str(exc).lower():
+                    logfire.warn("Retrying OpenAI OCR with uploaded file.")
+                    uploaded_file = self._upload_document(file_content, filename)
+                    try:
+                        file_input = {
+                            "type": "input_file",
+                            "file_id": uploaded_file.id,
+                        }
+                        try:
+                            response = self.client.responses.parse(
+                                model=self.model,
+                                input=[
+                                    {"role": "system", "content": system_prompt},
+                                    {
+                                        "role": "user",
+                                        "content": [
+                                            {"type": "input_text", "text": user_prompt},
+                                            file_input,
+                                        ],
+                                    },
+                                ],
+                                text_format=response_model,
+                                timeout=self._default_timeout,
+                            )
+                            return response.output_parsed
+                        except Exception as inner_exc:
+                            logfire.error(
+                                "OpenAI OCR uploaded-file retry failed",
+                                error=str(inner_exc),
+                            )
+                            if self._openrouter_enabled and not openrouter_attempted:
+                                logfire.warn("Falling back to OpenRouter after uploaded-file retry.")
+                                return self._openrouter_request(
+                                    system_prompt=system_prompt,
+                                    user_prompt=user_prompt,
+                                    response_model=response_model,
+                                    file_content=file_content,
+                                    filename=filename,
+                                    is_pdf=is_pdf,
+                                )
+                            raise
+                    finally:
+                        self._cleanup_document(uploaded_file.id)
+                if self._openrouter_enabled and not openrouter_attempted:
+                    logfire.warn("Falling back to OpenRouter for vision OCR.")
+                    return self._openrouter_request(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response_model=response_model,
+                        file_content=file_content,
+                        filename=filename,
+                        is_pdf=is_pdf,
+                    )
+                raise
+
+        logfire.warn(
+            "OpenAI responses API unavailable; using chat completions fallback for vision OCR."
+        )
+        try:
+            if is_pdf:
+                extracted_text = self._extract_pdf_text(file_content)
+                if extracted_text.strip():
+                    fallback_prompt = (
+                        f"{user_prompt}\n\n--- BEGIN DOCUMENT TEXT ---\n"
+                        f"{extracted_text}\n--- END DOCUMENT TEXT ---"
+                    )
+                    return self._extract_with_text(
+                        document_category=document_category,
+                        system_prompt=system_prompt,
+                        user_prompt=fallback_prompt,
+                        response_model=response_model,
+                    )
+                raise RuntimeError(
+                    "OpenAI SDK lacks responses API; cannot process scanned PDFs. "
+                    "Upgrade openai to >=1.58.1 to enable vision OCR."
+                )
+
+            system_with_schema = f"{system_prompt}\n\n{self._schema_instructions(response_model)}"
+            data_url = self._image_data_url(file_content, filename)
+            messages = [
+                {"role": "system", "content": system_with_schema},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                    ],
+                },
+            ]
+            return self._parse_with_chat_completions(
+                messages=messages,
+                response_model=response_model,
+            )
+        except Exception as exc:
+            logfire.error("OpenAI OCR vision fallback failed", error=str(exc))
+            if self._openrouter_enabled and not openrouter_attempted:
+                logfire.warn("Falling back to OpenRouter for vision OCR.")
+                return self._openrouter_request(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_model=response_model,
+                    file_content=file_content,
+                    filename=filename,
+                    is_pdf=is_pdf,
+                )
+            raise
+
+    @staticmethod
+    def _truncate_text(text: Optional[str], limit: int) -> Optional[str]:
+        if not text:
+            return text
+        if len(text) <= limit:
+            return text
+        return text[:limit] + "..."
+
+    def _build_complex_analysis_payload(
+        self,
+        complex_data: ComplexDocumentExtraction,
+        *,
+        max_blocks: int = 120,
+        max_text_chars: int = 800,
+        max_rows: int = 25,
+        max_cell_chars: int = 120,
+    ) -> Dict[str, Any]:
+        blocks = complex_data.blocks[:max_blocks]
+        trimmed_blocks: list[dict[str, Any]] = []
+        for block in blocks:
+            block_payload: dict[str, Any] = {
+                "block_id": block.block_id,
+                "block_type": block.block_type,
+                "page": block.page,
+            }
+            if block.text:
+                block_payload["text"] = self._truncate_text(block.text, max_text_chars)
+            if block.table:
+                table = block.table
+                trimmed_rows: list[list[str]] = []
+                for row in table.rows[:max_rows]:
+                    trimmed_row = [
+                        self._truncate_text(cell, max_cell_chars) or ""
+                        for cell in row
+                    ]
+                    trimmed_rows.append(trimmed_row)
+                block_payload["table"] = {
+                    "title": table.title,
+                    "headers": [
+                        self._truncate_text(header, max_cell_chars) or ""
+                        for header in table.headers
+                    ],
+                    "rows": trimmed_rows,
+                }
+            if block.figure:
+                figure = block.figure
+                block_payload["figure"] = {
+                    "title": figure.title,
+                    "figure_type": figure.figure_type,
+                    "description": figure.description,
+                    "values": [value.model_dump() for value in figure.values],
+                }
+            trimmed_blocks.append(block_payload)
+        return {
+            "document_title": complex_data.document_title,
+            "language": complex_data.language,
+            "summary_markdown": complex_data.summary_markdown,
+            "blocks": trimmed_blocks,
+            "notes": {
+                "total_blocks": len(complex_data.blocks),
+                "blocks_included": len(trimmed_blocks),
+                "truncated": len(complex_data.blocks) > len(trimmed_blocks),
+            },
+        }
 
     def _extract_with_text(
         self,
@@ -140,15 +611,78 @@ class OpenAIOCRClient(OCRClientProtocol):
         if not self.enabled:
             raise ValueError("OpenAI client is not enabled")
 
-        response = self.client.responses.parse(
-            model=self.model,
-            input=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            text_format=response_model,
+        openrouter_attempted = False
+        if self._openrouter_enabled:
+            openrouter_attempted = True
+            try:
+                logfire.info("Trying OpenRouter text OCR first.")
+                return self._openrouter_request(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_model=response_model,
+                )
+            except Exception as exc:
+                logfire.error("OpenRouter OCR request failed", error=str(exc))
+                if self._primary_provider == "openrouter":
+                    # Avoid hanging on OpenAI fallbacks when primary is OpenRouter.
+                    raise
+
+        system_with_schema = f"{system_prompt}\n\n{self._schema_instructions(response_model)}"
+        messages = [
+            {"role": "system", "content": system_with_schema},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        # Prefer chat completions with JSON response format (faster, reliable) before responses API.
+        try:
+            return self._parse_with_chat_completions(
+                messages=messages,
+                response_model=response_model,
+            )
+        except Exception as exc:
+            logfire.error("OpenAI OCR chat-completions text request failed", error=str(exc))
+
+        if self._supports_responses:
+            try:
+                response = self.client.responses.parse(
+                    model=self.model,
+                    input=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    text_format=response_model,
+                    timeout=self._default_timeout,
+                )
+                return response.output_parsed
+            except Exception as exc:
+                logfire.error("OpenAI OCR text request failed", error=str(exc))
+                if self._openrouter_enabled and not openrouter_attempted:
+                    logfire.warn("Falling back to OpenRouter for text OCR.")
+                    return self._openrouter_request(
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        response_model=response_model,
+                    )
+                raise
+
+        logfire.warn(
+            "OpenAI responses API unavailable; using chat completions fallback for text OCR."
         )
-        return response.output_parsed
+        try:
+            return self._parse_with_chat_completions(
+                messages=messages,
+                response_model=response_model,
+            )
+        except Exception as exc:
+            logfire.error("OpenAI OCR text fallback failed", error=str(exc))
+            if self._openrouter_enabled and not openrouter_attempted:
+                logfire.warn("Falling back to OpenRouter for text OCR.")
+                return self._openrouter_request(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_model=response_model,
+                )
+            raise
 
     def extract_purchase_order(
         self,
@@ -197,7 +731,11 @@ class OpenAIOCRClient(OCRClientProtocol):
                 return result
                 
             except Exception as e:
-                logfire.error(f'Failed to extract PO from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract purchase order",
+                    filename=filename,
+                    error=str(e),
+                )
                 raise
     
     def extract_invoice(
@@ -250,7 +788,11 @@ class OpenAIOCRClient(OCRClientProtocol):
                 return result
                 
             except Exception as e:
-                logfire.error(f'Failed to extract invoice from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract invoice",
+                    filename=filename,
+                    error=str(e),
+                )
                 raise
     
     def extract_generic_document(
@@ -319,7 +861,12 @@ class OpenAIOCRClient(OCRClientProtocol):
                 return extracted_data
                 
             except Exception as e:
-                logfire.error(f'Failed to extract {document_type} from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract document",
+                    document_type=document_type,
+                    filename=filename,
+                    error=str(e),
+                )
                 raise
 
     def extract_generic_text(
@@ -382,7 +929,11 @@ Guidelines:
                 return extracted_data
 
             except Exception as e:
-                logfire.error(f'Failed to extract {document_type} from text: {str(e)}')
+                logfire.error(
+                    "Failed to extract document from text",
+                    document_type=document_type,
+                    error=str(e),
+                )
                 raise
 
     def extract_supplier_account_statement(
@@ -399,18 +950,21 @@ Guidelines:
                 extra = ""
                 if additional_instructions and additional_instructions.strip():
                     extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
+                system_prompt = """You are an expert at extracting structured data from supplier account statements.
+                    Capture the supplier identifiers, statement period, opening/closing balances, totals, and every transaction line.
+                    Ensure debits, credits, and balances are returned as decimal numbers.
+                    Dates must be formatted as ISO YYYY-MM-DD."""
+                user_prompt = (
+                    "Extract all supplier account statement details including summary balances and the full list of transactions."
+                    f"{extra}"
+                )
+
                 statement_data = self._extract_with_vision(
                     file_content=file_content,
                     filename=filename,
                     document_category="supplier_account_statement",
-                    system_prompt="""You are an expert at extracting structured data from supplier account statements.
-                    Capture the supplier identifiers, statement period, opening/closing balances, totals, and every transaction line.
-                    Ensure debits, credits, and balances are returned as decimal numbers.
-                    Dates must be formatted as ISO YYYY-MM-DD.""",
-                    user_prompt=(
-                        "Extract all supplier account statement details including summary balances and the full list of transactions."
-                        f"{extra}"
-                    ),
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
                     response_model=SupplierAccountStatementExtraction
                 )
 
@@ -422,7 +976,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract supplier account statement from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract supplier account statement",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_customer_account_statement(
@@ -455,7 +1013,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract customer account statement from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract customer account statement",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_supplier_invoice(
@@ -488,7 +1050,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract supplier invoice from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract supplier invoice",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_vendor_quote(
@@ -531,7 +1097,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract vendor quote from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract vendor quote",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_order_confirmation(
@@ -574,7 +1144,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract order confirmation from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract order confirmation",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_shipping_bill(
@@ -606,7 +1180,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract shipping bill from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract shipping bill",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_commercial_invoice(
@@ -638,7 +1216,11 @@ Guidelines:
                 return result
 
             except Exception as exc:
-                logfire.error(f'Failed to extract commercial invoice from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract commercial invoice",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise
 
     def extract_complex_document(
@@ -671,6 +1253,7 @@ Guidelines:
                         "Do not infer missing values.\n"
                         "- Use normalized bounding boxes (0-1) only when confident; otherwise omit.\n"
                         "- Keep summary_markdown concise and factual.\n"
+                        "- Do not invent section titles or analysis; focus on extraction only.\n"
                     ),
                     user_prompt=(
                         "Extract layout blocks, tables, figures, and a concise markdown summary "
@@ -678,6 +1261,7 @@ Guidelines:
                         f"{extra}"
                     ),
                     response_model=ComplexDocumentExtraction,
+                    prefer_vision=True,
                 )
 
                 processing_time = int((time.time() - start_time) * 1000)
@@ -699,8 +1283,52 @@ Guidelines:
                 if hasattr(complex_data, "document_category"):
                     complex_data.document_category = "complex_document"
 
+                # Second-pass analysis for sections, key fields, and report.
+                try:
+                    analysis_payload = self._build_complex_analysis_payload(complex_data)
+                    analysis_prompt = (
+                        "You are a technical document analyst. Use ONLY the provided JSON. "
+                        "Do not infer missing values. When referencing data, cite block_id(s). "
+                        "Provide:\n"
+                        "- sections grouped by heading/flow with block_ids and page range\n"
+                        "- key_fields (explicit key/value pairs only)\n"
+                        "- table_insights and figure_insights based on visible values\n"
+                        "- report_markdown as a complete report\n"
+                        "If data is missing, leave the relevant list empty."
+                    )
+                    user_analysis_prompt = (
+                        "Analyze the extracted layout JSON below.\n\n"
+                        f"{json.dumps(analysis_payload, ensure_ascii=True)}"
+                    )
+                    if additional_instructions and additional_instructions.strip():
+                        user_analysis_prompt += (
+                            "\n\nAdditional instructions:\n"
+                            f"{additional_instructions.strip()}"
+                        )
+                    analysis = self._extract_with_text(
+                        document_category="complex_document_analysis",
+                        system_prompt=analysis_prompt,
+                        user_prompt=user_analysis_prompt,
+                        response_model=ComplexDocumentAnalysis,
+                    )
+                    complex_data.sections = analysis.sections
+                    complex_data.key_fields = analysis.key_fields
+                    complex_data.table_insights = analysis.table_insights
+                    complex_data.figure_insights = analysis.figure_insights
+                    complex_data.report_markdown = analysis.report_markdown
+                except Exception as exc:
+                    logfire.warn(
+                        "Complex document analysis step failed; returning layout-only extraction.",
+                        filename=filename,
+                        error=str(exc),
+                    )
+
                 return complex_data
 
             except Exception as exc:
-                logfire.error(f'Failed to extract complex document from {filename}: {exc}')
+                logfire.error(
+                    "Failed to extract complex document",
+                    filename=filename,
+                    error=str(exc),
+                )
                 raise

@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from app.domain.communications.conversation_service import ConversationService
 from app.domain.communications.models import (
     ConversationCommentRequest,
+    ReceivablesEmailSendRequest,
     ConversationSnoozeRequest,
 )
+from app.settings import settings
 
 CONVERSATION_ID = "cnv_123"
 
@@ -95,9 +97,10 @@ MESSAGES_BY_ID = {message["id"]: message for message in MESSAGES}
 class StubFrontClient:
     """Async stub implementing the Front client protocol."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, api_key: str | None = None) -> None:
         self.archived = False
         self.snoozed_until = None
+        self.api_key = api_key
 
     async def __aenter__(self) -> "StubFrontClient":
         return self
@@ -130,6 +133,21 @@ class StubFrontClient:
 
     async def send_conversation_reply(self, conversation_id: str, payload: dict):
         return MESSAGES[0]
+
+    async def send_channel_message(self, channel_id: str, payload: dict, attachments=None):
+        return {
+            "id": "msg_new",
+            "conversation_id": "cnv_new",
+            "created_at": 1_700_001_000,
+            "type": "email",
+        }
+
+    async def get_inbox_channels(self, inbox_id: str):
+        return {
+            "_results": [
+                {"id": "cha_receivables", "type": "email"},
+            ]
+        }
 
     async def archive_conversation(self, conversation_id: str):
         self.archived = True
@@ -196,3 +214,51 @@ def test_snooze_conversation_returns_requested_time():
     )
 
     assert response.snooze_until == until
+
+
+def test_send_receivables_email_returns_response(monkeypatch):
+    monkeypatch.setattr(settings, "front_accounting_api_key", "test-accounting-key")
+    monkeypatch.setattr(settings, "front_receivables_inbox_id", "inb_cunq0")
+    monkeypatch.setattr(settings, "front_receivables_channel_id", None)
+
+    service = ConversationService(front_client_class=StubFrontClient)
+    request = ReceivablesEmailSendRequest(
+        subject="Invoice follow-up",
+        body="<p>Please find the invoice attached.</p>",
+        to=["customer@example.com"],
+        cc=["ar@example.com"],
+    )
+
+    response = run(service.send_receivables_email(request))
+
+    assert response.id == "msg_new"
+    assert response.conversation_id == "cnv_new"
+    assert response.channel_id == "cha_receivables"
+    assert response.inbox_id == "inb_cunq0"
+
+
+class StubODataService:
+    def __init__(self, records):
+        self.records = records
+
+    async def fetch_collection(self, resource, *, filter_field=None, filter_value=None, top=None):
+        return self.records
+
+
+def test_send_receivables_email_accepts_customer_no(monkeypatch):
+    monkeypatch.setattr(settings, "front_accounting_api_key", "test-accounting-key")
+    monkeypatch.setattr(settings, "front_receivables_inbox_id", "inb_cunq0")
+    monkeypatch.setattr(settings, "front_receivables_channel_id", None)
+
+    odata = StubODataService(records=[{"No": "C10000", "Email": "ar-customer@example.com"}])
+    service = ConversationService(front_client_class=StubFrontClient, odata_service=odata)
+    request = ReceivablesEmailSendRequest(
+        subject="Invoice follow-up",
+        body="<p>Please review your statement.</p>",
+        customer_no="C10000",
+    )
+
+    response = run(service.send_receivables_email(request))
+
+    assert response.to == ["ar-customer@example.com"]
+    assert response.customer_no == "C10000"

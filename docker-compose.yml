@@ -7,7 +7,7 @@ services:
     container_name: lpg-core-platform-api
     working_dir: /app
     ports:
-      - "7005:7003"
+      - "7005:7005"
     env_file:
       - .env
     environment:
@@ -28,7 +28,8 @@ services:
       LOGFIRE_IGNORE_NO_PROJECT: "1"  # Disable Logfire auto-config when no API key
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-2025-08-07}
-      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-4.1-mini}
+      OCR_LLM_MODEL: ${OCR_LLM_MODEL:-gpt-5-2025-08-07}
+      OCR_PRIMARY_PROVIDER: ${OCR_PRIMARY_PROVIDER:-openrouter}
       LOCAL_AGENT_BASE_URL: ${LOCAL_AGENT_BASE_URL:-}
       OCR_SERVICE_URL: ${OCR_SERVICE_URL:-}
       
@@ -36,7 +37,7 @@ services:
       ENABLE_SCHEDULER: ${ENABLE_SCHEDULER:-false}
       ENABLE_OCR: ${ENABLE_OCR:-true}
       ENABLE_AI_ASSISTANCE: ${ENABLE_AI_ASSISTANCE:-false}
-      APP_PORT: ${APP_PORT:-7003}
+      APP_PORT: ${APP_PORT:-7005}
       TLS_CERT_FILE: ${TLS_CERT_FILE:-}
       TLS_KEY_FILE: ${TLS_KEY_FILE:-}
       TLS_CA_BUNDLE: ${TLS_CA_BUNDLE:-}
@@ -47,7 +48,7 @@ services:
     networks:
       - lpg-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7003/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:7005/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3

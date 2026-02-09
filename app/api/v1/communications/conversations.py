@@ -24,6 +24,8 @@ from app.domain.communications.models import (
     ConversationSnoozeRequest,
     ConversationSnoozeResponse,
     Message,
+    ReceivablesEmailSendRequest,
+    ReceivablesEmailSendResponse,
 )
 from app.errors import BaseAPIException
 
@@ -366,6 +368,81 @@ async def reply_to_conversation(
                 "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Failed to send reply",
+                    "trace_id": getattr(db, "trace_id", "unknown"),
+                }
+            },
+        )
+
+
+@router.post(
+    "/actions/send-receivables-email",
+    response_model=SingleResponse[ReceivablesEmailSendResponse],
+    status_code=201,
+    responses={
+        201: {"description": "Receivables email sent successfully"},
+        400: {"description": "Invalid request", "model": ErrorResponse},
+        409: {"description": "Duplicate send request", "model": ErrorResponse},
+        500: {"description": "Internal server error", "model": ErrorResponse},
+    },
+    summary="Send receivables email",
+)
+async def send_receivables_email(
+    request: ReceivablesEmailSendRequest = Body(...),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
+    db: Session = Depends(get_db),
+) -> SingleResponse[ReceivablesEmailSendResponse]:
+    """Send a new email from the receivables Front inbox."""
+    try:
+        if idempotency_key:
+            from app.audit import get_idempotency_record
+
+            cached = get_idempotency_record(db, idempotency_key)
+            if cached:
+                return SingleResponse(data=ReceivablesEmailSendResponse(**cached))
+
+        with logfire.span(
+            "send_receivables_email",
+            to_count=len(request.to or []),
+            cc_count=len(request.cc or []),
+            has_customer_no=bool(request.customer_no),
+        ):
+            response = await conversation_service.send_receivables_email(request)
+
+        if idempotency_key:
+            from app.audit import save_idempotency_record, write_audit_log
+
+            save_idempotency_record(db, idempotency_key, response.model_dump())
+            write_audit_log(
+                db,
+                event_type="ReceivablesEmail.Sent",
+                entity_type="communications",
+                entity_id=response.conversation_id or response.id,
+                actor="system",
+                changes={
+                    "inbox_id": response.inbox_id,
+                    "channel_id": response.channel_id,
+                    "message_id": response.id,
+                    "to": [str(address) for address in response.to],
+                    "cc": [str(address) for address in response.cc],
+                    "customer_no": response.customer_no,
+                    "subject": response.subject,
+                },
+                trace_id=idempotency_key,
+            )
+
+        return SingleResponse(data=response)
+    except HTTPException:
+        raise
+    except BaseAPIException:
+        raise
+    except Exception as exc:
+        logger.error("Error sending receivables email: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to send receivables email",
                     "trace_id": getattr(db, "trace_id", "unknown"),
                 }
             },

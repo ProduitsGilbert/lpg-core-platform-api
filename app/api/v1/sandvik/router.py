@@ -14,13 +14,16 @@ from app.api.v1.sandvik.schemas import (
     MachineHistoryRequest,
     LiveMetricsRequest,
     TimeseriesRequest,
+    InsightTimeseriesRequest,
     MachineHistoryResponse,
     LiveMetricsResponse,
     TimeseriesResponse,
     MachineConfig
 )
+from app.api.v1.models import SingleResponse, CollectionResponse, PaginationMeta
 from app.domain.sandvik.config import get_machine_config, get_machine_group_names
 from app.domain.sandvik.service import SandvikService
+from app.domain.sandvik.models import TimeseriesMetric
 from app.settings import settings
 
 router = APIRouter(prefix="", tags=["Sandvik Machining Insights"])
@@ -50,6 +53,20 @@ async def get_machines(
     Returns the complete machine configuration including all groups and devices.
     """
     return get_machine_config()
+
+
+@router.get(
+    "/insights/machines",
+    response_model=SingleResponse[MachineConfig],
+    summary="Get Insight machine configuration",
+    description="""
+    Returns Sandvik machine groups and devices for the Insight UI.
+    """,
+)
+async def get_insight_machines(
+    _: None = Depends(ensure_enabled)
+) -> SingleResponse[MachineConfig]:
+    return SingleResponse(data=get_machine_config())
 
 
 @router.get("/machine-groups", summary="Get available machine group names")
@@ -98,6 +115,60 @@ async def get_timeseries_metrics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch timeseries data: {str(e)}"
+        )
+
+
+@router.post(
+    "/insights/timeseries",
+    response_model=CollectionResponse[TimeseriesMetric],
+    summary="Get Insight timeseries metrics",
+    description="""
+    Returns cleaned Sandvik timeseries metrics aligned with the Insight PRD.
+
+    Sample request body:
+    {
+      "devices": [
+        "produitsgilbert_DMC_100_01_5a1286",
+        "produitsgilbert_NLX-2500-01_1f62d2"
+      ],
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD"
+    }
+    """,
+)
+async def get_insight_timeseries(
+    request: InsightTimeseriesRequest,
+    _: None = Depends(ensure_enabled),
+    service: SandvikService = Depends(get_sandvik_service)
+) -> CollectionResponse[TimeseriesMetric]:
+    try:
+        processed_data = service.get_insight_timeseries(
+            devices=request.devices,
+            start_date=request.start_date,
+            end_date=request.end_date
+        )
+
+        pagination = {
+            "page": 1,
+            "per_page": len(processed_data),
+            "total_pages": 1 if processed_data else 0,
+            "total_items": len(processed_data)
+        }
+
+        return CollectionResponse(
+            data=processed_data,
+            meta=PaginationMeta(pagination=pagination)
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch insight timeseries data: {str(e)}"
         )
 
 

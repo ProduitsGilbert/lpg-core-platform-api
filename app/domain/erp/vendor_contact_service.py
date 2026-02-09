@@ -90,9 +90,22 @@ class VendorContactService:
 
     async def _fetch_vendor_email(self, vendor_no: str) -> Optional[str]:
         """Call easyPDFAddress endpoint to retrieve vendor email."""
+        for document_code in ("PURCHASE QUOTE", "PURCHASE ORDER"):
+            email = await self._fetch_vendor_email_by_document_code(vendor_no, document_code)
+            if email:
+                return email
+        return None
+
+    async def _fetch_vendor_email_by_document_code(
+        self, vendor_no: str, document_code: str
+    ) -> Optional[str]:
+        """Call easyPDFAddress endpoint using the provided document code."""
         filter_expr = (
-            "ownerNo eq '{vendor}' and addressType eq 'To' and documentCode eq 'PURCHASE ORDER'"
-        ).format(vendor=_escape_odata_literal(vendor_no))
+            "ownerNo eq '{vendor}' and addressType eq 'To' and documentCode eq '{document_code}'"
+        ).format(
+            vendor=_escape_odata_literal(vendor_no),
+            document_code=_escape_odata_literal(document_code),
+        )
 
         async with httpx.AsyncClient(
             base_url=self._explorer_base_url,

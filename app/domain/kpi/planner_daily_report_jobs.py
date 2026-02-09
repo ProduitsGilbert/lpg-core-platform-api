@@ -14,12 +14,9 @@ logger = logging.getLogger(__name__)
 
 async def refresh_planner_kpi_cache() -> None:
     """Refresh cached planner KPI history for registered work centers."""
-    workcenters = await planner_kpi_cache.list_registered_workcenters()
-    if not workcenters:
-        return
-
     posting_date = _last_business_day(dt.date.today())
     service = PlannerDailyReportService()
+    workcenters = await planner_kpi_cache.list_registered_workcenters()
 
     semaphore = asyncio.Semaphore(3)
 
@@ -42,7 +39,8 @@ async def refresh_planner_kpi_cache() -> None:
         workcenter_count=len(workcenters),
         posting_date=posting_date.isoformat(),
     ):
-        await asyncio.gather(*[_refresh_one(wc) for wc in workcenters])
+        if workcenters:
+            await asyncio.gather(*[_refresh_one(wc) for wc in workcenters])
         try:
             await service.generate_report(posting_date=posting_date)
         except Exception as exc:

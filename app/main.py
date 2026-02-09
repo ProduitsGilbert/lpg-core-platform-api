@@ -23,6 +23,11 @@ from app.errors import register_exception_handlers
 from app.routers import health, purchasing
 from app.audit import cleanup_expired_idempotency_keys, cleanup_old_audit_logs
 from app.domain.kpi.planner_daily_report_jobs import refresh_planner_kpi_cache
+from app.domain.kpi.jobs_snapshot_jobs import refresh_jobs_snapshot
+from app.domain.kpi.sales_stats_jobs import refresh_sales_stats_snapshot
+from app.domain.kpi.payables_invoice_stats_jobs import refresh_payables_invoice_stats_snapshot
+from app.domain.finance.ar_jobs import refresh_ar_payment_stats
+from app.domain.finance.ar_cache_jobs import refresh_ar_open_invoices_cache
 from app.db import get_db_session
 from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
@@ -40,7 +45,7 @@ scheduler = None
 geocode_warmup_task: asyncio.Task | None = None
 if settings.enable_scheduler:
     jobstores = {"default": MemoryJobStore()}
-    scheduler = AsyncIOScheduler(jobstores=jobstores, timezone="UTC")
+    scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=settings.scheduler_timezone)
 
 
 @asynccontextmanager
@@ -121,10 +126,61 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
         scheduler.add_job(
             refresh_planner_kpi_cache,
             "cron",
-            hour=1,
-            minute=0,
+            hour=settings.planner_daily_report_refresh_hour,
+            minute=settings.planner_daily_report_refresh_minute,
             id="planner_kpi_refresh",
             name="Refresh planner KPI cache",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_sales_stats_snapshot,
+            "cron",
+            hour=settings.sales_stats_refresh_hour,
+            minute=settings.sales_stats_refresh_minute,
+            id="sales_stats_refresh",
+            name="Refresh sales stats snapshot",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_jobs_snapshot,
+            "cron",
+            hour=settings.jobs_snapshot_refresh_hour,
+            minute=settings.jobs_snapshot_refresh_minute,
+            id="jobs_snapshot_refresh",
+            name="Refresh jobs KPI snapshot",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_payables_invoice_stats_snapshot,
+            "cron",
+            hour=settings.payables_stats_refresh_hour,
+            minute=settings.payables_stats_refresh_minute,
+            id="payables_stats_refresh",
+            name="Refresh payables invoice stats snapshot",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_ar_payment_stats,
+            "cron",
+            day_of_week=settings.ar_payment_stats_refresh_day,
+            hour=settings.ar_payment_stats_refresh_hour,
+            minute=settings.ar_payment_stats_refresh_minute,
+            id="ar_payment_stats_refresh",
+            name="Refresh AR payment stats",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_ar_open_invoices_cache,
+            "cron",
+            hour=settings.ar_open_invoices_refresh_hour,
+            minute=settings.ar_open_invoices_refresh_minute,
+            id="ar_open_invoices_refresh",
+            name="Refresh AR open invoice cache",
             replace_existing=True,
         )
         
@@ -184,9 +240,18 @@ app = FastAPI(
 # Add middleware
 
 # CORS middleware
+cors_allow_origins = settings.cors_origins
+cors_allow_regex = settings.cors_origin_regex
+
+# If wildcard is requested while credentials are enabled, rely on regex instead of literal "*"
+if cors_allow_origins == ["*"]:
+    cors_allow_origins = []
+    cors_allow_regex = cors_allow_regex or r".*"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=cors_allow_origins,
+    allow_origin_regex=cors_allow_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -98,12 +98,62 @@ class ERPClientProtocol(Protocol):
         """Retrieve an item from ERP by its number."""
         ...
 
+    async def get_bom_cost_shares(self, item_no: str) -> List[Dict[str, Any]]:
+        """Retrieve BOM cost share lines for an item (BOM_CostShares endpoint)."""
+        ...
+
+    async def get_bom_routing_lines(self, routing_no: str) -> List[Dict[str, Any]]:
+        """Retrieve routing lines for a routing number (BomRoutingLines endpoint)."""
+        ...
+
+    async def get_work_center(self, work_center_no: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a work center record by number."""
+        ...
+
     async def update_item_record(self, system_id: str, updates: Dict[str, Any], etag: str) -> None:
         """Patch an item using its SystemId and concurrency token."""
         ...
 
     async def copy_item_from_template(self, template_item: str, destination_item: str) -> None:
         """Copy an item from a template record to a new item number."""
+        ...
+
+    async def get_posted_sales_invoices(
+        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve posted sales invoices, optionally filtered by Due_Date."""
+        ...
+
+    async def get_open_posted_sales_invoices(
+        self,
+        due_from: Optional[date] = None,
+        due_to: Optional[date] = None,
+        customer_no: Optional[str] = None,
+        invoice_no: Optional[str] = None,
+        top: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve open posted sales invoices for AR collections."""
+        ...
+
+    async def get_closed_posted_sales_invoices(
+        self,
+        due_from: Optional[date] = None,
+        due_to: Optional[date] = None,
+        top: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve closed posted sales invoices for payment history."""
+        ...
+
+    async def get_posted_sales_invoice_lines(self, invoice_no: str) -> List[Dict[str, Any]]:
+        """Retrieve posted sales invoice lines for a header."""
+        ...
+
+    async def get_sales_order_headers(self) -> List[Dict[str, Any]]:
+        """Retrieve sales order headers."""
+        ...
+
+    async def get_sales_quote_headers(self) -> List[Dict[str, Any]]:
+        """Retrieve sales quote headers."""
         ...
 
 
@@ -340,6 +390,19 @@ class FrontClientProtocol(Protocol):
         payload: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Send a reply message on a conversation."""
+        ...
+
+    async def send_channel_message(
+        self,
+        channel_id: str,
+        payload: Dict[str, Any],
+        attachments: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Send a new outbound message via a Front channel."""
+        ...
+
+    async def get_inbox_channels(self, inbox_id: str) -> Dict[str, Any]:
+        """Fetch channels configured for an inbox."""
         ...
 
     async def archive_conversation(self, conversation_id: str) -> Dict[str, Any]:
