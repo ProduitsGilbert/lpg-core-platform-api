@@ -33,8 +33,42 @@ class _StubUnconfiguredCeduleRepo:
         return []
 
 
+class _NoCache:
+    is_configured = False
+
+
+class _LatestCache:
+    is_configured = True
+
+    def __init__(self) -> None:
+        self._snapshot = {
+            "start_date": "2026-02-04",
+            "end_date": "2026-02-10",
+            "days": 7,
+            "period": "week",
+            "total_pos": 9,
+            "total_amount": 999.0,
+            "po_timeline": [],
+            "action_categories": [{"action_category": "CACHED", "updates_count": 4}],
+            "total_action_updates": 4,
+        }
+
+    def get_snapshot(self, cache_key: str):
+        _ = cache_key
+        return self._snapshot
+
+    def upsert_snapshot(self, cache_key: str, payload):
+        _ = (cache_key, payload)
+        return None
+
+    def prune_before(self, updated_before_iso: str):
+        _ = updated_before_iso
+        return None
+
+
 @pytest.mark.asyncio
-async def test_purchasing_stats_aggregates_po_timeline_and_action_categories() -> None:
+async def test_purchasing_stats_aggregates_po_timeline_and_action_categories(monkeypatch) -> None:
+    monkeypatch.setattr("app.domain.kpi.purchasing_stats_service.purchasing_stats_cache", _NoCache())
     service = PurchasingStatsService(client=_StubERP(), cedule_repository=_StubCeduleRepo())
 
     stats = await service.get_stats(
@@ -59,7 +93,8 @@ async def test_purchasing_stats_aggregates_po_timeline_and_action_categories() -
 
 
 @pytest.mark.asyncio
-async def test_purchasing_stats_handles_missing_cedule_config() -> None:
+async def test_purchasing_stats_handles_missing_cedule_config(monkeypatch) -> None:
+    monkeypatch.setattr("app.domain.kpi.purchasing_stats_service.purchasing_stats_cache", _NoCache())
     service = PurchasingStatsService(
         client=_StubERP(),
         cedule_repository=_StubUnconfiguredCeduleRepo(),
@@ -76,3 +111,19 @@ async def test_purchasing_stats_handles_missing_cedule_config() -> None:
     assert len(stats.po_timeline) == 2
     assert stats.action_categories == []
     assert stats.total_action_updates == 0
+
+
+@pytest.mark.asyncio
+async def test_purchasing_stats_uses_cache_when_available(monkeypatch) -> None:
+    monkeypatch.setattr("app.domain.kpi.purchasing_stats_service.purchasing_stats_cache", _LatestCache())
+    service = PurchasingStatsService(client=_StubERP(), cedule_repository=_StubCeduleRepo())
+
+    stats = await service.get_stats(
+        end_date=dt.date(2026, 2, 10),
+        days=7,
+        period="week",
+    )
+
+    assert stats.total_pos == 9
+    assert stats.total_amount == 999.0
+    assert stats.action_categories[0].action_category == "CACHED"

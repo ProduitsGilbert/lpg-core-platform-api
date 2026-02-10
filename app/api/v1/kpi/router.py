@@ -487,6 +487,10 @@ async def get_purchasing_stats(
         default="week",
         description="Timeline aggregation period.",
     ),
+    refresh: bool = Query(
+        default=False,
+        description="Force recomputing purchasing stats from Business Central/Cedule instead of cache.",
+    ),
     service: PurchasingStatsService = Depends(get_purchasing_stats_service),
 ) -> PurchasingStatsResponse:
     try:
@@ -498,6 +502,7 @@ async def get_purchasing_stats(
         end_date=parsed_end_date,
         days=days,
         period=period,
+        refresh=refresh,
     )
 
 

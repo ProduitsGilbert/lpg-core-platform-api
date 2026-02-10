@@ -480,6 +480,15 @@ class Settings(BaseSettings):
         default=30,
         description="Days to keep payables invoice daily snapshots",
     )
+
+    purchasing_stats_cache_db_path: str = Field(
+        default="/app/data/purchasing_stats_cache.sqlite",
+        description="SQLite path for persisted purchasing KPI snapshots",
+    )
+    purchasing_stats_cache_retention_days: int = Field(
+        default=30,
+        description="Days to keep purchasing KPI snapshots",
+    )
     
     openai_model: str = Field(
         default="gpt-5-2025-08-07",

@@ -53,6 +53,39 @@ def test_get_purchasing_stats() -> None:
         end_date=dt.date(2026, 2, 10),
         days=29,
         period="week",
+        refresh=False,
+    )
+
+
+def test_get_purchasing_stats_with_refresh() -> None:
+    client = _client()
+    stub = MagicMock()
+    stub.get_stats = AsyncMock(
+        return_value={
+            "start_date": "2026-02-04",
+            "end_date": "2026-02-10",
+            "days": 7,
+            "period": "day",
+            "total_pos": 2,
+            "total_amount": 300.0,
+            "po_timeline": [],
+            "action_categories": [],
+            "total_action_updates": 0,
+        }
+    )
+
+    app.dependency_overrides[get_purchasing_stats_service] = lambda: stub
+    try:
+        response = client.get("/api/v1/kpi/purchasing/stats?days=7&period=day&refresh=true")
+    finally:
+        app.dependency_overrides.pop(get_purchasing_stats_service, None)
+
+    assert response.status_code == 200, response.text
+    stub.get_stats.assert_awaited_once_with(
+        end_date=dt.date.today(),
+        days=7,
+        period="day",
+        refresh=True,
     )
 
 

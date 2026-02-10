@@ -11,7 +11,9 @@ from app.domain.kpi.models import (
     PurchasingPoTimelinePoint,
     PurchasingStatsResponse,
 )
+from app.domain.kpi.purchasing_stats_cache import purchasing_stats_cache
 from app.integrations.cedule_purchasing_kpi_repository import CedulePurchasingKpiRepository
+from app.settings import settings
 
 PurchasingPeriod = Literal["day", "week", "month"]
 
@@ -96,7 +98,14 @@ class PurchasingStatsService:
         end_date: dt.date,
         days: int,
         period: PurchasingPeriod = "week",
+        refresh: bool = False,
     ) -> PurchasingStatsResponse:
+        cache_key = f"{end_date.isoformat()}|{days}|{period}"
+        if not refresh and purchasing_stats_cache.is_configured:
+            cached = purchasing_stats_cache.get_snapshot(cache_key)
+            if cached:
+                return PurchasingStatsResponse.model_validate(cached)
+
         start_date = end_date - dt.timedelta(days=days - 1)
 
         po_rows = await self._client.get_purchase_order_headers()
@@ -165,7 +174,7 @@ class PurchasingStatsService:
                 for action_category, updates_count in action_rows
             ]
 
-        return PurchasingStatsResponse(
+        response = PurchasingStatsResponse(
             start_date=start_date.isoformat(),
             end_date=end_date.isoformat(),
             days=days,
@@ -176,3 +185,8 @@ class PurchasingStatsService:
             action_categories=action_categories,
             total_action_updates=sum(item.updates_count for item in action_categories),
         )
+        if purchasing_stats_cache.is_configured:
+            retention_cutoff = dt.datetime.utcnow() - dt.timedelta(days=settings.purchasing_stats_cache_retention_days)
+            purchasing_stats_cache.upsert_snapshot(cache_key, response.model_dump())
+            purchasing_stats_cache.prune_before(retention_cutoff.isoformat())
+        return response
