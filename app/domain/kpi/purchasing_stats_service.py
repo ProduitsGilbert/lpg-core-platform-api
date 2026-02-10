@@ -99,21 +99,7 @@ class PurchasingStatsService:
     ) -> PurchasingStatsResponse:
         start_date = end_date - dt.timedelta(days=days - 1)
 
-        po_rows = await self._client.get_purchase_order_headers(
-            select_fields=[
-                "No",
-                "Order_Date",
-                "Document_Date",
-                "Posting_Date",
-                "SystemCreatedAt",
-                "Created_At",
-                "Amount_Including_VAT",
-                "AmountIncludingVAT",
-                "Total_Amount",
-                "TotalAmount",
-                "Amount",
-            ]
-        )
+        po_rows = await self._client.get_purchase_order_headers()
 
         buckets: Dict[dt.date, Dict[str, Decimal | int]] = {}
         total_pos = 0
