@@ -15,8 +15,9 @@ def _client() -> TestClient:
 class _CacheStub:
     is_configured = True
 
-    def __init__(self, snapshot=None):
+    def __init__(self, snapshot=None, latest_snapshot=None):
         self.snapshot = snapshot
+        self.latest_snapshot = latest_snapshot
         self.upserts = []
         self.invalidations = []
         self.pruned = []
@@ -24,6 +25,10 @@ class _CacheStub:
     def get_snapshot(self, **kwargs):
         _ = kwargs
         return self.snapshot
+
+    def get_latest_snapshot(self, **kwargs):
+        _ = kwargs
+        return self.latest_snapshot
 
     def upsert_snapshot(self, **kwargs):
         self.upserts.append(kwargs)
@@ -135,6 +140,37 @@ def test_cashflow_projection_refresh_bypasses_cache() -> None:
 
     assert response.status_code == 200, response.text
     svc.get_projection.assert_awaited_once()
+
+
+def test_cashflow_projection_uses_stale_cache_when_today_missing() -> None:
+    client = _client()
+    cache = _CacheStub(
+        snapshot=None,
+        latest_snapshot={
+            "start_date": "2026-02-01",
+            "end_date": "2026-02-02",
+            "daily_flows": [],
+        },
+    )
+    svc = MagicMock()
+    svc.get_projection = AsyncMock()
+
+    from app.api.v1.finance.router import get_service, verify_finance_token
+
+    app.dependency_overrides[get_service] = lambda: svc
+    app.dependency_overrides[verify_finance_token] = lambda: "finance-secret"
+    try:
+        with patch("app.api.v1.finance.router.cashflow_projection_cache", cache):
+            response = client.get(
+                "/api/v1/finance/cashflow?start_date=2026-02-01&end_date=2026-02-02",
+                headers={"X-Finance-Token": "finance-secret"},
+            )
+    finally:
+        app.dependency_overrides.pop(get_service, None)
+        app.dependency_overrides.pop(verify_finance_token, None)
+
+    assert response.status_code == 200, response.text
+    svc.get_projection.assert_not_called()
 
 
 def test_create_manual_entry_invalidates_today_cache() -> None:

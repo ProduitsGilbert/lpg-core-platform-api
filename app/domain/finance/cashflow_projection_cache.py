@@ -91,6 +91,36 @@ class CashflowProjectionCache:
         except json.JSONDecodeError:
             return None
 
+    def get_latest_snapshot(
+        self,
+        *,
+        start_date: str,
+        end_date: str,
+        currency_code: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not self._enabled:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT payload_json
+                FROM finance_cashflow_projection_cache
+                WHERE start_date = ?
+                  AND end_date = ?
+                  AND currency_code = ?
+                ORDER BY cache_date DESC
+                LIMIT 1
+                """,
+                (start_date, end_date, currency_code),
+            ).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            payload = json.loads(row[0])
+            return payload if isinstance(payload, dict) else None
+        except json.JSONDecodeError:
+            return None
+
     def upsert_snapshot(
         self,
         *,

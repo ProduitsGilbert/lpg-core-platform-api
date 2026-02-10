@@ -216,10 +216,28 @@ class SalesStatsService:
                     customer_names[customer_no] = str(customer_name_value)
 
         total_quotes_count = len(quotes)
+        new_quotes_count = 0
+        total_quotes_amount = Decimal("0")
+        last_week_quotes_amount = Decimal("0")
         pending_quotes_amount = Decimal("0")
         for quote in quotes:
+            quote_date = _coerce_date(
+                _first_non_empty(
+                    quote,
+                    [
+                        "Quote_Date",
+                        "Document_Date",
+                        "Order_Date",
+                        "Posting_Date",
+                        "SystemCreatedAt",
+                        "Created_At",
+                    ],
+                )
+            )
             if not self._is_pending_quote(quote):
-                continue
+                quote_is_pending = False
+            else:
+                quote_is_pending = True
             quote_amount = _coerce_decimal(
                 _first_non_empty(
                     quote,
@@ -236,7 +254,13 @@ class SalesStatsService:
                 quote_no = _first_non_empty(quote, ["No", "Document_No", "DocumentNo"])
                 if quote_no:
                     quote_amount = quote_amounts_by_doc.get(str(quote_no), Decimal("0"))
-            pending_quotes_amount += quote_amount
+            if quote_date == snapshot_date:
+                new_quotes_count += 1
+            if quote_date and trailing_week_start <= quote_date <= snapshot_date:
+                last_week_quotes_amount += quote_amount
+            total_quotes_amount += quote_amount
+            if quote_is_pending:
+                pending_quotes_amount += quote_amount
 
         biggest_customer: Optional[SalesStatsBiggestCustomer] = None
         if customer_totals_previous_month:
@@ -251,7 +275,10 @@ class SalesStatsService:
             snapshot_date=snapshot_iso,
             new_orders_count=new_orders_count,
             last_week_orders_amount=round(float(last_week_orders_amount), 2),
+            new_quotes_count=new_quotes_count,
+            last_week_quotes_amount=round(float(last_week_quotes_amount), 2),
             total_quotes_count=total_quotes_count,
+            total_quotes_amount=round(float(total_quotes_amount), 2),
             pending_quotes_amount=round(float(pending_quotes_amount), 2),
             biggest_customer_last_month=biggest_customer,
         )

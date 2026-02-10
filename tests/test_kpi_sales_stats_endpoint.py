@@ -19,7 +19,10 @@ def test_get_sales_stats_snapshot_uses_latest_cache_when_no_date() -> None:
             "snapshot_date": "2026-02-09",
             "new_orders_count": 4,
             "last_week_orders_amount": 12345.67,
+            "new_quotes_count": 2,
+            "last_week_quotes_amount": 345.67,
             "total_quotes_count": 9,
+            "total_quotes_amount": 987.65,
             "pending_quotes_amount": 456.78,
             "biggest_customer_last_month": {
                 "customer_no": "C-100",
@@ -39,6 +42,7 @@ def test_get_sales_stats_snapshot_uses_latest_cache_when_no_date() -> None:
     payload = response.json()
     assert payload["snapshot_date"] == "2026-02-09"
     assert payload["new_orders_count"] == 4
+    assert payload["new_quotes_count"] == 2
     stub.get_latest_snapshot.assert_awaited_once()
 
 
@@ -50,7 +54,10 @@ def test_get_sales_stats_snapshot_with_date() -> None:
             "snapshot_date": "2026-02-08",
             "new_orders_count": 1,
             "last_week_orders_amount": 300.0,
+            "new_quotes_count": 1,
+            "last_week_quotes_amount": 120.0,
             "total_quotes_count": 5,
+            "total_quotes_amount": 420.0,
             "pending_quotes_amount": 120.0,
             "biggest_customer_last_month": None,
         }
@@ -93,7 +100,10 @@ def test_get_sales_stats_history() -> None:
                     "snapshot_date": "2026-02-09",
                     "new_orders_count": 2,
                     "last_week_orders_amount": 500.0,
+                    "new_quotes_count": 2,
+                    "last_week_quotes_amount": 200.0,
                     "total_quotes_count": 7,
+                    "total_quotes_amount": 700.0,
                     "pending_quotes_amount": 100.0,
                     "biggest_customer_last_month": None,
                 }

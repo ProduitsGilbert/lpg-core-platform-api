@@ -28,6 +28,7 @@ from app.domain.kpi.sales_stats_jobs import refresh_sales_stats_snapshot
 from app.domain.kpi.payables_invoice_stats_jobs import refresh_payables_invoice_stats_snapshot
 from app.domain.finance.ar_jobs import refresh_ar_payment_stats
 from app.domain.finance.ar_cache_jobs import refresh_ar_open_invoices_cache
+from app.domain.finance.cashflow_jobs import refresh_cashflow_projection_default_window
 from app.db import get_db_session
 from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
@@ -181,6 +182,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             minute=settings.ar_open_invoices_refresh_minute,
             id="ar_open_invoices_refresh",
             name="Refresh AR open invoice cache",
+            replace_existing=True,
+        )
+
+        scheduler.add_job(
+            refresh_cashflow_projection_default_window,
+            "cron",
+            hour=settings.cashflow_refresh_hour,
+            minute=settings.cashflow_refresh_minute,
+            id="cashflow_projection_refresh",
+            name="Refresh cashflow projection default cache",
             replace_existing=True,
         )
         

@@ -18,7 +18,10 @@ class _HistoryCache:
                 "snapshot_date": "2026-02-08",
                 "new_orders_count": 1,
                 "last_week_orders_amount": 100.0,
+                "new_quotes_count": 1,
+                "last_week_quotes_amount": 20.0,
                 "total_quotes_count": 2,
+                "total_quotes_amount": 35.0,
                 "pending_quotes_amount": 20.0,
                 "biggest_customer_last_month": None,
             }
@@ -83,9 +86,9 @@ class _StubERP:
 
     async def get_sales_quote_headers(self):
         return [
-            {"No": "SQ-1", "Status": "Open", "Amount": 500},
-            {"No": "SQ-2", "Status": "Closed", "Amount": 700},
-            {"No": "SQ-3", "Amount_Including_VAT": 50},
+            {"No": "SQ-1", "Document_Date": "2026-02-09", "Status": "Open", "Amount": 500},
+            {"No": "SQ-2", "Document_Date": "2026-02-06", "Status": "Closed", "Amount": 700},
+            {"No": "SQ-3", "Document_Date": "2026-01-31", "Amount_Including_VAT": 50},
         ]
 
 
@@ -126,7 +129,10 @@ async def test_sales_stats_service_snapshot_calculation(monkeypatch):
     assert snapshot.snapshot_date == "2026-02-09"
     assert snapshot.new_orders_count == 1
     assert snapshot.last_week_orders_amount == 300.0
+    assert snapshot.new_quotes_count == 1
+    assert snapshot.last_week_quotes_amount == 1200.0
     assert snapshot.total_quotes_count == 3
+    assert snapshot.total_quotes_amount == 1250.0
     assert snapshot.pending_quotes_amount == 550.0
     assert snapshot.biggest_customer_last_month is not None
     assert snapshot.biggest_customer_last_month.customer_no == "C2"
@@ -154,5 +160,8 @@ async def test_sales_stats_uses_line_amounts_when_header_amount_missing(monkeypa
     snapshot = await service.get_snapshot(snapshot_date=dt.date(2026, 2, 9), refresh=True)
 
     assert snapshot.last_week_orders_amount == 123.45
+    assert snapshot.new_quotes_count == 0
+    assert snapshot.last_week_quotes_amount == 0.0
+    assert snapshot.total_quotes_amount == 67.89
     assert snapshot.pending_quotes_amount == 67.89
     assert snapshot.biggest_customer_last_month is None

@@ -85,7 +85,10 @@ class SalesStatsSnapshotResponse(BaseModel):
     snapshot_date: str
     new_orders_count: int = Field(ge=0)
     last_week_orders_amount: float = Field(ge=0)
+    new_quotes_count: int = Field(default=0, ge=0)
+    last_week_quotes_amount: float = Field(default=0, ge=0)
     total_quotes_count: int = Field(ge=0)
+    total_quotes_amount: float = Field(default=0, ge=0)
     pending_quotes_amount: float = Field(ge=0)
     biggest_customer_last_month: Optional[SalesStatsBiggestCustomer] = None
 

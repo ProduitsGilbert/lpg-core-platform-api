@@ -450,6 +450,18 @@ class Settings(BaseSettings):
         default=30,
         description="Days to keep daily cashflow projection cache entries",
     )
+    cashflow_refresh_hour: int = Field(
+        default=5,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh default cashflow projection cache",
+    )
+    cashflow_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh default cashflow projection cache",
+    )
 
     jobs_snapshot_cache_db_path: str = Field(
         default="/app/data/jobs_snapshot_cache.sqlite",

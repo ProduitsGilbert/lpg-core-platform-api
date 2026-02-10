@@ -126,6 +126,13 @@ async def get_cashflow_projection(
         )
         if cached:
             return CashflowProjection.model_validate(cached)
+        stale = cashflow_projection_cache.get_latest_snapshot(
+            start_date=start_iso,
+            end_date=end_iso,
+            currency_code=currency_code,
+        )
+        if stale:
+            return CashflowProjection.model_validate(stale)
 
     projection = await svc.get_projection(start_date, end_date, currency)
 
