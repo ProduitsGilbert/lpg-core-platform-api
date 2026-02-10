@@ -44,6 +44,46 @@ class _HistoryCache:
         return None
 
 
+class _StaleCache:
+    is_configured = True
+
+    def __init__(self):
+        self._upserted = []
+
+    def get_snapshot(self, snapshot_date: str):
+        _ = snapshot_date
+        return {
+            "snapshot_date": "2026-02-09",
+            "new_orders_count": 1,
+            "last_week_orders_amount": 100.0,
+            "total_quotes_count": 3,
+            "pending_quotes_amount": 550.0,
+            "biggest_customer_last_month": None,
+        }
+
+    def get_latest_snapshot(self):
+        return {
+            "snapshot_date": "2026-02-09",
+            "new_orders_count": 1,
+            "last_week_orders_amount": 100.0,
+            "total_quotes_count": 3,
+            "pending_quotes_amount": 550.0,
+            "biggest_customer_last_month": None,
+        }
+
+    def list_snapshots(self, start_date: str, end_date: str):
+        _ = (start_date, end_date)
+        return []
+
+    def upsert_snapshot(self, snapshot_date: str, payload):
+        self._upserted.append((snapshot_date, payload))
+        return None
+
+    def prune_before(self, snapshot_date: str):
+        _ = snapshot_date
+        return None
+
+
 class _StubERP:
     async def get_sales_order_headers(self):
         return [
@@ -165,3 +205,29 @@ async def test_sales_stats_uses_line_amounts_when_header_amount_missing(monkeypa
     assert snapshot.total_quotes_amount == 67.89
     assert snapshot.pending_quotes_amount == 67.89
     assert snapshot.biggest_customer_last_month is None
+
+
+@pytest.mark.asyncio
+async def test_sales_stats_snapshot_recomputes_stale_cache(monkeypatch):
+    stale_cache = _StaleCache()
+    monkeypatch.setattr("app.domain.kpi.sales_stats_service.sales_stats_cache", stale_cache)
+    service = SalesStatsService(client=_StubERP())
+
+    snapshot = await service.get_snapshot(snapshot_date=dt.date(2026, 2, 9), refresh=False)
+
+    assert snapshot.total_quotes_amount == 1250.0
+    assert snapshot.new_quotes_count == 1
+    assert stale_cache._upserted
+
+
+@pytest.mark.asyncio
+async def test_sales_stats_latest_recomputes_stale_cache(monkeypatch):
+    stale_cache = _StaleCache()
+    monkeypatch.setattr("app.domain.kpi.sales_stats_service.sales_stats_cache", stale_cache)
+    service = SalesStatsService(client=_StubERP())
+
+    snapshot = await service.get_latest_snapshot()
+
+    assert snapshot.snapshot_date == "2026-02-09"
+    assert snapshot.total_quotes_amount == 1250.0
+    assert snapshot.new_quotes_count == 1

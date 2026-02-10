@@ -103,7 +103,7 @@ class SalesStatsService:
         snapshot_iso = snapshot_date.isoformat()
         if not refresh and sales_stats_cache.is_configured:
             cached = sales_stats_cache.get_snapshot(snapshot_iso)
-            if cached:
+            if cached and self._is_cache_payload_current(cached):
                 return SalesStatsSnapshotResponse.model_validate(cached)
 
         response = await self._compute_snapshot(snapshot_date=snapshot_date)
@@ -117,8 +117,12 @@ class SalesStatsService:
     async def get_latest_snapshot(self) -> SalesStatsSnapshotResponse:
         if sales_stats_cache.is_configured:
             cached = sales_stats_cache.get_latest_snapshot()
-            if cached:
+            if cached and self._is_cache_payload_current(cached):
                 return SalesStatsSnapshotResponse.model_validate(cached)
+            if cached:
+                cached_snapshot_date = _coerce_date(cached.get("snapshot_date"))
+                if cached_snapshot_date:
+                    return await self.get_snapshot(snapshot_date=cached_snapshot_date, refresh=True)
         return await self.get_snapshot(snapshot_date=dt.date.today(), refresh=True)
 
     async def get_history(
@@ -355,3 +359,12 @@ class SalesStatsService:
                 quote_totals = {}
 
         return order_totals, quote_totals
+
+    @staticmethod
+    def _is_cache_payload_current(payload: Dict[str, Any]) -> bool:
+        required_fields = (
+            "new_quotes_count",
+            "last_week_quotes_amount",
+            "total_quotes_amount",
+        )
+        return all(field in payload for field in required_fields)
