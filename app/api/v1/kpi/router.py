@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
 import logfire
 from fastapi import APIRouter, Depends, Path, Query, status
@@ -16,6 +16,7 @@ from app.domain.kpi.models import (
     JobKpiSnapshotHistoryResponse,
     JobKpiWarmupResponse,
     PayablesInvoiceStatsResponse,
+    PurchasingStatsResponse,
     SalesStatsHistoryResponse,
     SalesStatsSnapshotResponse,
     PlannerDailyReportResponse,
@@ -24,6 +25,10 @@ from app.domain.kpi.models import (
     WindchillModifiedDrawingsPerUser,
 )
 from app.domain.kpi.payables_invoice_stats_service import PayablesInvoiceStatsService
+from app.domain.kpi.purchasing_stats_service import (
+    PurchasingStatsService,
+    parse_purchasing_stats_date,
+)
 from app.domain.kpi.planner_daily_report_service import (
     PlannerDailyReportService,
     parse_report_date,
@@ -50,6 +55,10 @@ def get_jobs_snapshot_service() -> JobsSnapshotService:
 
 def get_payables_invoice_stats_service() -> PayablesInvoiceStatsService:
     return PayablesInvoiceStatsService()
+
+
+def get_purchasing_stats_service() -> PurchasingStatsService:
+    return PurchasingStatsService()
 
 
 @lru_cache(maxsize=1)
@@ -446,6 +455,50 @@ async def get_payables_invoice_stats(
     service: PayablesInvoiceStatsService = Depends(get_payables_invoice_stats_service),
 ) -> PayablesInvoiceStatsResponse:
     return await service.get_stats(refresh=refresh)
+
+
+@router.get(
+    "/purchasing/stats",
+    response_model=PurchasingStatsResponse,
+    responses={
+        status.HTTP_200_OK: {"description": "Purchasing stats retrieved successfully"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Invalid input"},
+        status.HTTP_502_BAD_GATEWAY: {"description": "Failed to reach Business Central"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Business Central unavailable"},
+    },
+    summary="Purchasing KPI stats",
+    description=(
+        "Return purchasing KPIs over a date window: PO creation timeline and amount totals from "
+        "Business Central PurchaseOrderHeaders, plus Cedule order action update counts by action category."
+    ),
+)
+async def get_purchasing_stats(
+    end_date: str = Query(
+        default="today",
+        description="End date (YYYY-MM-DD) or 'today'.",
+    ),
+    days: int = Query(
+        default=90,
+        ge=1,
+        le=365,
+        description="Number of calendar days to look back from end_date.",
+    ),
+    period: Literal["day", "week", "month"] = Query(
+        default="week",
+        description="Timeline aggregation period.",
+    ),
+    service: PurchasingStatsService = Depends(get_purchasing_stats_service),
+) -> PurchasingStatsResponse:
+    try:
+        parsed_end_date = parse_purchasing_stats_date(end_date)
+    except ValueError as exc:
+        raise ValidationException(str(exc), field="end_date") from exc
+
+    return await service.get_stats(
+        end_date=parsed_end_date,
+        days=days,
+        period=period,
+    )
 
 
 @router.get(

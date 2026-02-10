@@ -166,3 +166,27 @@ class PayablesInvoiceStatsResponse(BaseModel):
     purchase_invoice: PayablesStageStats
     posted_purchase_order: PayablesStageStats
     continia_statuses: List[ContiniaStatusStats]
+
+
+class PurchasingPoTimelinePoint(BaseModel):
+    period_start: str
+    period_end: str
+    po_count: int = Field(ge=0)
+    total_amount: float = Field(ge=0)
+
+
+class PurchasingActionCategoryStats(BaseModel):
+    action_category: str
+    updates_count: int = Field(ge=0)
+
+
+class PurchasingStatsResponse(BaseModel):
+    start_date: str
+    end_date: str
+    days: int = Field(ge=1)
+    period: str
+    total_pos: int = Field(ge=0)
+    total_amount: float = Field(ge=0)
+    po_timeline: List[PurchasingPoTimelinePoint]
+    action_categories: List[PurchasingActionCategoryStats]
+    total_action_updates: int = Field(ge=0)

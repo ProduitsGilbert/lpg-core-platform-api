@@ -156,6 +156,14 @@ class ERPClientProtocol(Protocol):
         """Retrieve sales quote headers."""
         ...
 
+    async def get_purchase_order_headers(
+        self,
+        *,
+        select_fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve purchase order headers."""
+        ...
+
 
 class AIClientProtocol(Protocol):
     """

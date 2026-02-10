@@ -1401,6 +1401,17 @@ class ERPClient(ERPClientProtocol):
                 raise
         return []
 
+    async def get_purchase_order_headers(
+        self,
+        *,
+        select_fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve purchase order headers from Business Central."""
+        resource = "PurchaseOrderHeaders"
+        if select_fields:
+            resource = f"{resource}?$select={','.join(select_fields)}"
+        return await self._fetch_odata_collection(resource)
+
     async def get_sales_order_lines(self) -> List[Dict[str, Any]]:
         """Retrieve sales order lines for all orders."""
         candidates = ("Gilbert_SalesOrderLines", "SalesOrderLines")
