@@ -9,7 +9,13 @@ from typing import Dict, Iterable, List, Optional
 import logfire
 
 from app.domain.erp.business_central_data_service import BusinessCentralODataService
-from app.domain.erp.models import ItemAttributeValueEntry, ItemAttributesResponse
+from app.domain.erp.models import (
+    ItemAttributeCatalogEntry,
+    ItemAttributeCatalogResponse,
+    ItemAttributeCatalogValue,
+    ItemAttributeValueEntry,
+    ItemAttributesResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +100,54 @@ class ItemAttributeService:
 
             return ItemAttributesResponse(item_id=normalized_item, attributes=attributes)
 
+    async def get_attribute_catalog(self) -> ItemAttributeCatalogResponse:
+        """Return all attributes and all possible values for each attribute."""
+        with logfire.span("item_attributes.catalog"):
+            attributes_raw, values_raw = await asyncio.gather(
+                self._fetch_collection_all("ItemAttributes"),
+                self._fetch_collection_all("ItemAttributeValues"),
+            )
+
+            values_by_attribute: Dict[int, List[ItemAttributeCatalogValue]] = {}
+            for value_record in values_raw:
+                if value_record.get("Blocked") is True:
+                    continue
+                attribute_id_raw = value_record.get("Attribute_ID")
+                value_id_raw = value_record.get("ID")
+                if attribute_id_raw is None or value_id_raw is None:
+                    continue
+
+                attribute_id = int(attribute_id_raw)
+                entry = ItemAttributeCatalogValue(
+                    value_id=int(value_id_raw),
+                    value=str(value_record.get("Value", "")),
+                )
+                values_by_attribute.setdefault(attribute_id, []).append(entry)
+
+            attributes: List[ItemAttributeCatalogEntry] = []
+            for attribute_record in attributes_raw:
+                if attribute_record.get("Blocked") is True:
+                    continue
+                attribute_id_raw = attribute_record.get("ID")
+                if attribute_id_raw is None:
+                    continue
+                attribute_id = int(attribute_id_raw)
+
+                value_entries = values_by_attribute.get(attribute_id, [])
+                value_entries.sort(key=lambda item: (item.value, item.value_id))
+
+                attributes.append(
+                    ItemAttributeCatalogEntry(
+                        attribute_id=attribute_id,
+                        attribute_name=str(attribute_record.get("Name", "")),
+                        attribute_type=str(attribute_record.get("Type", "")),
+                        values=value_entries,
+                    )
+                )
+
+            attributes.sort(key=lambda item: (item.attribute_name, item.attribute_id))
+            return ItemAttributeCatalogResponse(attributes=attributes)
+
     async def _load_attributes(self, attribute_ids: Iterable[int]) -> Dict[int, Dict[str, object]]:
         if not attribute_ids:
             return {}
@@ -149,3 +203,9 @@ class ItemAttributeService:
             values[int(value_id)] = record
 
         return values
+
+    async def _fetch_collection_all(self, resource: str) -> List[Dict[str, object]]:
+        fetch_paged = getattr(self._odata_service, "fetch_collection_paged", None)
+        if callable(fetch_paged):
+            return await fetch_paged(resource)
+        return await self._odata_service.fetch_collection(resource)

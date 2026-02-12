@@ -117,6 +117,34 @@ class ItemAttributesResponse(BaseModel):
     )
 
 
+class ItemAttributeCatalogValue(BaseModel):
+    """Single possible value for an item attribute."""
+
+    value_id: int = Field(..., description="Business Central attribute value ID")
+    value: str = Field(..., description="Display value for dropdown options")
+
+
+class ItemAttributeCatalogEntry(BaseModel):
+    """Item attribute and all possible values for UI filters."""
+
+    attribute_id: int = Field(..., description="Business Central item attribute ID")
+    attribute_name: str = Field(..., description="Item attribute name")
+    attribute_type: str = Field(..., description="Attribute data type (Option, Decimal, Text)")
+    values: List[ItemAttributeCatalogValue] = Field(
+        default_factory=list,
+        description="All available values for this attribute",
+    )
+
+
+class ItemAttributeCatalogResponse(BaseModel):
+    """All item attributes and values available in Business Central."""
+
+    attributes: List[ItemAttributeCatalogEntry] = Field(
+        default_factory=list,
+        description="List of attributes with their available values",
+    )
+
+
 class VendorContactResponse(BaseModel):
     """Vendor email contact details."""
 

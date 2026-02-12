@@ -20,6 +20,7 @@ from app.domain.erp.models import (
     TariffCalculationResponse,
     ItemAvailabilityResponse,
     ItemAttributesResponse,
+    ItemAttributeCatalogResponse,
 )
 from app.domain.erp.availability_service import ItemAvailabilityService
 from app.domain.erp.tariff_service import TariffCalculationService
@@ -104,6 +105,69 @@ async def get_item(
                 }
             }
         )
+
+
+@router.get(
+    "/attributes/catalog",
+    response_model=SingleResponse[ItemAttributeCatalogResponse],
+    summary="List all item attributes and available values",
+    description=(
+        "Returns all Business Central item attributes along with all available "
+        "values for each attribute. Useful for building UI dropdown filters."
+    ),
+)
+async def get_item_attribute_catalog(
+    attribute_service: ItemAttributeService = Depends(get_item_attribute_service),
+) -> SingleResponse[ItemAttributeCatalogResponse]:
+    """Fetch global attribute catalog for UI dropdowns."""
+    try:
+        with logfire.span("get_item_attribute_catalog"):
+            catalog = await attribute_service.get_attribute_catalog()
+        return SingleResponse(data=catalog)
+    except httpx.HTTPStatusError as exc:
+        upstream_status = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+        logger.error(
+            "Business Central returned HTTP error while fetching item attribute catalog",
+            extra={"status_code": upstream_status},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_ERROR",
+                    "message": "Business Central request failed",
+                    "upstream_status": upstream_status,
+                }
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.error(
+            "Business Central request failed while fetching item attribute catalog",
+            extra={"error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_UNAVAILABLE",
+                    "message": "Business Central service unreachable",
+                }
+            },
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error fetching item attribute catalog")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to retrieve item attribute catalog",
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
 
 
 @router.get(

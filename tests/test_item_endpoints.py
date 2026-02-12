@@ -15,6 +15,9 @@ from app.domain.erp.models import (
     ItemAvailabilityResponse,
     ItemAvailabilityTimelineEntry,
     ItemAttributesResponse,
+    ItemAttributeCatalogResponse,
+    ItemAttributeCatalogEntry,
+    ItemAttributeCatalogValue,
     ItemAttributeValueEntry,
 )
 from app.errors import ERPConflict
@@ -38,9 +41,14 @@ def _setup_item_service(monkeypatch, **overrides):
     return service
 
 
-def _setup_item_attribute_service(monkeypatch, response: ItemAttributesResponse):
+def _setup_item_attribute_service(
+    monkeypatch,
+    response: ItemAttributesResponse,
+    catalog_response: ItemAttributeCatalogResponse | None = None,
+):
     service = SimpleNamespace(
         get_item_attributes=AsyncMock(return_value=response),
+        get_attribute_catalog=AsyncMock(return_value=catalog_response),
     )
     monkeypatch.setattr("app.api.v1.erp.items.ItemAttributeService", lambda: service)
     monkeypatch.setattr("app.api.v1.erp.items.get_item_attribute_service", lambda: service)
@@ -148,6 +156,38 @@ def test_get_item_attributes_success(client, monkeypatch):
     assert payload["item_id"] == "0410604"
     assert payload["attributes"][0]["value"] == "HARDOX-450"
     service.get_item_attributes.assert_awaited_once_with("0410604")
+
+
+def test_get_item_attribute_catalog_success(client, monkeypatch):
+    response_model = ItemAttributesResponse(item_id="unused", attributes=[])
+    catalog_model = ItemAttributeCatalogResponse(
+        attributes=[
+            ItemAttributeCatalogEntry(
+                attribute_id=2,
+                attribute_name="Matériel",
+                attribute_type="Option",
+                values=[
+                    ItemAttributeCatalogValue(value_id=368, value="D2"),
+                    ItemAttributeCatalogValue(value_id=372, value="HARDOX-450"),
+                ],
+            ),
+            ItemAttributeCatalogEntry(
+                attribute_id=4,
+                attribute_name="Sous-Type",
+                attribute_type="Option",
+                values=[ItemAttributeCatalogValue(value_id=7, value="FER PLAT")],
+            ),
+        ]
+    )
+    service = _setup_item_attribute_service(monkeypatch, response_model, catalog_model)
+
+    response = client.get("/api/v1/erp/items/attributes/catalog")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["attributes"][0]["attribute_name"] == "Matériel"
+    assert payload["attributes"][0]["values"][0]["value"] == "D2"
+    service.get_attribute_catalog.assert_awaited_once()
 
 
 def _setup_tariff_service(monkeypatch, response: TariffCalculationResponse):
