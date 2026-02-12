@@ -126,6 +126,52 @@ The codebase follows hexagonal/ports-and-adapters architecture:
    - Integration tests marked with `@pytest.mark.integration`
    - Slow tests marked with `@pytest.mark.slow`
 
+## Agent Git + Deploy Guardrail (Mandatory)
+
+Use this exact flow for every feature/fix to avoid branch confusion:
+
+1. **Never code on `main`**:
+   - Start from updated main, then create a feature branch.
+   - Branch naming: `codex/<short-topic>`.
+
+2. **Print branch + commit before coding**:
+   ```bash
+   git branch --show-current
+   git rev-parse --short HEAD
+   ```
+
+3. **One branch per topic**:
+   - Keep unrelated work in separate branches.
+   - If two features must ship together, create an integration branch from `main`:
+   ```bash
+   git switch main && git pull --ff-only
+   git switch -c codex/integration-<topic-a>-<topic-b>
+   git merge --no-ff origin/codex/<topic-a>
+   git merge --no-ff origin/codex/<topic-b>
+   ```
+
+4. **Before Docker deploy, verify source branch again**:
+   ```bash
+   git branch --show-current
+   git log -1 --oneline
+   ```
+   - Docker builds from current checkout. Wrong branch = wrong running app.
+
+5. **After deploy, verify endpoints from inside compose network**:
+   ```bash
+   docker compose exec -T api sh -lc "curl -fsS http://api:7005/healthz"
+   docker compose exec -T api sh -lc "python - <<'PY'
+import json, urllib.request
+j=json.load(urllib.request.urlopen('http://api:7005/openapi.json'))
+print('/api/v1/quotes' in j.get('paths', {}))
+PY"
+   ```
+
+6. **Push branch immediately after green tests + successful smoke test**:
+   ```bash
+   git push -u origin <current-branch>
+   ```
+
 ## API Endpoints
 
 ### Core ERP Operations
