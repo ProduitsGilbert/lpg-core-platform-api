@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 import asyncio
 import httpx
 import logfire
+from urllib.parse import quote
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -216,6 +217,69 @@ class ERPClient(ERPClientProtocol):
         sanitized = production_bom_no.replace("'", "''")
         resource = f"BOMComponentLines?$filter=Production_BOM_No eq '{sanitized}'"
         return await self._fetch_odata_collection(resource)
+
+    async def get_bom_cost_shares(self, item_no: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve BOM cost share breakdown for a given item.
+        """
+        if not item_no:
+            return []
+        sanitized = item_no.replace("'", "''")
+        # Different tenants expose slightly different field names; try a few.
+        filter_fields = [
+            "Top_Item_No",
+            "Item_No_",
+            "Item_No",
+            "No",  # fallback – may return only the parent row
+        ]
+        last_error: Optional[Exception] = None
+        for field in filter_fields:
+            resource = f"BOM_CostShares?$filter={field} eq '{sanitized}'"
+            try:
+                return await self._fetch_odata_collection(resource)
+            except Exception as exc:
+                last_error = exc
+                continue
+        # Final fallback: fetch without filter and let caller decide.
+        try:
+            return await self._fetch_odata_collection("BOM_CostShares")
+        except Exception:
+            if last_error:
+                raise last_error
+            raise
+
+    async def get_bom_routing_lines(self, routing_no: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve routing lines for a given routing number.
+        Uses an explicitly URL-encoded $filter to avoid any client-side stripping of the `$` prefix.
+        """
+        if not routing_no:
+            return []
+
+        sanitized = routing_no.replace("'", "''")
+        filter_clause = f"RoutingNo eq '{sanitized}'"
+        encoded_filter = quote(filter_clause, safe="'")
+        resource = f"BomRoutingLines?%24filter={encoded_filter}"
+        return await self._fetch_odata_collection(resource)
+
+    async def get_work_center(self, work_center_no: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a single work center by its number.
+        BC exposes this entity set as `WorkCentres` (en-GB), but keep a fallback to `WorkCenters`.
+        """
+        if not work_center_no:
+            return None
+        sanitized = work_center_no.replace("'", "''")
+
+        candidates = (
+            f"WorkCentres?$filter=No eq '{sanitized}'",
+            f"WorkCenters?$filter=No eq '{sanitized}'",
+        )
+        for resource in candidates:
+            rows = await self._fetch_odata_collection(resource)
+            if rows:
+                return rows[0]
+        return None
     
     async def get_bin_contents(
         self,
@@ -539,6 +603,62 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error getting PO {po_id}: {e}")
                 raise ERPError(f"Failed to get PO: {str(e)}")
 
+    async def get_purchase_order_for_edi(self, po_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve only the fields needed to build an EDI 850 payload.
+
+        Fetches ship-to, monetary totals, dates, vendor code, and freight/terms fields.
+        Falls back to the broader get_purchase_order when the lightweight query returns nothing.
+        """
+        if not po_id:
+            return None
+
+        sanitized = po_id.replace("'", "''")
+        select_fields = [
+            "No",
+            "Document_Date",
+            "Payment_Terms_Code",
+            "Buy_from_Vendor_No",
+            "Amount",
+            "Amount_Including_VAT",
+            "Ship_to_Name",
+            "Ship_to_Name_2",
+            "Ship_to_Address",
+            "Ship_to_Address_2",
+            "Ship_to_Address_3",
+            "Ship_to_City",
+            "Ship_to_County",
+            "Ship_to_State",
+            "Ship_to_State_Code",
+            "Ship_to_Post_Code",
+            "Sell_to_City",
+            "Sell_to_State",
+            "Sell_to_Post_Code",
+        ]
+        resource = (
+            f"PurchaseOrderHeaders?$filter=No eq '{sanitized}'"
+            f"&$select={','.join(select_fields)}"
+        )
+
+        with logfire.span("ERP get_purchase_order_for_edi", po_id=po_id):
+            try:
+                rows = await self._fetch_odata_collection(resource)
+                if rows:
+                    logfire.info(
+                        "Retrieved PO header for EDI",
+                        po_id=po_id,
+                        selected_fields=len(select_fields),
+                    )
+                    return rows[0]
+            except Exception as exc:
+                logfire.info(
+                    "Falling back to full PO fetch for EDI header",
+                    po_id=po_id,
+                    error=str(exc),
+                )
+
+        return await self.get_purchase_order(po_id)
+
     async def reopen_purchase_order(self, header_no: str) -> Dict[str, Any]:
         """Invoke the Business Central action to reopen a released purchase order."""
         if not header_no:
@@ -596,39 +716,92 @@ class ERPClient(ERPClientProtocol):
                 logfire.error(f"Error getting PO lines for {po_id}: {e}")
                 raise ERPError(f"Failed to get PO lines: {str(e)}")
 
+    async def get_purchase_order_lines_for_edi(self, po_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve PO lines with only the fields required for the EDI 850 payload.
+
+        Tries the Gilbert-specific view first (preferred for custom fields),
+        then falls back to the standard PurchaseOrderLines entity if needed.
+        """
+        if not po_id:
+            return []
+
+        sanitized = po_id.replace("'", "''")
+        select_fields = [
+            "Document_No",
+            "Line_No",
+            "Quantity",
+            "Unit_of_Measure_Code",
+            "Direct_Unit_Cost",
+            "Vendor_Item_No",
+            "No",
+            "Description",
+        ]
+        resources = [
+            f"Gilbert_PurchaseOrderLines?$filter=Document_No eq '{sanitized}'"
+            f"&$select={','.join(select_fields)}&$orderby=Line_No asc",
+            f"PurchaseOrderLines?$filter=Document_No eq '{sanitized}'"
+            f"&$select={','.join(select_fields)}&$orderby=Line_No asc",
+        ]
+
+        with logfire.span("ERP get_purchase_order_lines_for_edi", po_id=po_id):
+            for resource in resources:
+                try:
+                    lines = await self._fetch_odata_collection(resource)
+                except Exception as exc:
+                    logfire.info(
+                        "PO line fetch failed, trying fallback",
+                        po_id=po_id,
+                        resource=resource.split("?")[0],
+                        error=str(exc),
+                    )
+                    continue
+                if lines:
+                    logfire.info(
+                        "Retrieved PO lines for EDI",
+                        po_id=po_id,
+                        line_count=len(lines),
+                        source=resource.split("?")[0],
+                    )
+                    return lines
+
+        return []
+
     async def get_vendor(self, vendor_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve vendor master data from Business Central."""
 
-        with logfire.span("ERP get_vendor", vendor_id=vendor_id):
-            try:
-                response = await self.http_client.get(
-                    f"Vendor?$filter=No eq '{vendor_id}'"
-                )
-                response.raise_for_status()
+        if not vendor_id:
+            return None
 
-                data = response.json()
-                vendors = data.get("value", [])
+        sanitized = vendor_id.replace("'", "''")
+        resources = [
+            f"Vendors?$filter=No eq '{sanitized}'",
+            f"Vendor?$filter=No eq '{sanitized}'",
+        ]
 
+        for resource in resources:
+            with logfire.span("ERP get_vendor", vendor_id=vendor_id, resource=resource.split("?")[0]):
+                try:
+                    vendors = await self._fetch_odata_collection(resource)
+                except Exception as exc:
+                    logfire.info(
+                        "Vendor fetch failed, trying fallback",
+                        vendor_id=vendor_id,
+                        resource=resource.split("?")[0],
+                        error=str(exc),
+                    )
+                    continue
                 if vendors:
                     vendor = vendors[0]
-                    logfire.info("Retrieved vendor info", vendor_id=vendor_id)
+                    logfire.info(
+                        "Retrieved vendor info",
+                        vendor_id=vendor_id,
+                        source=resource.split("?")[0],
+                    )
                     return vendor
 
-                logfire.warning("Vendor not found", vendor_id=vendor_id)
-                return None
-
-            except httpx.HTTPStatusError as exc:
-                logfire.error(
-                    "HTTP error getting vendor",
-                    vendor_id=vendor_id,
-                    status_code=exc.response.status_code,
-                )
-                raise ERPError(
-                    f"Business Central API error: {exc.response.status_code} - {exc.response.text}"
-                )
-            except Exception as exc:  # pragma: no cover - network failure path
-                logfire.error("Error getting vendor", vendor_id=vendor_id, error=str(exc))
-                raise ERPError(f"Failed to get vendor: {str(exc)}")
+        logfire.warning("Vendor not found", vendor_id=vendor_id)
+        return None
 
     async def get_item(self, item_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -1204,6 +1377,169 @@ class ERPClient(ERPClientProtocol):
         resource = "PostedSalesInvoiceHeaders?$filter=" + " and ".join(filters)
         return await self._fetch_odata_collection(resource)
 
+    async def get_sales_order_headers(self) -> List[Dict[str, Any]]:
+        """Retrieve sales order headers from Business Central."""
+        candidates = ("SalesOrderHeaders", "SalesOrders", "SalesOrder")
+        for resource in candidates:
+            try:
+                return await self._fetch_odata_collection(resource, fail_on_404=True)
+            except ERPError as exc:
+                if exc.context.get("status_code") == 404:
+                    continue
+                raise
+        return []
+
+    async def get_sales_quote_headers(self) -> List[Dict[str, Any]]:
+        """Retrieve sales quote headers from Business Central."""
+        candidates = ("SalesOrderQuotesH", "SalesQuotes", "SalesQuoteHeaders")
+        for resource in candidates:
+            try:
+                return await self._fetch_odata_collection(resource, fail_on_404=True)
+            except ERPError as exc:
+                if exc.context.get("status_code") == 404:
+                    continue
+                raise
+        return []
+
+    async def get_purchase_order_headers(
+        self,
+        *,
+        select_fields: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve purchase order headers from Business Central."""
+        resource = "PurchaseOrderHeaders"
+        if select_fields:
+            resource = f"{resource}?$select={','.join(select_fields)}"
+        return await self._fetch_odata_collection(resource)
+
+    async def get_sales_order_lines(self) -> List[Dict[str, Any]]:
+        """Retrieve sales order lines for all orders."""
+        candidates = ("Gilbert_SalesOrderLines", "SalesOrderLines")
+        for resource in candidates:
+            try:
+                return await self._fetch_odata_collection(resource, fail_on_404=True)
+            except ERPError as exc:
+                if exc.context.get("status_code") == 404:
+                    continue
+                raise
+        return []
+
+    async def get_sales_quote_lines(self) -> List[Dict[str, Any]]:
+        """Retrieve sales quote lines for all quotes."""
+        candidates = ("SalesQuoteLines", "SalesOrderQuotesL")
+        for resource in candidates:
+            try:
+                return await self._fetch_odata_collection(resource, fail_on_404=True)
+            except ERPError as exc:
+                if exc.context.get("status_code") == 404:
+                    continue
+                raise
+        return []
+
+    async def get_open_posted_sales_invoices(
+        self,
+        due_from: Optional[date] = None,
+        due_to: Optional[date] = None,
+        customer_no: Optional[str] = None,
+        invoice_no: Optional[str] = None,
+        top: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve open posted sales invoices for AR collections."""
+        filters = [
+            "Closed eq false",
+            "Cancelled eq false",
+            "Corrective eq false",
+            "Remaining_Amount gt 0",
+        ]
+        if due_from:
+            filters.append(f"Due_Date ge {due_from.isoformat()}")
+        if due_to:
+            filters.append(f"Due_Date le {due_to.isoformat()}")
+        if customer_no:
+            sanitized = customer_no.replace("'", "''")
+            filters.append(f"Sell_to_Customer_No eq '{sanitized}'")
+        if invoice_no:
+            sanitized = invoice_no.replace("'", "''")
+            filters.append(f"No eq '{sanitized}'")
+        select_fields = ",".join(
+            [
+                "No",
+                "Sell_to_Customer_No",
+                "Sell_to_Customer_Name",
+                "Bill_to_Customer_No",
+                "Bill_to_Name",
+                "Due_Date",
+                "Posting_Date",
+                "Document_Date",
+                "Amount_Including_VAT",
+                "Amount",
+                "Remaining_Amount",
+                "External_Document_No",
+                "Currency_Code",
+                "Closed",
+                "Cancelled",
+                "Corrective",
+                "Posted_Batch_Name",
+            ]
+        )
+        resource = (
+            "PostedSalesInvoiceHeaders"
+            f"?$select={select_fields}"
+            f"&$filter={' and '.join(filters)}"
+        )
+        if top is not None:
+            resource = f"{resource}&$top={int(top)}"
+        try:
+            return await self._fetch_odata_collection(resource)
+        except ERPError as exc:
+            message = str(exc)
+            if "Could not find a property named" in message:
+                fallback = "PostedSalesInvoiceHeaders?$filter=" + " and ".join(filters)
+                if top is not None:
+                    fallback = f"{fallback}&$top={int(top)}"
+                return await self._fetch_odata_collection(fallback)
+            raise
+
+    async def get_closed_posted_sales_invoices(
+        self,
+        due_from: Optional[date] = None,
+        due_to: Optional[date] = None,
+        top: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve closed posted sales invoices for payment history."""
+        filters = ["Closed eq true", "Cancelled eq false"]
+        if due_from:
+            filters.append(f"Due_Date ge {due_from.isoformat()}")
+        if due_to:
+            filters.append(f"Due_Date le {due_to.isoformat()}")
+        select_fields = ",".join(
+            [
+                "No",
+                "Sell_to_Customer_No",
+                "Bill_to_Customer_No",
+                "Due_Date",
+                "Date_Time_Stamped",
+                "Date_Time_Sent",
+                "Date_Time_Canceled",
+                "Closed",
+                "Cancelled",
+            ]
+        )
+        resource = (
+            "PostedSalesInvoiceHeaders"
+            f"?$select={select_fields}"
+            f"&$filter={' and '.join(filters)}"
+        )
+        if top is not None:
+            resource = f"{resource}&$top={int(top)}"
+        return await self._fetch_odata_collection(resource)
+
+    async def get_posted_sales_invoice_lines(self, invoice_no: str) -> List[Dict[str, Any]]:
+        """Retrieve posted sales invoice lines for a specific invoice header."""
+        sanitized = invoice_no.replace("'", "''")
+        resource = f"PostedSalesInvoiceLines?$filter=Document_No eq '{sanitized}'"
+        return await self._fetch_odata_collection(resource)
+
     async def get_job_planning_lines(
         self, start_date: Optional[date] = None, end_date: Optional[date] = None
     ) -> List[Dict[str, Any]]:
@@ -1221,31 +1557,70 @@ class ERPClient(ERPClientProtocol):
         return await self._fetch_odata_collection(resource)
 
     async def get_open_purchase_invoices(
-        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        select_fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve open purchase invoices, optionally filtered by Due_Date (preferred) or Document_Date."""
+        resource = "PurchaseInvoices"
+        if select_fields:
+            resource += "?$select=" + ",".join(select_fields)
+
         if not start_date and not end_date:
-            return await self._fetch_odata_collection("PurchaseInvoices")
+            try:
+                return await self._fetch_odata_collection(resource)
+            except ERPError as exc:
+                if select_fields and "Could not find a property named" in str(exc):
+                    return await self._fetch_odata_collection("PurchaseInvoices")
+                raise
+
         filters: List[str] = []
         if start_date:
             # Prefer Due_Date since that's the payment schedule field in BC.
             filters.append(f"Due_Date ge {start_date.isoformat()}")
         if end_date:
             filters.append(f"Due_Date le {end_date.isoformat()}")
-        resource = "PurchaseInvoices?$filter=" + " and ".join(filters)
-        return await self._fetch_odata_collection(resource)
+        joiner = "&" if "?" in resource else "?"
+        resource = f"{resource}{joiner}$filter=" + " and ".join(filters)
+        try:
+            return await self._fetch_odata_collection(resource)
+        except ERPError as exc:
+            if select_fields and "Could not find a property named" in str(exc):
+                fallback = "PurchaseInvoices?$filter=" + " and ".join(filters)
+                return await self._fetch_odata_collection(fallback)
+            raise
 
     async def get_posted_purchase_invoices(
-        self, start_date: Optional[date] = None, end_date: Optional[date] = None
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        include_paid: bool = False,
+        select_fields: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve posted purchase invoices with remaining amount > 0, optionally filtered by Due_Date."""
-        filters = ["Remaining_Amount gt 0"]
+        """Retrieve posted purchase invoices, optionally filtered by Due_Date."""
+        filters: List[str] = []
+        if not include_paid:
+            filters.append("Remaining_Amount gt 0")
         if start_date:
             filters.append(f"Due_Date ge {start_date.isoformat()}")
         if end_date:
             filters.append(f"Due_Date le {end_date.isoformat()}")
-        resource = "PostedPurchaseInvoiceHeaders?$filter=" + " and ".join(filters)
-        return await self._fetch_odata_collection(resource)
+        resource = "PostedPurchaseInvoiceHeaders"
+        if select_fields:
+            resource += "?$select=" + ",".join(select_fields)
+        if filters:
+            joiner = "&" if "?" in resource else "?"
+            resource += f"{joiner}$filter=" + " and ".join(filters)
+        try:
+            return await self._fetch_odata_collection(resource)
+        except ERPError as exc:
+            if select_fields and "Could not find a property named" in str(exc):
+                fallback = "PostedPurchaseInvoiceHeaders"
+                if filters:
+                    fallback += "?$filter=" + " and ".join(filters)
+                return await self._fetch_odata_collection(fallback)
+            raise
 
     async def get_continia_invoices(
         self, start_date: Optional[date] = None, end_date: Optional[date] = None
@@ -1280,8 +1655,49 @@ class ERPClient(ERPClientProtocol):
         if not job_no:
             return None
         sanitized = job_no.replace("'", "''")
-        rows = await self._fetch_odata_collection(f"Jobs?$filter=No eq '{sanitized}'")
+        filter_clause = f"No eq '{sanitized}'"
+        encoded_filter = quote(filter_clause, safe="'")
+        rows = await self._fetch_odata_collection(f"Jobs?%24filter={encoded_filter}")
         return rows[0] if rows else None
+
+    async def get_jobs(
+        self,
+        *,
+        status_filter: Optional[str] = "Open",
+        top: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve job headers, optionally filtered by status."""
+        filters: List[str] = []
+        if status_filter:
+            sanitized_status = status_filter.replace("'", "''")
+            filters.append(f"Status eq '{sanitized_status}'")
+        resource = "Jobs"
+        if filters:
+            filter_clause = " and ".join(filters)
+            encoded_filter = quote(filter_clause, safe="'")
+            resource = f"{resource}?%24filter={encoded_filter}"
+        if top is not None:
+            resource = f"{resource}&$top={int(top)}" if "?" in resource else f"{resource}?$top={int(top)}"
+        return await self._fetch_odata_collection(resource)
+
+    async def get_job_default_dimensions(
+        self,
+        job_no: str,
+        *,
+        dimension_code: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Retrieve DefaultDimensions rows for a job number (No)."""
+        if not job_no:
+            return []
+        sanitized_job_no = job_no.replace("'", "''")
+        filters = [f"No eq '{sanitized_job_no}'"]
+        if dimension_code:
+            sanitized_dim = dimension_code.replace("'", "''")
+            filters.append(f"Dimension_Code eq '{sanitized_dim}'")
+        filter_clause = " and ".join(filters)
+        encoded_filter = quote(filter_clause, safe="'")
+        resource = f"DefaultDimensions?%24filter={encoded_filter}"
+        return await self._fetch_odata_collection(resource)
 
     async def get_open_po_lines(
         self, start_date: Optional[date] = None, end_date: Optional[date] = None

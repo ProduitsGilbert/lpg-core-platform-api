@@ -17,6 +17,7 @@ from app.domain.erp.models import (
     CustomerSalesStatsResponse,
     CustomerSummaryResponse,
     GeocodedLocation,
+    PostedSalesInvoiceCommentCreate,
     VendorContactResponse,
 )
 from app.domain.erp.vendor_contact_service import VendorContactService
@@ -221,6 +222,139 @@ async def list_posted_sales_invoice_headers(
             service=service,
         )
     return records
+
+
+@router.get(
+    "/posted-sales-invoice-comments",
+    response_model=List[Dict[str, Any]],
+    summary="List posted sales invoice comments",
+    description="Retrieve posted sales invoice comments with optional filtering by invoice number.",
+)
+async def list_posted_sales_invoice_comments(
+    invoice_no: Optional[str] = Query(
+        default=None,
+        description="Filter by posted sales invoice number (No).",
+    ),
+    document_type: str = Query(
+        default="Posted Invoice",
+        description="Document type filter. Defaults to Posted Invoice.",
+    ),
+    top: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="Limit the number of records returned.",
+    ),
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> List[Dict[str, Any]]:
+    with logfire.span(
+        "bc_api.list_posted_sales_invoice_comments",
+        invoice_no=invoice_no,
+        document_type=document_type,
+        top=top,
+    ):
+        if invoice_no or document_type:
+            filters = []
+            if invoice_no:
+                sanitized_no = invoice_no.replace("'", "''")
+                filters.append(f"No eq '{sanitized_no}'")
+            if document_type:
+                sanitized_doc = document_type.replace("'", "''")
+                filters.append(f"Document_Type eq '{sanitized_doc}'")
+            filter_expr = " and ".join(filters)
+            resource = "PostedSalesInvoiceComments"
+            if filter_expr:
+                resource = f"{resource}?$filter={filter_expr}"
+            if top is not None:
+                resource = f"{resource}&$top={int(top)}" if "?$filter=" in resource else f"{resource}?$top={int(top)}"
+            records = await _fetch_with_handling(
+                resource=resource,
+                filter_field=None,
+                filter_value=None,
+                top=None,
+                service=service,
+            )
+        else:
+            records = await _fetch_with_handling(
+                resource="PostedSalesInvoiceComments",
+                filter_field=None,
+                filter_value=None,
+                top=top,
+                service=service,
+            )
+    return records
+
+
+@router.post(
+    "/posted-sales-invoice-comments",
+    response_model=Dict[str, Any],
+    summary="Create posted sales invoice comment",
+    description="Create a new comment for a posted sales invoice.",
+)
+async def create_posted_sales_invoice_comment(
+    payload: PostedSalesInvoiceCommentCreate,
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> Dict[str, Any]:
+    resource = "PostedSalesInvoiceComments"
+    with logfire.span(
+        "bc_api.create_posted_sales_invoice_comment",
+        invoice_no=payload.invoice_no,
+        date=str(payload.comment_date),
+    ):
+        try:
+            sanitized_no = payload.invoice_no.replace("'", "''")
+            existing = await service.fetch_collection(
+                f"{resource}?$filter=No eq '{sanitized_no}' and Document_Type eq 'Posted Invoice'"
+            )
+            line_numbers: List[int] = []
+            for row in existing:
+                raw_value = row.get("Line_No")
+                if raw_value is None:
+                    continue
+                try:
+                    line_numbers.append(int(float(raw_value)))
+                except (TypeError, ValueError):
+                    continue
+            next_line_no = (max(line_numbers) + 10000) if line_numbers else 10000
+
+            create_payload = {
+                "Document_Type": "Posted Invoice",
+                "No": payload.invoice_no,
+                "Line_No": next_line_no,
+                "Date": payload.comment_date.isoformat(),
+                "Comment": payload.comment,
+            }
+            return await service.create_record(resource, create_payload)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+            logger.error(
+                "Business Central returned HTTP error",
+                extra={"resource": resource, "status_code": status_code},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_ERROR",
+                        "message": "Business Central request failed",
+                        "upstream_status": status_code,
+                    }
+                },
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.error(
+                "Business Central request failed",
+                extra={"resource": resource, "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_UNAVAILABLE",
+                        "message": "Business Central service unreachable",
+                    }
+                },
+            ) from exc
 
 
 @router.get(

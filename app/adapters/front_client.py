@@ -25,21 +25,29 @@ logger = logging.getLogger(__name__)
 class FrontClient(FrontClientProtocol):
     """Async client for the Front REST API."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ) -> None:
         self._client: Optional[httpx.AsyncClient] = None
+        self._api_key = api_key
+        self._base_url = base_url
 
     async def __aenter__(self) -> "FrontClient":
-        if not settings.front_api_key:
+        api_key = self._api_key or settings.front_api_key
+        if not api_key:
             raise CommunicationsConfigurationError("Front API key is not configured")
 
         headers = {
-            "Authorization": f"Bearer {settings.front_api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
         }
 
         timeout = settings.request_timeout if settings.request_timeout else 60
         self._client = httpx.AsyncClient(
-            base_url=settings.front_api_base_url,
+            base_url=self._base_url or settings.front_api_base_url,
             headers=headers,
             timeout=httpx.Timeout(timeout, connect=10),
             follow_redirects=True,
@@ -138,6 +146,38 @@ class FrontClient(FrontClientProtocol):
         return await self._request(
             "POST", f"/conversations/{conversation_id}/messages", json=payload
         )
+
+    async def send_channel_message(
+        self,
+        channel_id: str,
+        payload: Dict[str, Any],
+        attachments: Optional[list[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        path = f"/channels/{channel_id}/messages"
+        if attachments:
+            data: list[tuple[str, str]] = []
+            for field in ("to", "cc", "bcc"):
+                values = payload.get(field) or []
+                for value in values:
+                    data.append((f"{field}[]", str(value)))
+
+            for field in ("subject", "body", "author_id"):
+                if payload.get(field) is not None:
+                    data.append((field, str(payload[field])))
+
+            files: list[tuple[str, tuple[str, bytes, str]]] = []
+            for attachment in attachments:
+                filename = attachment.get("filename", "attachment")
+                content = attachment.get("content", b"")
+                content_type = attachment.get("content_type") or "application/octet-stream"
+                files.append(("attachments[]", (filename, content, content_type)))
+
+            return await self._request("POST", path, data=data, files=files)
+
+        return await self._request("POST", path, json=payload)
+
+    async def get_inbox_channels(self, inbox_id: str) -> Dict[str, Any]:
+        return await self._request("GET", f"/inboxes/{inbox_id}/channels")
 
     async def archive_conversation(self, conversation_id: str) -> Dict[str, Any]:
         return await self._request("POST", f"/conversations/{conversation_id}/archive")

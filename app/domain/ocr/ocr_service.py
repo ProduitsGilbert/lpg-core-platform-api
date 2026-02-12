@@ -6,8 +6,10 @@ from documents using AI/LLM models.
 """
 
 from typing import Dict, Any, Optional
+from decimal import Decimal, ROUND_HALF_UP
 import io
 import time
+import re
 import logfire
 from pydantic import BaseModel
 
@@ -82,7 +84,11 @@ class OCRService:
                 )
                 
             except Exception as e:
-                logfire.error(f'Failed to extract PO from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract purchase order",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="purchase_order",
@@ -133,7 +139,11 @@ class OCRService:
                 )
                 
             except Exception as e:
-                logfire.error(f'Failed to extract invoice from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract invoice",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="invoice",
@@ -174,7 +184,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract supplier account statement from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract supplier account statement",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="supplier_account_statement",
@@ -213,7 +227,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract customer account statement from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract customer account statement",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="customer_account_statement",
@@ -252,7 +270,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract supplier invoice from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract supplier invoice",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="supplier_invoice",
@@ -293,7 +315,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract vendor quote from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract vendor quote",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="vendor_quote",
@@ -334,7 +360,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract order confirmation from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract order confirmation",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="order_confirmation",
@@ -373,7 +403,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract shipping bill from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract shipping bill",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="shipping_bill",
@@ -412,7 +446,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract commercial invoice from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract commercial invoice",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type="commercial_invoice",
@@ -455,7 +493,11 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract complex document from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract complex document",
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type=document_type,
@@ -514,7 +556,12 @@ class OCRService:
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract {document_type} from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract document",
+                    document_type=document_type,
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type=document_type,
@@ -574,9 +621,9 @@ class OCRService:
                         )
                         # Post-process: if the model omitted currency but the document clearly indicates it, fill it in.
                         if getattr(extracted_model, "currency", None) in (None, "", "UNKNOWN", "unknown"):
-                            normalized = snippet.replace(" ", "").upper()
-                            if "($USD)" in normalized or "USD" in normalized:
-                                extracted_model.currency = "USD"
+                            detected_currency = self._detect_currency_code(snippet)
+                            if detected_currency:
+                                extracted_model.currency = detected_currency
                     else:
                         # Scanned PDF (no text) → vision fallback on first pages only.
                         truncated_pdf = self._truncate_pdf(file_content, max_pages=max_vision_pages_fallback)
@@ -599,16 +646,27 @@ class OCRService:
                 if hasattr(extracted_model, "processing_time_ms") and getattr(extracted_model, "processing_time_ms") is None:
                     extracted_model.processing_time_ms = processing_time
 
+                extracted_data = extracted_model.model_dump()
+                payment_terms_table, payment_terms_table_markdown = self._build_payment_terms_table(extracted_model)
+                if payment_terms_table:
+                    extracted_data["payment_terms_table"] = payment_terms_table
+                    extracted_data["payment_terms_table_markdown"] = payment_terms_table_markdown
+
                 return OCRExtractionResponse(
                     success=True,
                     document_type=document_type,
-                    extracted_data=extracted_model.model_dump(),
+                    extracted_data=extracted_data,
                     confidence_score=getattr(extracted_model, "confidence_score", None),
                     processing_time_ms=getattr(extracted_model, "processing_time_ms", None),
                 )
 
             except Exception as e:
-                logfire.error(f'Failed to extract {document_type} from {filename}: {str(e)}')
+                logfire.error(
+                    "Failed to extract document",
+                    document_type=document_type,
+                    filename=filename,
+                    error=str(e),
+                )
                 return OCRExtractionResponse(
                     success=False,
                     document_type=document_type,
@@ -651,7 +709,7 @@ class OCRService:
         if not extracted_text or not extracted_text.strip():
             return ""
 
-        keywords = [
+        terms_keywords = [
             "payment terms",
             "terms of payment",
             "payment schedule",
@@ -661,6 +719,9 @@ class OCRService:
             "down payment",
             "progress payment",
             "net",
+            "terms:",
+        ]
+        amount_keywords = [
             "total",
             "grand total",
             "total amount",
@@ -669,10 +730,12 @@ class OCRService:
             "contract price",
             "total price",
         ]
+        keywords = terms_keywords + amount_keywords
 
         text = extracted_text
         lower = text.lower()
         ranges: list[tuple[int, int]] = []
+        matched_terms = False
 
         window = 900  # characters around matches
         for kw in keywords:
@@ -681,6 +744,8 @@ class OCRService:
                 idx = lower.find(kw, start)
                 if idx == -1:
                     break
+                if kw in terms_keywords:
+                    matched_terms = True
                 a = max(0, idx - window)
                 b = min(len(text), idx + len(kw) + window)
                 ranges.append((a, b))
@@ -689,6 +754,11 @@ class OCRService:
         # If nothing matched, fall back to the beginning of the doc (often summary pages)
         if not ranges:
             return text[:15000]
+
+        # If we only matched totals but missed the payment terms, include the tail pages (terms are often near the end).
+        if not matched_terms:
+            tail_len = 15000
+            ranges.append((max(0, len(text) - tail_len), len(text)))
 
         # Merge overlapping ranges
         ranges.sort()
@@ -707,6 +777,123 @@ class OCRService:
 
         # Hard cap to avoid enormous prompts
         return snippet[:30000]
+
+    @staticmethod
+    def _detect_currency_code(text: str) -> Optional[str]:
+        if not text:
+            return None
+        codes = [
+            "USD",
+            "CAD",
+            "EUR",
+            "GBP",
+            "AUD",
+            "NZD",
+            "JPY",
+            "CHF",
+            "CNY",
+            "MXN",
+            "BRL",
+            "INR",
+            "SEK",
+            "NOK",
+            "DKK",
+        ]
+        upper = text.upper()
+        pattern = r"\\(\\$?\\s*(" + "|".join(codes) + r")\\s*\\)"
+        match = re.search(pattern, upper)
+        if match:
+            return match.group(1)
+        match = re.search(r"\\b(" + "|".join(codes) + r")\\b", upper)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _format_decimal(value: Optional[Decimal], *, places: int = 2) -> Optional[str]:
+        if value is None:
+            return None
+        quant = Decimal("1") if places <= 0 else Decimal("1").scaleb(-places)
+        rounded = value.quantize(quant, rounding=ROUND_HALF_UP)
+        return format(rounded, "f")
+
+    def _build_payment_terms_table(
+        self,
+        extracted_model: ContractPaymentTermsExtraction,
+    ) -> tuple[list[dict], str]:
+        milestones = getattr(extracted_model, "milestones", None) or []
+        if not milestones:
+            return [], ""
+
+        total_amount = getattr(extracted_model, "total_amount", None)
+        try:
+            total_amount = Decimal(str(total_amount)) if total_amount is not None else None
+        except Exception:
+            total_amount = None
+
+        default_currency = (getattr(extracted_model, "currency", None) or "").upper() or None
+
+        rows: list[dict] = []
+        for milestone in milestones:
+            percent = getattr(milestone, "percent", None)
+            amount = getattr(milestone, "amount", None)
+            currency = (getattr(milestone, "currency", None) or default_currency)
+
+            if percent is not None:
+                try:
+                    percent = Decimal(str(percent))
+                except Exception:
+                    percent = None
+            if amount is not None:
+                try:
+                    amount = Decimal(str(amount))
+                except Exception:
+                    amount = None
+
+            calculated_amount = None
+            if amount is not None:
+                calculated_amount = amount
+                if percent is None and total_amount:
+                    percent = (amount / total_amount * Decimal("100")).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+            elif percent is not None and total_amount:
+                calculated_amount = (percent / Decimal("100")) * total_amount
+                calculated_amount = calculated_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            elif percent is None and amount is None and total_amount and len(milestones) == 1:
+                percent = Decimal("100")
+                calculated_amount = total_amount
+
+            rows.append(
+                {
+                    "description": getattr(milestone, "timing_text", "") or "",
+                    "percent": self._format_decimal(percent, places=2) if percent is not None else None,
+                    "calculated_amount": self._format_decimal(calculated_amount, places=2)
+                    if calculated_amount is not None
+                    else None,
+                    "currency": currency,
+                }
+            )
+
+        if not rows:
+            return [], ""
+
+        headers = ["Description", "Percent", "Calculated Amount", "Currency"]
+        md_lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
+        for row in rows:
+            md_lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        (row.get("description") or "").replace("\n", " ").strip(),
+                        row.get("percent") or "",
+                        row.get("calculated_amount") or "",
+                        row.get("currency") or "",
+                    ]
+                )
+                + " |"
+            )
+        return rows, "\n".join(md_lines)
     
     def validate_extraction(
         self,
@@ -819,5 +1006,9 @@ class OCRService:
                 return True, None
                 
             except Exception as e:
-                logfire.error(f'Validation error for {document_type}: {str(e)}')
+                logfire.error(
+                    "Validation error",
+                    document_type=document_type,
+                    error=str(e),
+                )
                 return False, str(e)

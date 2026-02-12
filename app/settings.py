@@ -8,7 +8,7 @@ values for all settings.
 
 import os
 from typing import Optional
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -124,6 +124,32 @@ class Settings(BaseSettings):
         description="ODBC driver to use for Business Central SQL connections",
     )
 
+    # Windchill SQL Server (for KPI queries)
+    windchill_db_dsn: Optional[str] = Field(
+        default=None,
+        description="Override MSSQL+pyodbc DSN for Windchill analytics database"
+    )
+    windchill_sql_server: Optional[str] = Field(
+        default=None,
+        description="SQL Server host for Windchill database (e.g., server\\instance)",
+    )
+    windchill_sql_database: Optional[str] = Field(
+        default=None,
+        description="Windchill database name",
+    )
+    windchill_sql_username: Optional[str] = Field(
+        default=None,
+        description="Windchill SQL username",
+    )
+    windchill_sql_password: Optional[str] = Field(
+        default=None,
+        description="Windchill SQL password",
+    )
+    windchill_sql_driver: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver to use for Windchill SQL connections",
+    )
+
     fastems1_autopilot_db_dsn: Optional[str] = Field(
         default=None,
         description="Override MSSQL DSN for Fastems1 Autopilot tables (if different from DB_DSN)"
@@ -149,6 +175,8 @@ class Settings(BaseSettings):
         "fastems1_autopilot_db_dsn",
         "cedule_sql_driver",
         "bc_sql_driver",
+        "windchill_db_dsn",
+        "windchill_sql_driver",
         mode="before",
     )
     @classmethod
@@ -193,6 +221,39 @@ class Settings(BaseSettings):
     front_api_key: Optional[str] = Field(
         default=None,
         description="Front API access token"
+    )
+
+    front_accounting_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "FRONT_ACCOUNTING_API_KEY",
+            "FrontApp_Accounting_API_KEY",
+            "FRONTAPP_ACCOUNTING_API_KEY",
+        ),
+        description="Front API access token used for accounting/receivables outbound email",
+    )
+
+    front_purchasing_channel_id: Optional[str] = Field(
+        default=None,
+        description="Front channel ID for the purchasing inbox default channel"
+    )
+
+    front_receivables_inbox_id: Optional[str] = Field(
+        default="inb_cunq0",
+        validation_alias=AliasChoices(
+            "FRONT_RECEIVABLES_INBOX_ID",
+            "FRONT_ACCOUNTING_INBOX_ID",
+        ),
+        description="Front inbox ID for receivables outbound email",
+    )
+
+    front_receivables_channel_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "FRONT_RECEIVABLES_CHANNEL_ID",
+            "FRONT_ACCOUNTING_CHANNEL_ID",
+        ),
+        description="Optional fixed Front channel ID for receivables outbound email",
     )
 
     toolkit_base_url: str = Field(
@@ -299,6 +360,25 @@ class Settings(BaseSettings):
         description="OpenRouter API key for alternative LLM providers"
     )
 
+    grok_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GROK_API_KEY",
+            "XAI_API_KEY",
+        ),
+        description="xAI API key used for Grok image/video generation",
+    )
+
+    openrouter_ocr_model: str = Field(
+        default="openrouter/auto",
+        description="OpenRouter model to use for OCR fallback"
+    )
+
+    ocr_primary_provider: str = Field(
+        default="openrouter",
+        description="Primary OCR provider: openrouter (default) or openai"
+    )
+
     google_api_key: Optional[str] = Field(
         default=None,
         description="Google API key for geocoding"
@@ -361,6 +441,63 @@ class Settings(BaseSettings):
         default=30,
         description="Days to keep cached planner daily reports",
     )
+
+    sales_stats_cache_db_path: str = Field(
+        default="/app/data/sales_stats_cache.sqlite",
+        description="SQLite path for persisted sales stats KPI snapshots",
+    )
+    sales_stats_cache_retention_days: int = Field(
+        default=120,
+        description="Days to keep sales stats daily snapshots",
+    )
+
+    cashflow_projection_cache_db_path: str = Field(
+        default="/app/data/cashflow_projection_cache.sqlite",
+        description="SQLite path for persisted finance cashflow projection cache",
+    )
+    cashflow_projection_cache_retention_days: int = Field(
+        default=30,
+        description="Days to keep daily cashflow projection cache entries",
+    )
+    cashflow_refresh_hour: int = Field(
+        default=5,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh default cashflow projection cache",
+    )
+    cashflow_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh default cashflow projection cache",
+    )
+
+    jobs_snapshot_cache_db_path: str = Field(
+        default="/app/data/jobs_snapshot_cache.sqlite",
+        description="SQLite path for persisted jobs KPI snapshots",
+    )
+    jobs_snapshot_cache_retention_days: int = Field(
+        default=180,
+        description="Days to keep jobs daily snapshots",
+    )
+
+    payables_stats_cache_db_path: str = Field(
+        default="/app/data/payables_stats_cache.sqlite",
+        description="SQLite path for persisted payables invoice KPI snapshots",
+    )
+    payables_stats_cache_retention_days: int = Field(
+        default=30,
+        description="Days to keep payables invoice daily snapshots",
+    )
+
+    purchasing_stats_cache_db_path: str = Field(
+        default="/app/data/purchasing_stats_cache.sqlite",
+        description="SQLite path for persisted purchasing KPI snapshots",
+    )
+    purchasing_stats_cache_retention_days: int = Field(
+        default=30,
+        description="Days to keep purchasing KPI snapshots",
+    )
     
     openai_model: str = Field(
         default="gpt-5-2025-08-07",
@@ -369,7 +506,7 @@ class Settings(BaseSettings):
     
     ocr_llm_model: str = Field(
         default="gpt-4.1-mini",
-        description="OpenAI model to use for OCR document extraction"
+        description="OpenAI model to use for OCR document extraction (responses API capable)"
     )
     
     local_agent_base_url: Optional[str] = Field(
@@ -380,6 +517,40 @@ class Settings(BaseSettings):
     ocr_service_url: Optional[str] = Field(
         default=None,
         description="URL for OCR service (Tesseract/Azure)"
+    )
+
+    # Dynamics 365 CRM (Dataverse) Configuration
+    crm_web_api_endpoint: Optional[str] = Field(
+        default=None,
+        description="Dynamics 365 Web API endpoint, e.g. https://<org>.api.crm3.dynamics.com/api/data/v9.2",
+    )
+    crm_discovery_endpoint: Optional[str] = Field(
+        default="https://globaldisco.crm3.dynamics.com/api/discovery/v2.0/Instances",
+        description="Dynamics 365 discovery endpoint",
+    )
+    crm_tenant_id: Optional[str] = Field(
+        default=None,
+        description="Microsoft Entra tenant ID used for CRM authentication",
+    )
+    crm_client_id: Optional[str] = Field(
+        default=None,
+        description="Microsoft Entra application (client) ID for CRM integration",
+    )
+    crm_client_secret: Optional[str] = Field(
+        default=None,
+        description="Microsoft Entra client secret for CRM integration",
+    )
+    crm_environment_id: Optional[str] = Field(
+        default=None,
+        description="Dynamics environment ID",
+    )
+    crm_environment_unique_name: Optional[str] = Field(
+        default=None,
+        description="Dynamics environment unique name",
+    )
+    crm_organization_id: Optional[str] = Field(
+        default=None,
+        description="Dynamics organization ID",
     )
     
     # ClickUp Configuration
@@ -507,8 +678,40 @@ class Settings(BaseSettings):
     
     cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:3000"],
-        description="Allowed CORS origins"
+        description="Allowed CORS origins (comma list, JSON array, or '*')"
     )
+    cors_origin_regex: Optional[str] = Field(
+        default=r"https?://.*",
+        description="Regex pattern for allowed origins (applied when set)"
+    )
+
+    @field_validator("cors_origins", mode="before")
+    def parse_cors_origins(cls, v):
+        """Accept JSON array, comma-separated string, or '*' for all."""
+        if v is None:
+            return []
+
+        if isinstance(v, str):
+            raw = v.strip()
+            if raw == "":
+                return []
+            if raw == "*":
+                return ["*"]
+
+            # JSON array input
+            if raw.startswith("["):
+                import json
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, list):
+                        return [str(item).strip() for item in parsed if str(item).strip()]
+                except Exception:
+                    pass  # Fallback to comma split below
+
+            # Comma-separated list
+            return [item.strip() for item in raw.split(",") if item.strip()]
+
+        return v
     
     # Performance Configuration
     db_pool_size: int = Field(
@@ -555,6 +758,119 @@ class Settings(BaseSettings):
     enable_scheduler: bool = Field(
         default=False,
         description="Enable APScheduler for background jobs"
+    )
+    
+    scheduler_timezone: str = Field(
+        default="UTC",
+        description="Timezone for scheduled jobs (e.g. America/New_York)"
+    )
+
+    planner_daily_report_refresh_hour: int = Field(
+        default=1,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh planner daily report cache"
+    )
+
+    planner_daily_report_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh planner daily report cache"
+    )
+
+    sales_stats_refresh_hour: int = Field(
+        default=2,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh KPI sales stats snapshots",
+    )
+
+    sales_stats_refresh_minute: int = Field(
+        default=30,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh KPI sales stats snapshots",
+    )
+
+    jobs_snapshot_refresh_hour: int = Field(
+        default=3,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh KPI jobs snapshots",
+    )
+
+    jobs_snapshot_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh KPI jobs snapshots",
+    )
+
+    payables_stats_refresh_hour: int = Field(
+        default=4,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh KPI payables invoice snapshots",
+    )
+
+    payables_stats_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh KPI payables invoice snapshots",
+    )
+
+    ar_open_invoices_cache_path: str = Field(
+        default="/app/data/ar_open_invoices_cache.sqlite",
+        description="SQLite file path for AR open invoices cache"
+    )
+
+    ar_open_invoices_refresh_hour: int = Field(
+        default=8,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh AR open invoices cache"
+    )
+
+    ar_open_invoices_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh AR open invoices cache"
+    )
+
+    ar_payment_stats_refresh_day: str = Field(
+        default="mon-sun",
+        description="Day of week for AR payment stats refresh (cron format)"
+    )
+
+    ar_payment_stats_refresh_hour: int = Field(
+        default=2,
+        ge=0,
+        le=23,
+        description="UTC hour for AR payment stats refresh"
+    )
+
+    ar_payment_stats_refresh_minute: int = Field(
+        default=0,
+        ge=0,
+        le=59,
+        description="UTC minute for AR payment stats refresh"
+    )
+
+    ar_payment_stats_lookback_days: int = Field(
+        default=730,
+        ge=30,
+        le=3650,
+        description="How many days of closed invoices to include when computing AR payment stats",
+    )
+
+    ar_payment_stats_max_invoices: int = Field(
+        default=10000,
+        ge=100,
+        le=200000,
+        description="Maximum number of closed invoices to load per AR payment stats refresh run",
     )
     
     enable_ocr: bool = Field(

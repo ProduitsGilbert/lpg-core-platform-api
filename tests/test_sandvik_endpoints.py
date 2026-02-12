@@ -3,6 +3,7 @@ Tests for Sandvik API endpoints.
 """
 
 import os
+import re
 import pytest
 from datetime import date, timedelta
 from unittest.mock import patch, MagicMock
@@ -265,3 +266,95 @@ class TestSandvikService:
         # Test no match
         formatted = client.format_part_kind("ABC123")
         assert formatted == "ABC123"
+
+
+@pytest.mark.integration
+class TestSandvikInsightEndpointsIntegration:
+    """Integration tests for Insight endpoints (real Sandvik API)."""
+
+    @pytest.fixture
+    def client(self):
+        """Test client fixture."""
+        return TestClient(app)
+
+    def _skip_if_not_configured(self):
+        settings = Settings()
+        required = [
+            settings.sandvik_api_enabled,
+            settings.sandvik_base_url,
+            settings.sandvik_username,
+            settings.sandvik_password,
+            settings.sandvik_client_id,
+            settings.sandvik_client_secret,
+            settings.sandvik_tenant
+        ]
+        if not all(required):
+            pytest.skip("Sandvik integration not configured for integration tests")
+
+    def test_insight_machines(self, client):
+        """Ensure insight machines endpoint returns expected structure."""
+        self._skip_if_not_configured()
+        response = client.get("/api/v1/sandvik/insights/machines")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert "data" in payload
+        assert "meta" in payload
+        assert "groups" in payload["data"]
+
+    def test_insight_timeseries_format(self, client):
+        """Ensure insight timeseries endpoint returns cleaned metrics."""
+        self._skip_if_not_configured()
+
+        from app.domain.sandvik.config import get_machine_config
+
+        config = get_machine_config()
+        devices = []
+        for group in config.groups.values():
+            devices.extend(group.devices)
+        devices = devices[:2]
+
+        start_date = date.today() - timedelta(days=10)
+        end_date = date.today()
+
+        response = client.post(
+            "/api/v1/sandvik/insights/timeseries",
+            json={
+                "devices": devices,
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat()
+            }
+        )
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert "data" in payload
+        assert "meta" in payload
+        assert "pagination" in payload["meta"]
+
+        data = payload["data"]
+        if not data:
+            return
+
+        settings = Settings()
+
+        for row in data:
+            assert "device" in row
+            assert "workday" in row
+            assert "kind" in row
+            assert "duration_sum" in row
+            assert "total_part_count" in row
+            assert "good_part_count" in row
+            assert "bad_part_count" in row
+            assert "cycle_time" in row
+            assert "producing_duration" in row
+            assert "pdt_duration" in row
+            assert "udt_duration" in row
+            assert "setup_duration" in row
+            assert "producing_percentage" in row
+            assert "pdt_percentage" in row
+            assert "udt_percentage" in row
+            assert "setup_percentage" in row
+
+            assert not row["device"].startswith(f"{settings.sandvik_tenant}_")
+            assert re.search(r"_[a-fA-F0-9]{6}$", row["device"]) is None

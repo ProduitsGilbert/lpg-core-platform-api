@@ -30,6 +30,7 @@ router = APIRouter(
 ALLOWED_EXTENSIONS = ('.pdf', '.png', '.jpg', '.jpeg', '.tiff')
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 MAX_CONTRACT_FILE_SIZE_BYTES = 50 * 1024 * 1024
+MAX_COMPLEX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 DOCUMENT_HANDLER_MAP = {
     "purchase_order": "extract_purchase_order",
     "invoice": "extract_invoice",
@@ -78,6 +79,23 @@ async def _read_and_validate_contract_pdf(file: UploadFile) -> bytes:
     return file_content
 
 
+async def _read_and_validate_complex_upload(file: UploadFile) -> bytes:
+    """Validate a complex document upload (PDF or image) with larger size allowance."""
+    if not file.filename.lower().endswith(ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be PDF or image format (PNG, JPG, JPEG, TIFF)"
+        )
+
+    file_content = await file.read()
+    if len(file_content) > MAX_COMPLEX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="File size must not exceed 50MB for complex document extraction"
+        )
+    return file_content
+
+
 def get_ocr_service() -> OCRService:
     """
     Dependency to get OCR service instance.
@@ -87,7 +105,10 @@ def get_ocr_service() -> OCRService:
     """
     ocr_client = OpenAIOCRClient(
         api_key=settings.openai_api_key,
-        model=settings.ocr_llm_model
+        model=settings.ocr_llm_model,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_model=settings.openrouter_ocr_model,
+        primary_provider=settings.ocr_primary_provider,
     )
     return OCRService(ocr_client=ocr_client)
 
@@ -154,7 +175,7 @@ async def extract_purchase_order(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract PO: {str(e)}')
+            logfire.error("Failed to extract PO", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract purchase order: {str(e)}"
@@ -224,7 +245,7 @@ async def extract_invoice(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract invoice: {str(e)}')
+            logfire.error("Failed to extract invoice", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract invoice: {str(e)}"
@@ -273,7 +294,7 @@ async def extract_customer_payment_terms(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract customer payment terms: {str(e)}')
+            logfire.error("Failed to extract customer payment terms", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract customer payment terms: {str(e)}",
@@ -323,7 +344,7 @@ async def extract_supplier_account_statement(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract supplier account statement: {str(e)}')
+            logfire.error("Failed to extract supplier account statement", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract supplier account statement: {str(e)}"
@@ -372,7 +393,7 @@ async def extract_customer_account_statement(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract customer account statement: {str(e)}')
+            logfire.error("Failed to extract customer account statement", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract customer account statement: {str(e)}"
@@ -421,7 +442,7 @@ async def extract_supplier_invoice(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract supplier invoice: {str(e)}')
+            logfire.error("Failed to extract supplier invoice", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract supplier invoice: {str(e)}"
@@ -471,7 +492,7 @@ async def extract_vendor_quote(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract vendor quote: {str(e)}')
+            logfire.error("Failed to extract vendor quote", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract vendor quote: {str(e)}"
@@ -521,7 +542,7 @@ async def extract_order_confirmation(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract order confirmation: {str(e)}')
+            logfire.error("Failed to extract order confirmation", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract order confirmation: {str(e)}"
@@ -570,7 +591,7 @@ async def extract_shipping_bill(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract shipping bill: {str(e)}')
+            logfire.error("Failed to extract shipping bill", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract shipping bill: {str(e)}"
@@ -619,7 +640,7 @@ async def extract_commercial_invoice(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract commercial invoice: {str(e)}')
+            logfire.error("Failed to extract commercial invoice", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract commercial invoice: {str(e)}"
@@ -637,7 +658,7 @@ async def extract_complex_document(
     """
     with logfire.span('api_extract_complex_document'):
         try:
-            file_content = await _read_and_validate_upload(file)
+            file_content = await _read_and_validate_complex_upload(file)
             logfire.info(f'Processing complex document extraction for file: {file.filename}')
 
             result = ocr_service.extract_complex_document(
@@ -662,7 +683,7 @@ async def extract_complex_document(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract complex document: {str(e)}')
+            logfire.error("Failed to extract complex document", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract complex document: {str(e)}",
@@ -728,7 +749,7 @@ async def extract_custom_document(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to extract custom document: {str(e)}')
+            logfire.error("Failed to extract custom document", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to extract custom document: {str(e)}",
@@ -820,7 +841,7 @@ async def extract_batch_documents(
         except HTTPException:
             raise
         except Exception as e:
-            logfire.error(f'Failed to process batch extraction: {str(e)}')
+            logfire.error("Failed to process batch extraction", error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to process batch extraction: {str(e)}"
@@ -853,7 +874,7 @@ async def get_ocr_status(ocr_service: OCRService = Depends(get_ocr_service)):
             }
         )
     except Exception as e:
-        logfire.error(f'Failed to get OCR status: {str(e)}')
+        logfire.error("Failed to get OCR status", error=str(e))
         raise HTTPException(
             status_code=500,
             detail=f"Failed to get OCR status: {str(e)}"

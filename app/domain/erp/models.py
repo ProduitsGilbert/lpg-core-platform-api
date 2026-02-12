@@ -225,6 +225,96 @@ class TariffCalculationResponse(BaseModel):
     report: Optional[str] = None
 
 
+class ProductionItemInfo(BaseModel):
+    """Minimal production-facing item fields (routing/BOM links)."""
+
+    item_no: str = Field(..., description="Item number/ID")
+    description: Optional[str] = Field(None, description="Item description")
+    routing_no: Optional[str] = Field(None, description="Routing number linked to the item")
+    production_bom_no: Optional[str] = Field(None, description="Production BOM number linked to the item")
+    base_unit_of_measure: Optional[str] = Field(None, description="Base unit of measure")
+    unit_cost: Optional[Decimal] = Field(None, description="Standard unit cost")
+    unit_price: Optional[Decimal] = Field(None, description="Sales unit price")
+
+    class Config:
+        json_encoders = {Decimal: lambda v: float(v) if v is not None else None}
+
+
+class ProductionBomCostShareLine(BaseModel):
+    """Single line from Business Central BOM_CostShares endpoint."""
+
+    type: str = Field("", description="Type from BC (Item, Work Centre, etc.)")
+    no: str = Field("", description="Item or work center number")
+    description: Optional[str] = Field(None, description="Line description")
+    qty_per_parent: Optional[Decimal] = Field(None, description="Quantity per parent")
+    qty_per_top_item: Optional[Decimal] = Field(None, description="Quantity per top item")
+    qty_per_bom_line: Optional[Decimal] = Field(None, description="Quantity per BOM line")
+    unit_of_measure_code: Optional[str] = Field(None, description="Unit of measure code")
+    bom_unit_of_measure_code: Optional[str] = Field(None, description="BOM unit of measure code")
+    replenishment_system: Optional[str] = Field(None, description="Replenishment system")
+    unit_cost: Optional[Decimal] = Field(None, description="Unit cost from cost share")
+    rolled_up_material_cost: Optional[Decimal] = Field(None, description="Rolled-up material cost")
+    rolled_up_capacity_cost: Optional[Decimal] = Field(None, description="Rolled-up capacity cost")
+    rolled_up_subcontracted_cost: Optional[Decimal] = Field(None, description="Rolled-up subcontracted cost")
+    rolled_up_mfg_ovhd_cost: Optional[Decimal] = Field(None, description="Rolled-up manufacturing overhead cost")
+    rolled_up_capacity_ovhd_cost: Optional[Decimal] = Field(None, description="Rolled-up capacity overhead cost")
+    rolled_up_scrap_cost: Optional[Decimal] = Field(None, description="Rolled-up scrap cost")
+    total_cost: Optional[Decimal] = Field(None, description="Total line cost")
+
+    class Config:
+        json_encoders = {Decimal: lambda v: float(v) if v is not None else None}
+
+
+class ProductionBomCostShareResponse(BaseModel):
+    """Cost share breakdown for a production item."""
+
+    item_no: str = Field(..., description="Item number/ID")
+    routing_no: Optional[str] = Field(None, description="Routing number linked to the item")
+    production_bom_no: Optional[str] = Field(None, description="Production BOM number linked to the item")
+    lines: List[ProductionBomCostShareLine] = Field(default_factory=list, description="Cost share lines")
+
+    class Config:
+        json_encoders = {Decimal: lambda v: float(v) if v is not None else None}
+
+
+class ProductionRoutingLineCost(BaseModel):
+    """Routing line with costs derived from work center rates."""
+
+    routing_no: str = Field(..., description="Routing number")
+    operation_no: Optional[str] = Field(None, description="Operation/sequence number")
+    sequence_no: Optional[int] = Field(None, description="Sequence or line number")
+    type: Optional[str] = Field(None, description="Line type (Work Center, Machine Center, etc.)")
+    work_center_no: Optional[str] = Field(None, description="Work center number")
+    work_center_description: Optional[str] = Field(None, description="Work center description")
+    description: Optional[str] = Field(None, description="Routing line description")
+    quantity_per: Optional[Decimal] = Field(None, description="Quantity per parent")
+    unit_of_measure_code: Optional[str] = Field(None, description="Unit of measure code")
+    setup_time_minutes: Decimal = Field(default=Decimal("0"), description="Setup time in minutes")
+    run_time_minutes: Decimal = Field(default=Decimal("0"), description="Run time in minutes")
+    cost_per_minute: Decimal = Field(default=Decimal("0"), description="Cost rate per minute from work center")
+    setup_cost: Decimal = Field(default=Decimal("0"), description="Calculated setup cost")
+    run_cost: Decimal = Field(default=Decimal("0"), description="Calculated run cost")
+    total_cost: Decimal = Field(default=Decimal("0"), description="Total cost (setup + run)")
+
+    class Config:
+        json_encoders = {Decimal: lambda v: float(v) if v is not None else None}
+
+
+class ProductionRoutingCostResponse(BaseModel):
+    """Costed routing view for a production item."""
+
+    item_no: str = Field(..., description="Item number/ID")
+    routing_no: str = Field(..., description="Routing number")
+    production_bom_no: Optional[str] = Field(None, description="Production BOM number linked to the item")
+    lines: List[ProductionRoutingLineCost] = Field(default_factory=list, description="Routing lines with cost")
+    total_setup_cost: Decimal = Field(default=Decimal("0"), description="Sum of setup costs across lines")
+    total_run_cost: Decimal = Field(default=Decimal("0"), description="Sum of run costs across lines")
+    total_cost: Decimal = Field(default=Decimal("0"), description="Total routing cost")
+
+    class Config:
+        json_encoders = {Decimal: lambda v: float(v) if v is not None else None}
+
+
 class ItemValueChange(BaseModel):
     """Single field update requested for an item."""
 
@@ -259,6 +349,46 @@ class CreatePurchasedItemRequest(BaseModel):
     vendor_no: Optional[str] = Field(None, description="Primary vendor number")
     price: Optional[Decimal] = Field(None, description="Unit price for the item")
     item_category_code: Optional[str] = Field(None, description="Item category code")
+
+
+class PostedSalesInvoiceCommentCreate(BaseModel):
+    """Request body for creating a posted sales invoice comment."""
+
+    invoice_no: str = Field(..., min_length=1, description="Posted sales invoice number (No)")
+    comment: str = Field(..., min_length=1, description="Comment text")
+    comment_date: date = Field(
+        ...,
+        alias="date",
+        description="Comment date (YYYY-MM-DD)",
+    )
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class BusinessCentralRecordCreate(BaseModel):
+    """Request body for creating a Business Central record."""
+
+    data: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Raw Business Central fields to set on creation",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class BusinessCentralRecordUpdate(BaseModel):
+    """Request body for updating a Business Central record."""
+
+    data: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Raw Business Central fields to update",
+    )
+    etag: Optional[str] = Field(
+        default=None,
+        description="Optional ETag for optimistic concurrency (If-Match header)",
+    )
+
+    model_config = ConfigDict(extra="forbid")
 
 # Purchase Order models
 class PurchaseOrderResponse(BaseModel):

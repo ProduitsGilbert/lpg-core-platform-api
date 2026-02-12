@@ -1,19 +1,30 @@
-"""Helpers for invoking OpenAI models from the toolkit domain."""
+"""Helpers for invoking OpenAI/OpenRouter/Grok models from the toolkit domain."""
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import logging
+import time
 from dataclasses import dataclass
-from typing import AsyncGenerator, Dict, List, Optional, Tuple
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
 import logfire
 
 from app.settings import settings
+
 from .models import (
     DeepReasoningRequest,
     DeepReasoningResponse,
+    GrokImageGenerationRequest,
+    GrokImageGenerationResponse,
+    GrokImageUnderstandingResponse,
+    GrokVideoGenerationRequest,
+    GrokVideoGenerationResponse,
+    OpenRouterRequest,
+    OpenRouterResponse,
     SampleAIRequest,
     SampleAIResponse,
     StandardAIRequest,
@@ -21,8 +32,6 @@ from .models import (
     StreamingAIRequest,
     TypingSuggestionRequest,
     TypingSuggestionResponse,
-    OpenRouterRequest,
-    OpenRouterResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,6 +57,9 @@ MODELS_WITHOUT_TEMPERATURE: Tuple[str, ...] = (
     "gpt-5-nano-2025-08-07",
     "gpt-5-mini-2025-08-07",
 )
+GROK_IMAGE_MODEL = "grok-imagine-image-pro"
+GROK_VIDEO_MODEL = "grok-imagine-video"
+GROK_VISION_MODEL = "grok-4-1-fast-reasoning"
 
 @dataclass(slots=True, frozen=True)
 class _PresetConfig:
@@ -67,6 +79,9 @@ class AIService:
         self._openrouter_key = settings.openrouter_api_key
         self._openrouter_enabled = bool(self._openrouter_key)
         self._openrouter_base_url = "https://openrouter.ai/api/v1"
+        self._grok_key = settings.grok_api_key
+        self._grok_enabled = bool(self._grok_key)
+        self._grok_base_url = "https://api.x.ai/v1"
 
     async def generate_typing_suggestion(
         self, request: TypingSuggestionRequest
@@ -309,6 +324,221 @@ class AIService:
             requested_models=display_names,
             selected_model=selected_model,
             output=output,
+            stubbed=False,
+        )
+
+    async def generate_grok_image(
+        self, request: GrokImageGenerationRequest
+    ) -> GrokImageGenerationResponse:
+        """Generate images with xAI Grok image model."""
+        if not self._grok_enabled or not self._grok_key:
+            return GrokImageGenerationResponse(
+                model=GROK_IMAGE_MODEL,
+                images=[self._build_grok_image_stub(request)],
+                revised_prompt=request.prompt,
+                stubbed=True,
+            )
+
+        headers = {
+            "Authorization": f"Bearer {self._grok_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, object] = {
+            "model": GROK_IMAGE_MODEL,
+            "prompt": request.prompt,
+            "size": request.size,
+            "n": request.n,
+        }
+
+        with logfire.span("ai.grok.image_generation", model=GROK_IMAGE_MODEL, n=request.n, size=request.size):
+            async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+                response = await client.post(
+                    f"{self._grok_base_url}/images/generations",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+        images = self._extract_grok_images(data)
+        revised_prompt = self._extract_grok_revised_prompt(data)
+
+        return GrokImageGenerationResponse(
+            model=GROK_IMAGE_MODEL,
+            images=images,
+            revised_prompt=revised_prompt,
+            stubbed=False,
+        )
+
+    async def generate_grok_video(
+        self, request: GrokVideoGenerationRequest
+    ) -> GrokVideoGenerationResponse:
+        """Generate a video with xAI Grok video model and poll until completion."""
+        if not self._grok_enabled or not self._grok_key:
+            return GrokVideoGenerationResponse(
+                model=GROK_VIDEO_MODEL,
+                request_id="stub-request",
+                status="stubbed",
+                video_url=self._build_grok_video_stub(request),
+                stubbed=True,
+            )
+
+        headers = {
+            "Authorization": f"Bearer {self._grok_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, object] = {
+            "model": GROK_VIDEO_MODEL,
+            "prompt": request.prompt,
+        }
+
+        with logfire.span("ai.grok.video_generation.request", model=GROK_VIDEO_MODEL):
+            async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+                create_response = await client.post(
+                    f"{self._grok_base_url}/videos/generations",
+                    headers=headers,
+                    json=payload,
+                )
+                create_response.raise_for_status()
+                create_data = create_response.json()
+
+                request_id = self._extract_grok_video_request_id(create_data)
+                status_value = str(create_data.get("status") or "queued")
+                video_url = self._extract_grok_video_url(create_data)
+
+                if not request_id:
+                    return GrokVideoGenerationResponse(
+                        model=GROK_VIDEO_MODEL,
+                        request_id="unknown",
+                        status="failed",
+                        video_url=video_url,
+                        stubbed=False,
+                    )
+
+                success_states = {"completed", "succeeded", "success", "done", "ready"}
+                failure_states = {"failed", "error", "cancelled", "rejected"}
+
+                if status_value.lower() in success_states:
+                    return GrokVideoGenerationResponse(
+                        model=GROK_VIDEO_MODEL,
+                        request_id=request_id,
+                        status=status_value,
+                        video_url=video_url,
+                        stubbed=False,
+                    )
+                if status_value.lower() in failure_states:
+                    return GrokVideoGenerationResponse(
+                        model=GROK_VIDEO_MODEL,
+                        request_id=request_id,
+                        status=status_value,
+                        video_url=video_url,
+                        stubbed=False,
+                    )
+
+                deadline = time.monotonic() + request.poll_timeout_seconds
+                while time.monotonic() < deadline:
+                    await asyncio.sleep(request.poll_interval_seconds)
+                    status_response = await client.get(
+                        f"{self._grok_base_url}/videos/{request_id}",
+                        headers=headers,
+                    )
+                    status_response.raise_for_status()
+                    status_data = status_response.json()
+                    status_value = str(status_data.get("status") or "unknown")
+                    video_url = self._extract_grok_video_url(status_data) or video_url
+
+                    if status_value.lower() in success_states:
+                        return GrokVideoGenerationResponse(
+                            model=GROK_VIDEO_MODEL,
+                            request_id=request_id,
+                            status=status_value,
+                            video_url=video_url,
+                            stubbed=False,
+                        )
+                    if status_value.lower() in failure_states:
+                        return GrokVideoGenerationResponse(
+                            model=GROK_VIDEO_MODEL,
+                            request_id=request_id,
+                            status=status_value,
+                            video_url=video_url,
+                            stubbed=False,
+                        )
+
+        return GrokVideoGenerationResponse(
+            model=GROK_VIDEO_MODEL,
+            request_id=request_id,
+            status="timeout",
+            video_url=video_url,
+            stubbed=False,
+        )
+
+    async def understand_grok_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+        detail: str = "high",
+    ) -> GrokImageUnderstandingResponse:
+        """Analyze an uploaded image with Grok vision reasoning model."""
+        normalized_detail = detail.strip().lower()
+        if normalized_detail not in {"low", "high", "auto"}:
+            raise ValueError("detail must be one of: low, high, auto")
+
+        if not self._grok_enabled or not self._grok_key:
+            return GrokImageUnderstandingResponse(
+                model=GROK_VISION_MODEL,
+                output=(
+                    "[stub grok image understanding] Configure GROK_API_KEY (or XAI_API_KEY) "
+                    "to get live image analysis."
+                ),
+                stubbed=True,
+            )
+
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        image_data_url = f"data:{mime_type};base64,{image_b64}"
+
+        headers = {
+            "Authorization": f"Bearer {self._grok_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, object] = {
+            "model": GROK_VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "image_url": image_data_url,
+                            "detail": normalized_detail,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+        }
+
+        with logfire.span(
+            "ai.grok.image_understanding",
+            model=GROK_VISION_MODEL,
+            detail=normalized_detail,
+        ):
+            async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+                response = await client.post(
+                    f"{self._grok_base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+        return GrokImageUnderstandingResponse(
+            model=GROK_VISION_MODEL,
+            output=self._extract_chat_completion_text(data).strip(),
             stubbed=False,
         )
 
@@ -643,6 +873,108 @@ class AIService:
                 return "\n".join(chunks)
 
         return json.dumps(response, indent=2, default=str)
+
+    @staticmethod
+    def _extract_chat_completion_text(response: dict[str, object]) -> str:
+        """Extract readable assistant text from chat completion responses."""
+        choices = response.get("choices")
+        if isinstance(choices, list) and choices:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    content = message.get("content")
+                    if isinstance(content, str):
+                        return content
+                    if isinstance(content, list):
+                        parts: list[str] = []
+                        for item in content:
+                            if not isinstance(item, dict):
+                                continue
+                            text = item.get("text")
+                            if isinstance(text, str) and text:
+                                parts.append(text)
+                        if parts:
+                            return "\n".join(parts)
+        return json.dumps(response, indent=2, default=str)
+
+    @staticmethod
+    def _build_grok_image_stub(request: GrokImageGenerationRequest) -> str:
+        """Return a deterministic URL-like stub for image generation."""
+        prompt_part = request.prompt[:48].replace(" ", "-").lower()
+        return f"https://stub.local/grok-image/{prompt_part or 'image'}.png"
+
+    @staticmethod
+    def _build_grok_video_stub(request: GrokVideoGenerationRequest) -> str:
+        """Return a deterministic URL-like stub for video generation."""
+        prompt_part = request.prompt[:48].replace(" ", "-").lower()
+        return f"https://stub.local/grok-video/{prompt_part or 'video'}.mp4"
+
+    @staticmethod
+    def _extract_grok_images(response: dict[str, Any]) -> List[str]:
+        """Extract image URLs from xAI image generation responses."""
+        results: List[str] = []
+        data = response.get("data")
+        if isinstance(data, list):
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url")
+                if isinstance(url, str) and url:
+                    results.append(url)
+        return results
+
+    @staticmethod
+    def _extract_grok_revised_prompt(response: dict[str, Any]) -> Optional[str]:
+        """Extract revised prompt metadata when present."""
+        revised_prompt = response.get("revised_prompt")
+        if isinstance(revised_prompt, str) and revised_prompt:
+            return revised_prompt
+
+        data = response.get("data")
+        if isinstance(data, list) and data:
+            first = data[0]
+            if isinstance(first, dict):
+                candidate = first.get("revised_prompt")
+                if isinstance(candidate, str) and candidate:
+                    return candidate
+        return None
+
+    @staticmethod
+    def _extract_grok_video_request_id(response: dict[str, Any]) -> Optional[str]:
+        """Extract request id from xAI video generation responses."""
+        for key in ("id", "request_id", "requestId"):
+            value = response.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    @staticmethod
+    def _extract_grok_video_url(response: dict[str, Any]) -> Optional[str]:
+        """Extract video URL from xAI video generation response payloads."""
+        for key in ("video_url", "url"):
+            value = response.get(key)
+            if isinstance(value, str) and value:
+                return value
+
+        data = response.get("data")
+        if isinstance(data, list):
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url") or item.get("video_url")
+                if isinstance(url, str) and url:
+                    return url
+
+        output = response.get("output")
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                url = item.get("url") or item.get("video_url")
+                if isinstance(url, str) and url:
+                    return url
+        return None
 
 
 # Backwards compatibility export for legacy imports

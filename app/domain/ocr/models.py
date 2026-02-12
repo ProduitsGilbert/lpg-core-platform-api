@@ -325,6 +325,18 @@ class PaymentTermMilestone(BaseModel):
     notes: Optional[str] = Field(default=None, description="Any additional constraints or clarifications for this milestone.")
 
 
+class PaymentTermsTableRow(BaseModel):
+    """Computed row for displaying payment terms in a table."""
+
+    description: str = Field(..., description="Description of the payment term or milestone")
+    percent: Optional[Decimal] = Field(default=None, description="Percent of total amount for this milestone (0-100)")
+    calculated_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Calculated amount for the milestone based on percent and total amount",
+    )
+    currency: Optional[str] = Field(default=None, description="Currency code for calculated amount (ISO 4217)")
+
+
 class ContractPaymentTermsExtraction(BaseModel):
     """Extracted payment terms + total amount from a customer contract."""
 
@@ -351,6 +363,14 @@ class ContractPaymentTermsExtraction(BaseModel):
     total_amount_text: Optional[str] = Field(
         default=None,
         description="Verbatim text snippet around the total amount, if available."
+    )
+    payment_terms_table: Optional[List[PaymentTermsTableRow]] = Field(
+        default=None,
+        description="Computed table rows for displaying payment terms (server-generated).",
+    )
+    payment_terms_table_markdown: Optional[str] = Field(
+        default=None,
+        description="Markdown table for payment terms display (server-generated).",
     )
     confidence_score: Optional[float] = Field(default=None, description="Extraction confidence score")
     processing_time_ms: Optional[int] = Field(default=None, description="Processing time in milliseconds")
@@ -406,6 +426,53 @@ class LayoutBlock(BaseModel):
     bbox: Optional[BoundingBox] = Field(None, description="Optional bounding box for the block")
 
 
+class DocumentSection(BaseModel):
+    """Section-level grouping of layout blocks."""
+    section_id: str = Field(..., description="Stable section identifier")
+    title: str = Field(..., description="Section title")
+    summary: Optional[str] = Field(None, description="Short section summary")
+    block_ids: List[str] = Field(default_factory=list, description="Block IDs contained in the section")
+    page_start: Optional[int] = Field(None, description="First page number in the section")
+    page_end: Optional[int] = Field(None, description="Last page number in the section")
+
+
+class KeyField(BaseModel):
+    """Key/value field suitable for downstream ingestion."""
+    key: str = Field(..., description="Field name")
+    value: str = Field(..., description="Field value as shown in the document")
+    unit: Optional[str] = Field(None, description="Unit if explicitly shown")
+    source_block_ids: List[str] = Field(default_factory=list, description="Block IDs that contain the value")
+    confidence: Optional[float] = Field(None, description="Model confidence for this field")
+
+
+class TableInsight(BaseModel):
+    """Model-generated commentary for a table."""
+    block_id: str = Field(..., description="Block ID of the table")
+    title: Optional[str] = Field(None, description="Table title or caption")
+    summary: str = Field(..., description="Concise commentary based only on values shown")
+    notable_values: List[str] = Field(default_factory=list, description="Notable values or ranges explicitly shown")
+
+
+class FigureInsight(BaseModel):
+    """Model-generated commentary for a figure/graph."""
+    block_id: str = Field(..., description="Block ID of the figure")
+    title: Optional[str] = Field(None, description="Figure title or caption")
+    commentary: str = Field(..., description="Concise commentary based only on values shown")
+    referenced_values: List[str] = Field(
+        default_factory=list,
+        description="Values or labels explicitly referenced in the commentary",
+    )
+
+
+class ComplexDocumentAnalysis(BaseModel):
+    """Analysis derived from layout extraction."""
+    sections: List[DocumentSection] = Field(default_factory=list, description="Document sections")
+    key_fields: List[KeyField] = Field(default_factory=list, description="Key fields for ingestion")
+    table_insights: List[TableInsight] = Field(default_factory=list, description="Commentary for tables")
+    figure_insights: List[FigureInsight] = Field(default_factory=list, description="Commentary for figures")
+    report_markdown: Optional[str] = Field(None, description="Complete markdown report derived from the document")
+
+
 class ComplexDocumentExtraction(BaseModel):
     """Model for complex document layout + text + figures/tables extraction."""
     document_title: Optional[str] = Field(None, description="Detected document title if present")
@@ -415,6 +482,11 @@ class ComplexDocumentExtraction(BaseModel):
     blocks: List[LayoutBlock] = Field(..., description="Ordered layout blocks extracted from the document")
     tables: List[TableExtraction] = Field(default_factory=list, description="All tables extracted")
     figures: List[FigureExtraction] = Field(default_factory=list, description="All figures/graphs extracted")
+    sections: List[DocumentSection] = Field(default_factory=list, description="Detected document sections")
+    key_fields: List[KeyField] = Field(default_factory=list, description="Key fields for ingestion")
+    table_insights: List[TableInsight] = Field(default_factory=list, description="Commentary for tables")
+    figure_insights: List[FigureInsight] = Field(default_factory=list, description="Commentary for figures")
+    report_markdown: Optional[str] = Field(None, description="Complete markdown report derived from the document")
     confidence_score: Optional[float] = Field(default=None, description="Extraction confidence score")
     processing_time_ms: Optional[int] = Field(default=None, description="Processing time in milliseconds")
     document_category: Optional[str] = Field(default=None, description="Document category identifier")

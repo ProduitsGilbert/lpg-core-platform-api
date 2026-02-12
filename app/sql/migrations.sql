@@ -111,6 +111,49 @@ EXEC sp_addextendedproperty
     @level1type = N'TABLE', @level1name = N'platform-code-app_lock';
 
 -- ============================================================================
+-- FINANCE AR PAYMENT STATS TABLE (Cedule)
+-- ============================================================================
+
+-- Drop table if exists (for development - remove in production)
+IF OBJECT_ID('[Cedule].[dbo].[Finance_AR_Payment_Stats]', 'U') IS NOT NULL
+    DROP TABLE [Cedule].[dbo].[Finance_AR_Payment_Stats];
+
+CREATE TABLE [Cedule].[dbo].[Finance_AR_Payment_Stats] (
+    customer_no NVARCHAR(50) NOT NULL,
+    invoice_count INT NOT NULL,
+    avg_days_late DECIMAL(10, 2) NULL,
+    median_days_late DECIMAL(10, 2) NULL,
+    late_ratio DECIMAL(6, 4) NULL,
+    window_start DATE NULL,
+    window_end DATE NULL,
+    updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT PK_Finance_AR_Payment_Stats PRIMARY KEY CLUSTERED (customer_no)
+);
+
+CREATE NONCLUSTERED INDEX IX_Finance_AR_Payment_Stats_updated_at
+ON [Cedule].[dbo].[Finance_AR_Payment_Stats] (updated_at DESC);
+
+-- ============================================================================
+-- FINANCE AR OPEN INVOICES CACHE (Cedule)
+-- ============================================================================
+
+-- Drop table if exists (for development - remove in production)
+IF OBJECT_ID('[Cedule].[dbo].[Finance_AR_OpenInvoices_Cache]', 'U') IS NOT NULL
+    DROP TABLE [Cedule].[dbo].[Finance_AR_OpenInvoices_Cache];
+
+CREATE TABLE [Cedule].[dbo].[Finance_AR_OpenInvoices_Cache] (
+    cache_key NVARCHAR(64) NOT NULL,
+    payload_json NVARCHAR(MAX) NOT NULL,
+    updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT PK_Finance_AR_OpenInvoices_Cache PRIMARY KEY CLUSTERED (cache_key)
+);
+
+CREATE NONCLUSTERED INDEX IX_Finance_AR_OpenInvoices_Cache_updated_at
+ON [Cedule].[dbo].[Finance_AR_OpenInvoices_Cache] (updated_at DESC);
+
+-- ============================================================================
 -- VERIFICATION QUERIES
 -- ============================================================================
 
@@ -124,7 +167,13 @@ FROM sys.tables t
 INNER JOIN sys.indexes i ON t.object_id = i.object_id
 INNER JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
 INNER JOIN sys.allocation_units a ON p.partition_id = a.container_id
-WHERE t.name IN ('platform-code-app_idempotency', 'platform-code-app_audit', 'platform-code-app_lock')
+WHERE t.name IN (
+    'platform-code-app_idempotency',
+    'platform-code-app_audit',
+    'platform-code-app_lock',
+    'Finance_AR_Payment_Stats',
+    'Finance_AR_OpenInvoices_Cache'
+)
     AND t.is_ms_shipped = 0
     AND i.object_id > 255
 GROUP BY t.name, p.rows
@@ -139,6 +188,8 @@ ORDER BY t.name;
 DROP TABLE IF EXISTS [platform-code-app_idempotency];
 DROP TABLE IF EXISTS [platform-code-app_audit];
 DROP TABLE IF EXISTS [platform-code-app_lock];
+DROP TABLE IF EXISTS [Cedule].[dbo].[Finance_AR_Payment_Stats];
+DROP TABLE IF EXISTS [Cedule].[dbo].[Finance_AR_OpenInvoices_Cache];
 */
 
 -- ============================================================================

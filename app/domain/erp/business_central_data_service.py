@@ -103,6 +103,83 @@ class BusinessCentralODataService:
 
         return values
 
+    async def fetch_record_by_id(self, resource: str, system_id: str) -> Dict[str, Any]:
+        """Retrieve a single record by SystemId."""
+        url_path = f"{resource.lstrip('/')}('{system_id}')"
+        with _maybe_logfire_span(
+            "bc_odata.fetch_record_by_id",
+            resource=resource,
+            system_id=system_id,
+        ):
+            async with httpx.AsyncClient(
+                base_url=self._base_url,
+                headers=self._headers,
+                timeout=settings.request_timeout,
+                verify=False,
+            ) as client:
+                response = await client.get(url_path)
+                response.raise_for_status()
+                return response.json()
+
+    async def create_record(self, resource: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new record in the specified OData collection."""
+        url_path = resource.lstrip("/")
+        with _maybe_logfire_span(
+            "bc_odata.create_record",
+            resource=url_path,
+            fields=list(payload.keys()),
+        ):
+            async with httpx.AsyncClient(
+                base_url=self._base_url,
+                headers=self._headers,
+                timeout=settings.request_timeout,
+                verify=False,
+            ) as client:
+                response = await client.post(url_path, json=payload)
+                response.raise_for_status()
+                if not response.content:
+                    return {}
+                return response.json()
+
+    async def update_record(
+        self,
+        resource: str,
+        system_id: str,
+        payload: Dict[str, Any],
+        *,
+        etag: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Patch a record in Business Central using its SystemId."""
+        url_path = f"{resource.lstrip('/')}('{system_id}')"
+        resolved_etag = etag
+        if not resolved_etag:
+            existing = await self.fetch_record_by_id(resource, system_id)
+            resolved_etag = existing.get("@odata.etag") if isinstance(existing, dict) else None
+        if not resolved_etag:
+            raise httpx.HTTPStatusError(
+                "Missing ETag for Business Central update",
+                request=httpx.Request("PATCH", url_path),
+                response=httpx.Response(status_code=409, request=httpx.Request("PATCH", url_path)),
+            )
+        headers = {"If-Match": resolved_etag}
+        with _maybe_logfire_span(
+            "bc_odata.update_record",
+            resource=resource,
+            system_id=system_id,
+            fields=list(payload.keys()),
+        ):
+            async with httpx.AsyncClient(
+                base_url=self._base_url,
+                headers=self._headers,
+                timeout=settings.request_timeout,
+                verify=False,
+            ) as client:
+                response = await client.patch(url_path, json=payload, headers=headers)
+                response.raise_for_status()
+                if response.content:
+                    return response.json()
+        return await self.fetch_record_by_id(resource, system_id)
+
     async def fetch_collection_paged(
         self,
         resource: str,

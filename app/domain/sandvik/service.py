@@ -85,6 +85,51 @@ class SandvikService:
             }
         )
 
+    def get_insight_timeseries(
+        self,
+        devices: List[str],
+        start_date: date = None,
+        end_date: date = None
+    ) -> List[TimeseriesMetric]:
+        """
+        Get timeseries metrics for Insight UI.
+
+        Args:
+            devices: List of Sandvik device identifiers to query
+            start_date: Optional start date for data range
+            end_date: Optional end date for data range
+
+        Returns:
+            List of processed TimeseriesMetric objects
+        """
+        if start_date and end_date and start_date > end_date:
+            raise ValueError("start_date must be before or equal to end_date")
+
+        logger.info(
+            "Fetching insight timeseries for %s devices from %s to %s",
+            len(devices),
+            start_date,
+            end_date
+        )
+
+        raw_data = self.client.fetch_timeseries_data(
+            machine_names=devices,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        processed_data = self._process_timeseries_data(raw_data)
+
+        if processed_data:
+            all_cycle_time_empty = all(record.cycle_time is None for record in processed_data)
+            total_parts = sum(record.total_part_count for record in processed_data)
+            if all_cycle_time_empty and total_parts == 0:
+                logger.warning(
+                    "Insight timeseries returned empty cycle_time and zero total_part_count"
+                )
+
+        return processed_data
+
     def get_live_metrics(
         self,
         machine_group: str = None,

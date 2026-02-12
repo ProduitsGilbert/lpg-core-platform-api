@@ -2,7 +2,7 @@
 
 from typing import Optional, List, Literal
 from datetime import datetime
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, model_validator
 
 
 class MessageAuthor(BaseModel):
@@ -120,6 +120,49 @@ class ConversationReplyResponse(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat() if v else None}
 
 
+class ReceivablesEmailSendRequest(BaseModel):
+    """Request payload to send a new receivables email."""
+
+    subject: str = Field(..., description="Email subject")
+    body: str = Field(..., description="Email body (HTML or plain text)")
+    to: Optional[List[EmailStr]] = Field(
+        None, min_length=1, description="Primary recipients"
+    )
+    customer_no: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Business Central customer number. Use instead of 'to' to resolve recipient from Customers.Email",
+    )
+    cc: Optional[List[EmailStr]] = Field(None, description="Optional CC recipients")
+
+    @model_validator(mode="after")
+    def validate_recipient_source(self) -> "ReceivablesEmailSendRequest":
+        has_to = bool(self.to)
+        has_customer_no = bool((self.customer_no or "").strip())
+
+        if has_to and has_customer_no:
+            raise ValueError("Provide either 'to' or 'customer_no', not both.")
+        if not has_to and not has_customer_no:
+            raise ValueError("One recipient source is required: 'to' or 'customer_no'.")
+        return self
+
+
+class ReceivablesEmailSendResponse(BaseModel):
+    """Response payload after sending a receivables email."""
+
+    id: str = Field(..., description="ID of the created Front message")
+    type: str = "message"
+    status: Literal["sent"] = "sent"
+    subject: str
+    to: List[EmailStr]
+    cc: List[EmailStr] = Field(default_factory=list)
+    customer_no: Optional[str] = None
+    inbox_id: str
+    channel_id: str
+    conversation_id: Optional[str] = None
+    created_at: datetime
+
+
 class ConversationCommentRequest(BaseModel):
     """Request payload to create a new comment."""
 
@@ -174,3 +217,18 @@ class AttachmentContent(BaseModel):
     content_type: Optional[str] = None
     size: Optional[int] = None
     content: bytes
+
+
+class QuoteRequestResponse(BaseModel):
+    """Response payload after sending a vendor quote request."""
+
+    status: Literal["sent", "dry_run"]
+    vendor_id: str
+    vendor_email: EmailStr
+    language: str
+    subject_final: str
+    body_final_preview: str
+    attachments_sent: List[str] = Field(default_factory=list)
+    front_message_id: Optional[str] = None
+    front_conversation_id: Optional[str] = None
+    dry_run: bool = False

@@ -1,93 +1,96 @@
-import os
-
 import pytest
 
 from app.domain.edi.service import EDIService
 from app.errors import InvalidPurchaseOrderError
-from migration.edi import SFTPSendResult
 
 
-class StubERPClient:
-    def __init__(self, *, vendor_available: bool = True):
-        self.vendor_available = vendor_available
+class _FakeERPClient:
+    """Minimal async stub that mimics the ERP client for EDI generation tests."""
 
-    async def get_purchase_order(self, po_number: str):
+    async def get_purchase_order_for_edi(self, po_number: str):
         return {
             "No": po_number,
-            "Document_Date": "2024-05-01",
-            "Amount": "100.00",
-            "Amount_Including_VAT": "115.00",
-            "Buy_from_Vendor_No": "VEND01",
+            "Document_Date": "2025-12-01",
+            "Payment_Terms_Code": "NET30",
+            "Buy_from_Vendor_No": "VENDOR01",
+            "Amount": "62.50",
+            "Amount_Including_VAT": "71.88",
+            "Ship_to_Name": "Gilbert Tech",
+            "Ship_to_Address": "1840 Boul Marcotte",
+            "Ship_to_City": "Roberval",
+            "Ship_to_State": "QC",
+            "Ship_to_Post_Code": "G8H 2P2",
         }
 
-    async def get_purchase_order_lines(self, po_number: str):
+    async def get_purchase_order(self, po_number: str):
+        return None
+
+    async def get_purchase_order_lines_for_edi(self, po_number: str):
         return [
             {
                 "Line_No": 10000,
-                "Quantity": "2",
+                "Quantity": "5",
                 "Unit_of_Measure_Code": "EA",
-                "Direct_Unit_Cost": "50.00",
-                "Vendor_Item_No": "VI-100",
-                "No": "ITEM-100",
-                "Description": "Sample Item",
-            }
+                "Direct_Unit_Cost": "12.50",
+                "Vendor_Item_No": "V-100",
+                "No": "ITEM-001",
+                "Description": "Widget",
+            },
+            {
+                # Empty/comment style line that should be filtered out
+                "Line_No": 20000,
+                "Quantity": "0",
+                "Unit_of_Measure_Code": "",
+                "Direct_Unit_Cost": "",
+                "Vendor_Item_No": "",
+                "No": "",
+                "Description": "",
+            },
         ]
 
-    async def get_vendor(self, vendor_id: str):
-        if not self.vendor_available:
-            return None
+    async def get_purchase_order_lines(self, po_number: str):
+        return []
+
+    async def get_vendor(self, vendor_code: str):
         return {
-            "No": vendor_id,
+            "No": vendor_code,
             "Name": "Vendor Inc",
-            "Address": "123 Main",
+            "Address": "123 Main St",
             "City": "Townsville",
             "County": "QC",
             "Post_Code": "A1B2C3",
         }
 
 
-@pytest.fixture
-def fake_paths(tmp_path):
-    send_root = tmp_path / "edi" / "send"
-    recv_root = tmp_path / "edi" / "receive"
-
-    def _get_paths():
-        return str(send_root), str(recv_root)
-
-    return _get_paths
-
-
-@pytest.mark.asyncio
-async def test_send_purchase_order_850_success(monkeypatch, fake_paths):
-    sent_paths = {}
-
-    monkeypatch.setattr("app.domain.edi.service.get_edi_paths", fake_paths)
-
-    def fake_send_file(path, **kwargs):
-        sent_paths["path"] = path
-        return SFTPSendResult(success=True, remote_path="EMISSION/850/TEST.edi")
-
-    monkeypatch.setattr("app.domain.edi.service.send_file", fake_send_file)
-
-    service = EDIService(erp_client=StubERPClient())
-    result = await service.send_purchase_order_850("PO123")
-
-    assert result.sent is True
-    assert result.remote_path == "EMISSION/850/TEST.edi"
-    assert result.po_number == "PO123"
-    assert os.path.basename(sent_paths["path"]).startswith("PO_PO123_")
-    assert os.path.exists(sent_paths["path"]) is True
+class _FakeERPClientNoLines(_FakeERPClient):
+    async def get_purchase_order_lines_for_edi(self, po_number: str):
+        return [
+            {
+                "Line_No": 10000,
+                "Quantity": "0",
+                "Unit_of_Measure_Code": "",
+                "Direct_Unit_Cost": "",
+                "Vendor_Item_No": "",
+                "No": "",
+                "Description": "",
+            }
+        ]
 
 
 @pytest.mark.asyncio
-async def test_send_purchase_order_850_missing_vendor(monkeypatch, fake_paths):
-    monkeypatch.setattr("app.domain.edi.service.get_edi_paths", fake_paths)
-    monkeypatch.setattr(
-        "app.domain.edi.service.send_file",
-        lambda path: SFTPSendResult(success=True, remote_path=""),
-    )
+async def test_generate_purchase_order_850_populates_from_business_central_stub():
+    service = EDIService(erp_client=_FakeERPClient(), sender_id="SENDERID")
+    document, file_name = await service.generate_purchase_order_850("PO999")
 
-    service = EDIService(erp_client=StubERPClient(vendor_available=False))
+    assert "ID|850|SENDERID|VENDOR01|" in document
+    assert "HEAD|||" in document
+    assert "ITEM|1|5.0000|EA|12.5000|VN|V-100" in document
+    assert file_name.startswith("PO_PO999_")
+
+
+@pytest.mark.asyncio
+async def test_generate_purchase_order_850_requires_non_empty_lines():
+    service = EDIService(erp_client=_FakeERPClientNoLines())
 
     with pytest.raises(InvalidPurchaseOrderError):
-        await service.send_purchase_order_850("PO999")
+        await service.generate_purchase_order_850("POEMPTY")

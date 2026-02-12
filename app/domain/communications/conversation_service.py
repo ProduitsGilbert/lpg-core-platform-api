@@ -26,9 +26,13 @@ from app.domain.communications.models import (
     MessageAttachment,
     MessageAuthor,
     MessageRecipient,
+    ReceivablesEmailSendRequest,
+    ReceivablesEmailSendResponse,
 )
-from app.errors import CommunicationsNotFound
+from app.domain.erp.business_central_data_service import BusinessCentralODataService
+from app.errors import CommunicationsConfigurationError, CommunicationsError, CommunicationsNotFound
 from app.ports import FrontClientProtocol
+from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +40,23 @@ logger = logging.getLogger(__name__)
 class ConversationService:
     """Service for conversation operations with the Front API."""
 
-    def __init__(self, front_client_class: Type[FrontClientProtocol] = FrontClient):
+    def __init__(
+        self,
+        front_client_class: Type[FrontClientProtocol] = FrontClient,
+        odata_service: Optional[BusinessCentralODataService] = None,
+    ):
         self._front_client_class = front_client_class
+        self._odata_service = odata_service
 
-    def _client(self) -> FrontClientProtocol:
+    def _client(self, *, api_key: Optional[str] = None) -> FrontClientProtocol:
+        if api_key:
+            return self._front_client_class(api_key=api_key)  # type: ignore[call-arg, return-value]
         return self._front_client_class()  # type: ignore[return-value]
+
+    def _get_odata_service(self) -> BusinessCentralODataService:
+        if self._odata_service is None:
+            self._odata_service = BusinessCentralODataService()
+        return self._odata_service
 
     async def get_conversation(self, conversation_id: str) -> Optional[ConversationResponse]:
         """Get full conversation data including messages and comments."""
@@ -202,6 +218,53 @@ class ConversationService:
         return ConversationSnoozeResponse(
             conversation_id=conversation_id,
             snooze_until=request.snooze_until,
+        )
+
+    async def send_receivables_email(
+        self, request: ReceivablesEmailSendRequest
+    ) -> ReceivablesEmailSendResponse:
+        """Send a new outbound receivables email via Front."""
+        api_key = settings.front_accounting_api_key
+        if not api_key:
+            raise CommunicationsConfigurationError(
+                "Front accounting API key is not configured (FrontApp_Accounting_API_KEY)."
+            )
+
+        inbox_id = settings.front_receivables_inbox_id
+        if not inbox_id:
+            raise CommunicationsConfigurationError(
+                "Front receivables inbox ID is not configured (FRONT_RECEIVABLES_INBOX_ID)."
+            )
+
+        payload: Dict[str, Any] = {
+            "subject": request.subject,
+            "body": request.body,
+        }
+        recipients, resolved_customer_no = await self._resolve_recipients(request)
+        payload["to"] = recipients
+        if request.cc:
+            payload["cc"] = [str(address) for address in request.cc]
+
+        with logfire.span("conversation_service.send_receivables_email", inbox_id=inbox_id):
+            async with self._client(api_key=api_key) as client:
+                channel_id = settings.front_receivables_channel_id
+                if not channel_id:
+                    channels_data = await client.get_inbox_channels(inbox_id)
+                    channel_id = self._resolve_inbox_email_channel_id(inbox_id, channels_data)
+
+                response = await client.send_channel_message(channel_id, payload)
+
+        created_at = self._parse_timestamp(response.get("created_at"))
+        return ReceivablesEmailSendResponse(
+            id=response.get("id"),
+            subject=request.subject,
+            to=recipients,
+            cc=request.cc or [],
+            customer_no=resolved_customer_no,
+            inbox_id=inbox_id,
+            channel_id=channel_id,
+            conversation_id=response.get("conversation_id"),
+            created_at=created_at,
         )
 
     async def download_attachment(
@@ -412,3 +475,46 @@ class ConversationService:
             if attachment.get("id") == attachment_id:
                 return attachment
         raise CommunicationsNotFound("Attachment", attachment_id)
+
+    @staticmethod
+    def _resolve_inbox_email_channel_id(inbox_id: str, channels_data: Dict[str, Any]) -> str:
+        channels = channels_data.get("_results") or []
+        for channel in channels:
+            if channel.get("type") == "email" and channel.get("id"):
+                return str(channel["id"])
+        raise CommunicationsConfigurationError(
+            f"No email channel found for Front inbox '{inbox_id}'."
+        )
+
+    async def _resolve_recipients(
+        self, request: ReceivablesEmailSendRequest
+    ) -> tuple[List[str], Optional[str]]:
+        """Resolve recipient list from explicit addresses or customer number."""
+        if request.to:
+            return [str(address) for address in request.to], None
+
+        customer_no = (request.customer_no or "").strip()
+        records = await self._get_odata_service().fetch_collection(
+            resource="Customers",
+            filter_field="No",
+            filter_value=customer_no,
+            top=1,
+        )
+        if not records:
+            raise CommunicationsError(
+                detail=f"Customer '{customer_no}' not found in Business Central.",
+                status_code=404,
+                error_code="BC_CUSTOMER_NOT_FOUND",
+                context={"customer_no": customer_no},
+            )
+
+        email = str(records[0].get("Email") or "").strip()
+        if not email:
+            raise CommunicationsError(
+                detail=f"Customer '{customer_no}' has no email in Business Central.",
+                status_code=409,
+                error_code="BC_CUSTOMER_EMAIL_MISSING",
+                context={"customer_no": customer_no},
+            )
+
+        return [email], customer_no

@@ -21,7 +21,7 @@ tenacity==8.2.3
 logfire[fastapi]==0.25.0
 
 # AI/ML
-openai==1.58.1
+openai==2.16.0
 
 # PDF Processing
 pypdf==6.3.0

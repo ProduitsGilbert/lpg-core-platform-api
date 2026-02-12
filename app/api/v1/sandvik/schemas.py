@@ -7,6 +7,7 @@ This module defines Pydantic models for API request and response validation.
 from app.domain.sandvik.models import (
     MachineConfig,
     TimeseriesRequest,
+    InsightTimeseriesRequest,
     MachineHistoryRequest,
     LiveMetricsRequest,
     TimeseriesResponse,

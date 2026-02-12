@@ -1,4 +1,5 @@
 import os
+from base64 import b64decode
 from typing import List
 
 import pytest
@@ -165,3 +166,78 @@ def test_openrouter_response_live(http_session, base_url, default_timeout) -> No
     assert data["selected_model"] in allowed_slugs, f"Unexpected model returned: {data['selected_model']}"
     assert data["output"], "OpenRouter output should not be empty"
     assert data["stubbed"] is False
+
+
+def test_grok_image_generation_live(http_session, base_url, default_timeout) -> None:
+    _require_env_vars("GROK_API_KEY")
+
+    payload = {
+        "prompt": "A cinematic aerial shot of snowy mountains at sunrise",
+        "size": "1024x1024",
+        "n": 1,
+    }
+    response = http_session.post(
+        _ai_url(base_url, "/grok-image-generation"),
+        json=payload,
+        timeout=default_timeout,
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["model"] == "grok-imagine-image-pro"
+    assert isinstance(data["images"], list)
+    assert data["images"], "Expected at least one generated image URL"
+    assert data["stubbed"] is False
+
+
+def test_grok_video_generation_live(http_session, base_url, default_timeout) -> None:
+    _require_env_vars("GROK_API_KEY")
+    if os.getenv("RUN_GROK_VIDEO_TESTS", "").lower() not in {"1", "true", "yes"}:
+        pytest.skip("Set RUN_GROK_VIDEO_TESTS=1 to run live Grok video generation test")
+
+    payload = {
+        "prompt": "A slow drone flyover of an industrial facility at golden hour",
+        "poll_timeout_seconds": 180,
+        "poll_interval_seconds": 3,
+    }
+    response = http_session.post(
+        _ai_url(base_url, "/grok-video-generation"),
+        json=payload,
+        timeout=max(default_timeout, 240),
+    )
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["model"] == "grok-imagine-video"
+    assert data["request_id"], "Video request id should be present"
+    assert data["status"] in {"completed", "succeeded", "success", "done", "ready", "failed", "error", "cancelled", "rejected", "timeout"}
+    if data["status"] in {"completed", "succeeded", "success", "done", "ready"}:
+        assert data["video_url"], "Expected video URL when generation succeeds"
+    assert data["stubbed"] is False
+
+
+def test_grok_image_understanding_live(http_session, base_url, default_timeout) -> None:
+    _require_env_vars("GROK_API_KEY")
+
+    tiny_png = b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAukB9pJx4NQAAAAASUVORK5CYII="
+    )
+    files = {
+        "file": ("tiny.png", tiny_png, "image/png"),
+    }
+    data = {
+        "prompt": "What is in this image?",
+        "detail": "high",
+    }
+    response = http_session.post(
+        _ai_url(base_url, "/grok-image-understanding"),
+        files=files,
+        data=data,
+        timeout=default_timeout,
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["model"] == "grok-4-1-fast-reasoning"
+    assert payload["output"], "Expected non-empty image understanding output"
+    assert payload["stubbed"] is False

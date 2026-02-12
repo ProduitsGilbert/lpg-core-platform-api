@@ -17,6 +17,7 @@ from .clickup.router import router as clickup_router
 from .zendesk.router import router as zendesk_router
 from .finance.router import router as finance_router
 from .kpi import router as kpi_router
+from .crm import router as crm_router
 
 # Create main v1 router
 router = APIRouter(prefix="/api/v1")
@@ -35,3 +36,4 @@ router.include_router(zendesk_router)
 router.include_router(finance_router)
 router.include_router(kpi_router)
 router.include_router(service_router)
+router.include_router(crm_router)
