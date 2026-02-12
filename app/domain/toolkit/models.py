@@ -329,3 +329,14 @@ class GrokVideoGenerationResponse(BaseModel):
         default=False,
         description="Indicates the response was generated locally because Grok is not configured.",
     )
+
+
+class GrokImageUnderstandingResponse(BaseModel):
+    """Response payload for Grok image understanding."""
+
+    model: str
+    output: str
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because Grok is not configured.",
+    )

@@ -6,7 +6,7 @@ import logging
 
 import httpx
 import logfire
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 from httpx import ResponseNotRead
 
@@ -16,6 +16,7 @@ from app.domain.toolkit.models import (
     DeepReasoningResponse,
     GrokImageGenerationRequest,
     GrokImageGenerationResponse,
+    GrokImageUnderstandingResponse,
     GrokVideoGenerationRequest,
     GrokVideoGenerationResponse,
     OpenRouterRequest,
@@ -317,6 +318,72 @@ async def create_grok_video(
         raise _map_grok_http_error(exc, "generate a video") from exc
     except httpx.RequestError as exc:
         raise _map_grok_request_error(exc, "generate a video") from exc
+
+
+@router.post(
+    "/grok-image-understanding",
+    response_model=GrokImageUnderstandingResponse,
+    responses={
+        status.HTTP_200_OK: {"description": "Grok image understanding generated successfully"},
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid image payload"},
+        status.HTTP_502_BAD_GATEWAY: {"description": "Grok upstream failure"},
+    },
+    summary="Understand uploaded image via Grok",
+    description=(
+        "Upload an image file and a prompt. The API sends a base64 data URL with "
+        "`input_image` + `input_text` to `grok-4-1-fast-reasoning`."
+    ),
+)
+async def create_grok_image_understanding(
+    prompt: str = Form(..., min_length=1),
+    file: UploadFile = File(...),
+    detail: str = Form("high"),
+) -> GrokImageUnderstandingResponse:
+    """Return Grok's understanding of an uploaded image."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_IMAGE",
+                    "message": "Uploaded file must be an image/* content type",
+                }
+            },
+        )
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "EMPTY_IMAGE",
+                    "message": "Uploaded image file is empty",
+                }
+            },
+        )
+
+    try:
+        return await ai_service.understand_grok_image(
+            prompt=prompt,
+            image_bytes=image_bytes,
+            mime_type=file.content_type,
+            detail=detail,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_DETAIL",
+                    "message": str(exc),
+                }
+            },
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        raise _map_grok_http_error(exc, "understand an image") from exc
+    except httpx.RequestError as exc:
+        raise _map_grok_request_error(exc, "understand an image") from exc
 
 
 @router.post(

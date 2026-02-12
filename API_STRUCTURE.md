@@ -69,6 +69,7 @@ AI services including OpenAI, predictions, and agents
 /api/v1/ai/openrouter-response                  # POST (multi-model)
 /api/v1/ai/grok-image-generation               # POST
 /api/v1/ai/grok-video-generation               # POST
+/api/v1/ai/grok-image-understanding            # POST (multipart file upload)
 
 Allowed OpenRouter models: Grok Code Fast 1, Claude Sonnet 4.5, Gemini 2.5 Flash, MiniMax M2 (free), Gemini 2.5 Pro, Grok 4 Fast, Gemini 2.0 Flash, Claude Sonnet 4, Gemini 2.5 Flash Lite.
 

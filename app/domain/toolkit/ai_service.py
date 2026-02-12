@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -19,6 +20,7 @@ from .models import (
     DeepReasoningResponse,
     GrokImageGenerationRequest,
     GrokImageGenerationResponse,
+    GrokImageUnderstandingResponse,
     GrokVideoGenerationRequest,
     GrokVideoGenerationResponse,
     OpenRouterRequest,
@@ -57,6 +59,7 @@ MODELS_WITHOUT_TEMPERATURE: Tuple[str, ...] = (
 )
 GROK_IMAGE_MODEL = "grok-imagine-image-pro"
 GROK_VIDEO_MODEL = "grok-imagine-video"
+GROK_VISION_MODEL = "grok-4-1-fast-reasoning"
 
 @dataclass(slots=True, frozen=True)
 class _PresetConfig:
@@ -469,6 +472,76 @@ class AIService:
             stubbed=False,
         )
 
+    async def understand_grok_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+        detail: str = "high",
+    ) -> GrokImageUnderstandingResponse:
+        """Analyze an uploaded image with Grok vision reasoning model."""
+        normalized_detail = detail.strip().lower()
+        if normalized_detail not in {"low", "high", "auto"}:
+            raise ValueError("detail must be one of: low, high, auto")
+
+        if not self._grok_enabled or not self._grok_key:
+            return GrokImageUnderstandingResponse(
+                model=GROK_VISION_MODEL,
+                output=(
+                    "[stub grok image understanding] Configure GROK_API_KEY (or XAI_API_KEY) "
+                    "to get live image analysis."
+                ),
+                stubbed=True,
+            )
+
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        image_data_url = f"data:{mime_type};base64,{image_b64}"
+
+        headers = {
+            "Authorization": f"Bearer {self._grok_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, object] = {
+            "model": GROK_VISION_MODEL,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_image",
+                            "image_url": image_data_url,
+                            "detail": normalized_detail,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": prompt,
+                        },
+                    ],
+                }
+            ],
+        }
+
+        with logfire.span(
+            "ai.grok.image_understanding",
+            model=GROK_VISION_MODEL,
+            detail=normalized_detail,
+        ):
+            async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+                response = await client.post(
+                    f"{self._grok_base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+        return GrokImageUnderstandingResponse(
+            model=GROK_VISION_MODEL,
+            output=self._extract_chat_completion_text(data).strip(),
+            stubbed=False,
+        )
+
     def _resolve_openrouter_models(
         self, models: Optional[List[str]]
     ) -> Tuple[List[str], List[str]]:
@@ -799,6 +872,30 @@ class AIService:
             if chunks:
                 return "\n".join(chunks)
 
+        return json.dumps(response, indent=2, default=str)
+
+    @staticmethod
+    def _extract_chat_completion_text(response: dict[str, object]) -> str:
+        """Extract readable assistant text from chat completion responses."""
+        choices = response.get("choices")
+        if isinstance(choices, list) and choices:
+            choice = choices[0]
+            if isinstance(choice, dict):
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    content = message.get("content")
+                    if isinstance(content, str):
+                        return content
+                    if isinstance(content, list):
+                        parts: list[str] = []
+                        for item in content:
+                            if not isinstance(item, dict):
+                                continue
+                            text = item.get("text")
+                            if isinstance(text, str) and text:
+                                parts.append(text)
+                        if parts:
+                            return "\n".join(parts)
         return json.dumps(response, indent=2, default=str)
 
     @staticmethod
