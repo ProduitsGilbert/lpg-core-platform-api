@@ -20,6 +20,8 @@ from app.domain.erp.models import (
     TariffCalculationResponse,
     ItemAvailabilityResponse,
     ItemAttributesResponse,
+    ItemAttributeItemLookupRequest,
+    ItemAttributeItemLookupResponse,
 )
 from app.domain.erp.availability_service import ItemAvailabilityService
 from app.domain.erp.tariff_service import TariffCalculationService
@@ -175,6 +177,81 @@ async def get_item_attributes(
                 "error": {
                     "code": "INTERNAL_ERROR",
                     "message": "Failed to retrieve item attributes",
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
+
+
+@router.post(
+    "/attributes/lookup",
+    response_model=SingleResponse[ItemAttributeItemLookupResponse],
+    summary="Find items by selected attribute values",
+    description=(
+        "Reverse item attribute lookup. Provide selected attribute-value pairs and "
+        "receive item numbers that match all selections."
+    ),
+)
+async def lookup_items_by_attributes(
+    payload: ItemAttributeItemLookupRequest,
+    attribute_service: ItemAttributeService = Depends(get_item_attribute_service),
+) -> SingleResponse[ItemAttributeItemLookupResponse]:
+    """Find item numbers matching all provided attribute-value selections."""
+    try:
+        with logfire.span("lookup_items_by_attributes", selection_count=len(payload.selections)):
+            result = await attribute_service.get_items_by_attributes(payload.selections)
+        return SingleResponse(data=result)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_ATTRIBUTES",
+                    "message": str(exc),
+                    "trace_id": "unknown",
+                }
+            },
+        ) from exc
+    except httpx.HTTPStatusError as exc:
+        upstream_status = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+        logger.error(
+            "Business Central returned HTTP error while reverse-looking up item attributes",
+            extra={"status_code": upstream_status},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_ERROR",
+                    "message": "Business Central request failed",
+                    "upstream_status": upstream_status,
+                }
+            },
+        ) from exc
+    except httpx.RequestError as exc:
+        logger.error(
+            "Business Central request failed during reverse attribute lookup",
+            extra={"error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_UPSTREAM_UNAVAILABLE",
+                    "message": "Business Central service unreachable",
+                }
+            },
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error in reverse attribute lookup")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "Failed to lookup items by attributes",
                     "trace_id": "unknown",
                 }
             },

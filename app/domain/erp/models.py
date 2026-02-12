@@ -117,6 +117,36 @@ class ItemAttributesResponse(BaseModel):
     )
 
 
+class ItemAttributeSelection(BaseModel):
+    """One selected attribute-value pair used to find matching items."""
+
+    attribute_id: int = Field(..., ge=1, description="Business Central item attribute ID")
+    value_id: int = Field(..., ge=1, description="Business Central item attribute value ID")
+
+
+class ItemAttributeItemLookupRequest(BaseModel):
+    """Request body for reverse item lookup by selected attribute values."""
+
+    selections: List[ItemAttributeSelection] = Field(
+        ...,
+        min_length=1,
+        description="Selected attribute-value pairs that items must match",
+    )
+
+
+class ItemAttributeItemLookupResponse(BaseModel):
+    """Item IDs matching all selected attribute-value pairs."""
+
+    selections: List[ItemAttributeSelection] = Field(
+        default_factory=list,
+        description="Echo of applied attribute-value filters",
+    )
+    item_ids: List[str] = Field(
+        default_factory=list,
+        description="Item numbers that match every selected attribute-value pair",
+    )
+
+
 class VendorContactResponse(BaseModel):
     """Vendor email contact details."""
 

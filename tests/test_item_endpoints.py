@@ -16,6 +16,8 @@ from app.domain.erp.models import (
     ItemAvailabilityTimelineEntry,
     ItemAttributesResponse,
     ItemAttributeValueEntry,
+    ItemAttributeItemLookupResponse,
+    ItemAttributeSelection,
 )
 from app.errors import ERPConflict
 
@@ -38,9 +40,14 @@ def _setup_item_service(monkeypatch, **overrides):
     return service
 
 
-def _setup_item_attribute_service(monkeypatch, response: ItemAttributesResponse):
+def _setup_item_attribute_service(
+    monkeypatch,
+    response: ItemAttributesResponse,
+    lookup_response: ItemAttributeItemLookupResponse | None = None,
+):
     service = SimpleNamespace(
         get_item_attributes=AsyncMock(return_value=response),
+        get_items_by_attributes=AsyncMock(return_value=lookup_response),
     )
     monkeypatch.setattr("app.api.v1.erp.items.ItemAttributeService", lambda: service)
     monkeypatch.setattr("app.api.v1.erp.items.get_item_attribute_service", lambda: service)
@@ -148,6 +155,33 @@ def test_get_item_attributes_success(client, monkeypatch):
     assert payload["item_id"] == "0410604"
     assert payload["attributes"][0]["value"] == "HARDOX-450"
     service.get_item_attributes.assert_awaited_once_with("0410604")
+
+
+def test_lookup_items_by_attributes_success(client, monkeypatch):
+    attributes_response = ItemAttributesResponse(item_id="unused", attributes=[])
+    lookup_response = ItemAttributeItemLookupResponse(
+        selections=[
+            ItemAttributeSelection(attribute_id=2, value_id=372),
+            ItemAttributeSelection(attribute_id=5, value_id=90),
+        ],
+        item_ids=["0410604"],
+    )
+    service = _setup_item_attribute_service(monkeypatch, attributes_response, lookup_response)
+
+    response = client.post(
+        "/api/v1/erp/items/attributes/lookup",
+        json={
+            "selections": [
+                {"attribute_id": 2, "value_id": 372},
+                {"attribute_id": 5, "value_id": 90},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["item_ids"] == ["0410604"]
+    service.get_items_by_attributes.assert_awaited_once()
 
 
 def _setup_tariff_service(monkeypatch, response: TariffCalculationResponse):
