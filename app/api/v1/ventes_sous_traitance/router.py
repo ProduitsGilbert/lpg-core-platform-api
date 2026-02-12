@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
+import json
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from pypdf import PdfReader
 
 from app.domain.ventes_sous_traitance.models import (
     JobStatusResponse,
@@ -24,6 +27,7 @@ from app.domain.ventes_sous_traitance.service import VentesSousTraitanceService
 from app.errors import DatabaseError
 
 router = APIRouter(tags=["Ventes - Sous-Traitance"])
+MAX_ANALYZE_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 @lru_cache(maxsize=1)
@@ -36,6 +40,54 @@ def get_service() -> VentesSousTraitanceService:
     if not service.is_configured:
         raise DatabaseError("Cedule database not configured")
     return service
+
+
+async def _read_and_validate_pdf_upload(file: UploadFile) -> bytes:
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be a PDF")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
+    if len(content) > MAX_ANALYZE_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size must not exceed 50MB",
+        )
+    return content
+
+
+def _extract_pdf_text_from_bytes(file_content: bytes) -> str:
+    try:
+        reader = PdfReader(io.BytesIO(file_content))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid PDF: {exc}") from exc
+    chunks: list[str] = []
+    for idx, page in enumerate(reader.pages):
+        text = page.extract_text() or ""
+        if text.strip():
+            chunks.append(f"[Page {idx + 1}]\n{text.strip()}")
+    return "\n\n".join(chunks).strip()
+
+
+def _parse_part_cues_json(part_cues_json: Optional[str]) -> list[dict]:
+    if not part_cues_json:
+        return []
+    try:
+        parsed = json.loads(part_cues_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid part_cues_json: {exc.msg}") from exc
+    if not isinstance(parsed, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="part_cues_json must be a JSON array")
+    normalized: list[dict] = []
+    for idx, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"part_cues_json[{idx}] must be an object",
+            )
+        normalized.append(item)
+    return normalized
 
 
 @router.post("/quotes", response_model=QuoteSummary, status_code=status.HTTP_201_CREATED)
@@ -109,6 +161,37 @@ async def analyze_quote(
     if not service.get_quote(quote_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
     job_id = service.start_analysis(quote_id)
+    return QuoteAnalysisStartResponse(job_id=job_id, quote_id=quote_id, status="scheduled")
+
+
+@router.post("/quotes/{quote_id}/analyze-upload", response_model=QuoteAnalysisStartResponse)
+async def analyze_quote_upload(
+    quote_id: UUID,
+    file: UploadFile = File(..., description="Technical drawing PDF to analyze"),
+    user_cue: Optional[str] = Form(default=None, description="Estimator guidance text for the model"),
+    part_cues_json: Optional[str] = Form(
+        default=None,
+        description="JSON array of per-part cues, e.g. [{\"part_ref\":\"A\",\"cue\":\"lathe first\"}]",
+    ),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> QuoteAnalysisStartResponse:
+    if not service.get_quote(quote_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
+
+    file_content = await _read_and_validate_pdf_upload(file)
+    extracted_text = _extract_pdf_text_from_bytes(file_content)
+    if not extracted_text and not (user_cue and user_cue.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No text could be extracted from PDF. Provide user_cue or upload a text-based PDF.",
+        )
+    part_cues = _parse_part_cues_json(part_cues_json)
+    job_id = service.start_analysis_from_text(
+        quote_id,
+        source_text=extracted_text,
+        user_cue=user_cue,
+        part_cues=part_cues,
+    )
     return QuoteAnalysisStartResponse(job_id=job_id, quote_id=quote_id, status="scheduled")
 
 

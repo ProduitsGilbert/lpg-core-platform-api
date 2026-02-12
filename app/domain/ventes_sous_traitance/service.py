@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional
+import json
+from typing import Any, Optional
 from uuid import UUID
 
 from app.domain.ventes_sous_traitance.analysis_pipeline import VentesSousTraitanceAnalysisPipeline
@@ -86,14 +87,29 @@ class VentesSousTraitanceService:
         return self._repository.delete_routing_step(step_id)
 
     def start_analysis(self, quote_id: UUID) -> UUID:
+        source_text = self._repository.get_quote_source_text(quote_id)
+        return self.start_analysis_from_text(quote_id, source_text=source_text)
+
+    def start_analysis_from_text(
+        self,
+        quote_id: UUID,
+        *,
+        source_text: str,
+        user_cue: Optional[str] = None,
+        part_cues: Optional[list[dict[str, Any]]] = None,
+    ) -> UUID:
         run_id = self._repository.create_analysis_run(
             quote_id,
             model_name=self._analysis_model_name(),
             stage="routing",
         )
         try:
-            source_text = self._repository.get_quote_source_text(quote_id)
-            result = self._analysis_pipeline.run(source_text=source_text)
+            analysis_text = self._build_analysis_text(
+                source_text=source_text,
+                user_cue=user_cue,
+                part_cues=part_cues,
+            )
+            result = self._analysis_pipeline.run(source_text=analysis_text)
             metadata = result.get("step1_metadata", {})
             classification = result.get("step2_classification", {})
             complexity = result.get("step3_complexity", {})
@@ -132,12 +148,32 @@ class VentesSousTraitanceService:
                 part_id=part_id,
                 scenarios_payload=routings if isinstance(routings, dict) else {},
             )
+            result["analysis_input"] = {
+                "user_cue": user_cue,
+                "part_cues": part_cues or [],
+            }
             result["created_part_id"] = str(part_id)
             result["created_routing_ids"] = [str(r.routing_id) for r in created_routings]
             self._repository.complete_analysis_run(run_id, output=result)
         except Exception as exc:
             self._repository.fail_analysis_run(run_id, str(exc))
         return run_id
+
+    @staticmethod
+    def _build_analysis_text(
+        *,
+        source_text: str,
+        user_cue: Optional[str],
+        part_cues: Optional[list[dict[str, Any]]],
+    ) -> str:
+        sections: list[str] = []
+        if source_text and source_text.strip():
+            sections.append(source_text.strip())
+        if user_cue and user_cue.strip():
+            sections.append(f"[Estimator Cue]\n{user_cue.strip()}")
+        if part_cues:
+            sections.append("[Part Cues JSON]\n" + json.dumps(part_cues, ensure_ascii=True))
+        return "\n\n".join(sections).strip()
 
     def get_job(self, job_id: UUID) -> Optional[JobStatusResponse]:
         return self._repository.get_job(job_id)

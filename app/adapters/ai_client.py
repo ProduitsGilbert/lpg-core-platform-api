@@ -440,7 +440,6 @@ Provide specific corrections for each field with explanations."""
         try:
             payload: Dict[str, Any] = {
                 "model": self.xai_model,
-                "reasoning_effort": self.xai_reasoning_effort,
                 "messages": [
                     {
                         "role": "system",
@@ -456,11 +455,39 @@ Provide specific corrections for each field with explanations."""
                 ],
                 "temperature": 0.1,
             }
+            if self.xai_reasoning_effort:
+                payload["reasoning_effort"] = self.xai_reasoning_effort
             if task_type in {"extraction", "corrections"}:
                 payload["response_format"] = {"type": "json_object"}
 
             response = self.xai_client.post("/chat/completions", json=payload)
-            response.raise_for_status()
+            applied_reasoning_effort = payload.get("reasoning_effort")
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as first_err:
+                body = ""
+                try:
+                    body = first_err.response.text or ""
+                except Exception:
+                    body = ""
+                body_lower = body.lower()
+                if (
+                    payload.get("reasoning_effort")
+                    and first_err.response.status_code == 400
+                    and "does not support parameter reasoningeffort" in body_lower
+                ):
+                    logger.warning(
+                        "xAI model %s rejected reasoning_effort; retrying without reasoning_effort",
+                        self.xai_model,
+                    )
+                    fallback_payload = dict(payload)
+                    fallback_payload.pop("reasoning_effort", None)
+                    response = self.xai_client.post("/chat/completions", json=fallback_payload)
+                    response.raise_for_status()
+                    applied_reasoning_effort = None
+                else:
+                    raise
+
             data = response.json()
             content = (data.get("choices") or [{}])[0].get("message", {}).get("content")
             if not isinstance(content, str):
@@ -472,7 +499,7 @@ Provide specific corrections for each field with explanations."""
                     if isinstance(parsed, dict):
                         parsed["provider"] = "xai"
                         parsed["model"] = self.xai_model
-                        parsed["reasoning_effort"] = self.xai_reasoning_effort
+                        parsed["reasoning_effort"] = applied_reasoning_effort
                         return parsed
                     raise ExternalServiceException(detail="xAI returned non-object JSON", service="AI")
                 except json.JSONDecodeError as exc:

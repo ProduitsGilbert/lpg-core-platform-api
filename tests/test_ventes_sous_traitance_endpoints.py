@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -121,4 +122,51 @@ def test_patch_routing_step_endpoint() -> None:
     )
     assert response.status_code == 200
     assert UUID(response.json()["step_id"]) == step_id
+    app.dependency_overrides.clear()
+
+
+def test_analyze_quote_upload_endpoint() -> None:
+    stub = MagicMock()
+    quote = _sample_quote()
+    run_id = uuid4()
+    stub.get_quote.return_value = quote
+    stub.start_analysis_from_text.return_value = run_id
+    client = _client_with_service(stub)
+
+    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
+        response = client.post(
+            f"/api/v1/quotes/{quote.quote_id}/analyze-upload",
+            files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+            data={
+                "user_cue": "Prefer no welding",
+                "part_cues_json": '[{"part_ref":"A","cue":"CNC only"}]',
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_id"] == str(run_id)
+    assert payload["quote_id"] == str(quote.quote_id)
+    stub.start_analysis_from_text.assert_called_once()
+    called = stub.start_analysis_from_text.call_args
+    assert called.kwargs["user_cue"] == "Prefer no welding"
+    assert called.kwargs["part_cues"] == [{"part_ref": "A", "cue": "CNC only"}]
+    app.dependency_overrides.clear()
+
+
+def test_analyze_quote_upload_rejects_invalid_part_cues_json() -> None:
+    stub = MagicMock()
+    quote = _sample_quote()
+    stub.get_quote.return_value = quote
+    client = _client_with_service(stub)
+
+    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
+        response = client.post(
+            f"/api/v1/quotes/{quote.quote_id}/analyze-upload",
+            files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+            data={"part_cues_json": '{"part_ref":"A"}'},
+        )
+
+    assert response.status_code == 400
+    assert "part_cues_json must be a JSON array" in response.json()["detail"]
     app.dependency_overrides.clear()
