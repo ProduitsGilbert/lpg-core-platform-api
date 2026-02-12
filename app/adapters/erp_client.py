@@ -1444,61 +1444,90 @@ class ERPClient(ERPClientProtocol):
         invoice_no: Optional[str] = None,
         top: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve open posted sales invoices for AR collections."""
-        filters = [
-            "Closed eq false",
-            "Cancelled eq false",
-            "Corrective eq false",
-            "Remaining_Amount gt 0",
-        ]
+        """Retrieve open customer ledger entries for AR collections."""
+        date_filters: List[str] = []
         if due_from:
-            filters.append(f"Due_Date ge {due_from.isoformat()}")
+            date_filters.append(f"Due_Date ge {due_from.isoformat()}")
         if due_to:
-            filters.append(f"Due_Date le {due_to.isoformat()}")
+            date_filters.append(f"Due_Date le {due_to.isoformat()}")
+
+        customer_filters: List[Optional[str]] = [None]
         if customer_no:
             sanitized = customer_no.replace("'", "''")
-            filters.append(f"Sell_to_Customer_No eq '{sanitized}'")
+            customer_filters = [
+                f"Customer_No eq '{sanitized}'",
+                f"CustomerNo eq '{sanitized}'",
+                f"Sell_to_Customer_No eq '{sanitized}'",
+            ]
+
+        document_filters: List[Optional[str]] = [None]
         if invoice_no:
             sanitized = invoice_no.replace("'", "''")
-            filters.append(f"No eq '{sanitized}'")
+            document_filters = [
+                f"Document_No eq '{sanitized}'",
+                f"DocumentNo eq '{sanitized}'",
+                f"No eq '{sanitized}'",
+            ]
+
         select_fields = ",".join(
             [
-                "No",
-                "Sell_to_Customer_No",
-                "Sell_to_Customer_Name",
-                "Bill_to_Customer_No",
-                "Bill_to_Name",
+                "Entry_No",
+                "Document_No",
+                "Document_Type",
+                "Customer_No",
+                "Customer_Name",
                 "Due_Date",
                 "Posting_Date",
-                "Document_Date",
-                "Amount_Including_VAT",
-                "Amount",
+                "Description",
+                "Division",
+                "Region_Code",
                 "Remaining_Amount",
-                "External_Document_No",
+                "Remaining_AMT",
                 "Currency_Code",
-                "Closed",
-                "Cancelled",
-                "Corrective",
-                "Posted_Batch_Name",
+                "External_Document_No",
+                "Open",
+                "SystemModifiedAt",
             ]
         )
-        resource = (
-            "PostedSalesInvoiceHeaders"
-            f"?$select={select_fields}"
-            f"&$filter={' and '.join(filters)}"
-        )
-        if top is not None:
-            resource = f"{resource}&$top={int(top)}"
-        try:
-            return await self._fetch_odata_collection(resource)
-        except ERPError as exc:
-            message = str(exc)
-            if "Could not find a property named" in message:
-                fallback = "PostedSalesInvoiceHeaders?$filter=" + " and ".join(filters)
-                if top is not None:
-                    fallback = f"{fallback}&$top={int(top)}"
-                return await self._fetch_odata_collection(fallback)
-            raise
+        filter_variants: List[List[str]] = [
+            ["Open eq true", "(Remaining_Amount ne 0 or Remaining_AMT ne 0)"],
+            ["Open eq true", "Remaining_Amount ne 0"],
+            ["Remaining_Amount ne 0"],
+            [],
+        ]
+        last_property_error: Optional[ERPError] = None
+
+        for include_select in (True, False):
+            for base_filters in filter_variants:
+                for customer_filter in customer_filters:
+                    for document_filter in document_filters:
+                        filters = [*base_filters, *date_filters]
+                        if customer_filter:
+                            filters.append(customer_filter)
+                        if document_filter:
+                            filters.append(document_filter)
+
+                        resource = "CustomerLedgerEntries"
+                        if include_select:
+                            resource = f"{resource}?$select={select_fields}"
+                        if filters:
+                            joiner = "&" if "?" in resource else "?"
+                            resource = f"{resource}{joiner}$filter={' and '.join(filters)}"
+                        if top is not None:
+                            joiner = "&" if "?" in resource else "?"
+                            resource = f"{resource}{joiner}$top={int(top)}"
+
+                        try:
+                            return await self._fetch_odata_collection(resource)
+                        except ERPError as exc:
+                            if "Could not find a property named" in str(exc):
+                                last_property_error = exc
+                                continue
+                            raise
+
+        if last_property_error:
+            raise last_property_error
+        return []
 
     async def get_closed_posted_sales_invoices(
         self,

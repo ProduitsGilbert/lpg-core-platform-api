@@ -101,13 +101,13 @@ class AccountsReceivableService:
                 _, existing_payload = cached
                 merged: Dict[str, dict] = {}
                 for item in existing_payload:
-                    inv_no = item.get("invoice_no")
-                    if inv_no:
-                        merged[str(inv_no)] = item
+                    cache_key_value = self._cache_invoice_key(item)
+                    if cache_key_value:
+                        merged[cache_key_value] = item
                 for item in payload:
-                    inv_no = item.get("invoice_no")
-                    if inv_no:
-                        merged[str(inv_no)] = item
+                    cache_key_value = self._cache_invoice_key(item)
+                    if cache_key_value:
+                        merged[cache_key_value] = item
                 payload = list(merged.values())
         updated_at = self._cache_repo.upsert_cache(cache_key, payload)
         return AccountsReceivableCacheStatus(
@@ -288,31 +288,115 @@ class AccountsReceivableService:
         except Exception:
             return None
 
+    @staticmethod
+    def _to_bool(value: object) -> Optional[bool]:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y"}:
+                return True
+            if normalized in {"false", "0", "no", "n"}:
+                return False
+        return None
+
+    @staticmethod
+    def _to_int(value: object) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                return int(stripped)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _cache_invoice_key(payload_item: Dict[str, object]) -> Optional[str]:
+        entry_no = payload_item.get("entry_no")
+        if entry_no not in (None, ""):
+            return f"entry:{entry_no}"
+
+        invoice_no = str(payload_item.get("invoice_no") or "").strip()
+        if not invoice_no:
+            return None
+
+        customer_no = str(payload_item.get("customer_no") or "").strip()
+        document_type = str(payload_item.get("document_type") or "").strip()
+        due_date = str(payload_item.get("due_date") or "").strip()
+        posting_date = str(payload_item.get("posting_date") or "").strip()
+        return "|".join(
+            [invoice_no, customer_no, document_type, due_date, posting_date]
+        )
+
     def _map_invoice(self, record: Dict[str, object]) -> AccountsReceivableInvoice:
-        invoice_no = record.get("No") or record.get("Document_No") or ""
+        document_no = (
+            record.get("Document_No")
+            or record.get("DocumentNo")
+            or record.get("No")
+        )
+        raw_entry_no = record.get("Entry_No") or record.get("EntryNo")
+        entry_no = self._to_int(raw_entry_no)
+        invoice_no = document_no or entry_no or raw_entry_no or ""
+        open_flag = self._to_bool(record.get("Open"))
         return AccountsReceivableInvoice(
             invoice_no=str(invoice_no),
+            entry_no=entry_no,
+            document_no=str(document_no) if document_no is not None else None,
+            document_type=record.get("Document_Type") or record.get("DocumentType"),
+            description=record.get("Description"),
+            division=record.get("Division")
+            or record.get("Division_Code")
+            or record.get("Global_Dimension_1_Code"),
+            region_code=record.get("Region_Code")
+            or record.get("RegionCode")
+            or record.get("Region Code"),
             customer_no=record.get("Sell_to_Customer_No")
             or record.get("Bill_to_Customer_No")
-            or record.get("Customer_No"),
+            or record.get("Customer_No")
+            or record.get("CustomerNo"),
             customer_name=record.get("Sell_to_Customer_Name")
             or record.get("Bill_to_Name")
-            or record.get("Customer_Name"),
-            bill_to_customer_no=record.get("Bill_to_Customer_No"),
-            bill_to_name=record.get("Bill_to_Name"),
+            or record.get("Customer_Name")
+            or record.get("CustomerName"),
+            bill_to_customer_no=record.get("Bill_to_Customer_No") or record.get("Bill_to_CustomerNo"),
+            bill_to_name=record.get("Bill_to_Name") or record.get("Bill_to_Name_"),
             due_date=self._parse_date(record.get("Due_Date")),
             posting_date=self._parse_date(record.get("Posting_Date") or record.get("Document_Date")),
             posted_batch_name=record.get("Posted_Batch_Name")
             or record.get("Posted_Batch_Name_")
             or record.get("PostedBatchName"),
             total_amount=self._to_decimal(
-                record.get("Amount_Including_VAT") or record.get("Amount")
+                record.get("Amount_Including_VAT")
+                or record.get("Amount")
+                or record.get("Original_Amount")
+                or record.get("Original_Amt_LCY")
             ),
-            remaining_amount=self._to_decimal(record.get("Remaining_Amount")),
+            remaining_amount=self._to_decimal(
+                record.get("Remaining_Amount") or record.get("RemainingAmount")
+            ),
+            remaining_amt=self._to_decimal(
+                record.get("Remaining_AMT")
+                or record.get("RemainingAmt")
+                or record.get("Remaining_Amount_LCY")
+            ),
             external_document_no=record.get("External_Document_No"),
-            currency_code=record.get("Currency_Code"),
-            closed=record.get("Closed"),
-            cancelled=record.get("Cancelled"),
+            currency_code=record.get("Currency_Code") or record.get("CurrencyCode"),
+            closed=(not open_flag) if open_flag is not None else self._to_bool(record.get("Closed")),
+            cancelled=self._to_bool(record.get("Cancelled")),
             system_modified_at=self._parse_datetime(str(record.get("SystemModifiedAt")))
             if record.get("SystemModifiedAt")
             else None,

@@ -115,6 +115,8 @@ def _extract_minutes(row: Dict[str, Any]) -> float:
 class PlannerDailyReportService:
     """Compute the planner daily report from Business Central OData."""
 
+    DAILY_REPORT_CACHE_VERSION = "v2"
+
     def __init__(self, client: Optional[ERPClient] = None) -> None:
         self._client = client or ERPClient()
 
@@ -430,7 +432,38 @@ class PlannerDailyReportService:
         except ERPError:
             filtered_rows = []
         if filtered_rows:
-            return filtered_rows
+            in_scope_rows: List[Dict[str, Any]] = []
+            observed_filtered_dates: set[str] = set()
+
+            for row in filtered_rows:
+                row_date = _parse_odata_date(row.get("Posting_Date") or row.get("PostingDate"))
+                if row_date is None:
+                    continue
+                observed_filtered_dates.add(row_date.isoformat())
+                if row_date != posting_date:
+                    continue
+                if work_center_no:
+                    row_work_center_no = (
+                        row.get("Work_Center_No")
+                        or row.get("WorkCenterNo")
+                        or row.get("WorkCenter_No")
+                    )
+                    if str(row_work_center_no or "") != work_center_no:
+                        continue
+                in_scope_rows.append(row)
+
+            if in_scope_rows:
+                return in_scope_rows
+
+            logger.warning(
+                "CapacityLedgerEntries server-side filter returned out-of-scope rows; using paginated fallback",
+                extra={
+                    "posting_date": posting_date.isoformat(),
+                    "work_center_no": work_center_no,
+                    "filtered_row_count": len(filtered_rows),
+                    "observed_filtered_dates": sorted(observed_filtered_dates),
+                },
+            )
 
         pages = 0
         skip = 0
@@ -466,11 +499,17 @@ class PlannerDailyReportService:
             if not values:
                 break
 
+            page_dates: List[dt.date] = []
+            page_has_older_than_target = False
             for row in values:
                 row_date = _parse_odata_date(row.get("Posting_Date") or row.get("PostingDate"))
                 if row_date is None:
                     continue
+                page_dates.append(row_date)
                 observed_dates.append(row_date)
+                if row_date < posting_date:
+                    page_has_older_than_target = True
+                    continue
                 if row_date == posting_date:
                     if work_center_no:
                         row_work_center_no = (
@@ -481,6 +520,13 @@ class PlannerDailyReportService:
                         if str(row_work_center_no or "") != work_center_no:
                             continue
                     rows.append(row)
+
+            is_descending = all(
+                page_dates[idx] >= page_dates[idx + 1]
+                for idx in range(len(page_dates) - 1)
+            )
+            if rows and page_has_older_than_target and is_descending:
+                break
 
             skip += page_size
 
@@ -676,7 +722,10 @@ class PlannerDailyReportService:
     ) -> str:
         normalized_filter = (tasklist_filter or "").strip().lower()
         normalized_work_center = (work_center_no or "").strip()
-        return f"{posting_date.isoformat()}|{normalized_work_center}|{normalized_filter}"
+        return (
+            f"{PlannerDailyReportService.DAILY_REPORT_CACHE_VERSION}|"
+            f"{posting_date.isoformat()}|{normalized_work_center}|{normalized_filter}"
+        )
 
     def _count_remaining_for_day(
         self,
@@ -699,4 +748,3 @@ class PlannerDailyReportService:
                 continue
             orders.add(str(prod_order_no))
         return len(orders)
-
