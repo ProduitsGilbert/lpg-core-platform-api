@@ -95,7 +95,13 @@ class CashflowProjection(BaseModel):
 
 
 class AccountsReceivableInvoice(BaseModel):
+    entry_no: Optional[int] = None
     invoice_no: str
+    document_no: Optional[str] = None
+    document_type: Optional[str] = None
+    description: Optional[str] = None
+    division: Optional[str] = None
+    region_code: Optional[str] = None
     customer_no: Optional[str] = None
     customer_name: Optional[str] = None
     bill_to_customer_no: Optional[str] = None
@@ -105,6 +111,7 @@ class AccountsReceivableInvoice(BaseModel):
     posted_batch_name: Optional[str] = None
     total_amount: Optional[Decimal] = None
     remaining_amount: Optional[Decimal] = None
+    remaining_amt: Optional[Decimal] = None
     external_document_no: Optional[str] = None
     currency_code: Optional[str] = None
     closed: Optional[bool] = None
@@ -144,7 +151,6 @@ class AccountsReceivableCacheStatus(BaseModel):
     cache_key: str
     invoice_count: int = 0
     updated_at: Optional[datetime] = None
-
 
 
 

@@ -132,7 +132,7 @@ class ERPClientProtocol(Protocol):
         invoice_no: Optional[str] = None,
         top: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """Retrieve open posted sales invoices for AR collections."""
+        """Retrieve open customer-ledger records for AR collections."""
         ...
 
     async def get_closed_posted_sales_invoices(

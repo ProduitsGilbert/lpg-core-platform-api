@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 SQL_CREATED_DRAWINGS_PER_USER = text(
     """
     SELECT
-        COUNT(1) AS Count,
-        FORMAT(EPMM.createStampA2, 'yyyy-MM-dd') AS CreationDate,
+        COUNT(DISTINCT EPMM.idA2A2) AS Count,
+        CONVERT(char(10), CAST(EPMM.createStampA2 AS date), 23) AS CreationDate,
         CUSR.fullName AS CreatedBy
     FROM pdmpl90.EPMDocumentMaster AS EPMM
         INNER JOIN pdmpl90.EPMDocument AS EPMD ON EPMD.idA3masterReference = EPMM.idA2A2
@@ -39,17 +39,17 @@ SQL_CREATED_DRAWINGS_PER_USER = text(
         AND EPMM.documentNumber LIKE '%-[67][0-9][0-9].%'
         AND EPMM.createStampA2 = EPMD.createStampA2
     GROUP BY
-        FORMAT(EPMM.createStampA2, 'yyyy-MM-dd'),
+        CAST(EPMM.createStampA2 AS date),
         CUSR.fullName
-    ORDER BY FORMAT(EPMM.createStampA2, 'yyyy-MM-dd') DESC
+    ORDER BY CAST(EPMM.createStampA2 AS date) DESC
     """
 )
 
 SQL_MODIFIED_DRAWINGS_PER_USER = text(
     """
     SELECT
-        COUNT(1) AS Count,
-        FORMAT(EPMD.modifyStampA2, 'yyyy-MM-dd') AS LastModified,
+        COUNT(DISTINCT EPMM.idA2A2) AS Count,
+        CONVERT(char(10), CAST(EPMD.modifyStampA2 AS date), 23) AS LastModified,
         MUSR.fullName AS ModifiedBy
     FROM pdmpl90.EPMDocumentMaster AS EPMM
         INNER JOIN pdmpl90.EPMDocument AS EPMD ON EPMD.idA3masterReference = EPMM.idA2A2
@@ -58,11 +58,11 @@ SQL_MODIFIED_DRAWINGS_PER_USER = text(
         AND DATEDIFF(DAY, EPMD.modifyStampA2, GETDATE()) < 365
         AND EPMD.statecheckoutInfo = 'c/i'
         AND EPMM.documentNumber LIKE '%-[67][0-9][0-9].%'
-        AND FORMAT(EPMD.modifyStampA2, 'yyyy-MM-dd') <> FORMAT(EPMM.createStampA2, 'yyyy-MM-dd')
+        AND CAST(EPMD.modifyStampA2 AS date) <> CAST(EPMM.createStampA2 AS date)
     GROUP BY
-        FORMAT(EPMD.modifyStampA2, 'yyyy-MM-dd'),
+        CAST(EPMD.modifyStampA2 AS date),
         MUSR.fullName
-    ORDER BY FORMAT(EPMD.modifyStampA2, 'yyyy-MM-dd') DESC
+    ORDER BY CAST(EPMD.modifyStampA2 AS date) DESC
     """
 )
 
@@ -182,4 +182,3 @@ class WindchillRepository:
             )
             for row in rows
         ]
-
