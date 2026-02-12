@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from uuid import UUID, uuid4
 import logging
+import json
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -27,6 +28,13 @@ from app.errors import DatabaseError
 from app.integrations.cedule_repository import get_cedule_engine
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class CeduleVentesSousTraitanceRepository:
@@ -533,7 +541,44 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to delete routing step", exc_info=exc)
             raise DatabaseError("Unable to delete routing step") from exc
 
-    def start_analysis(self, quote_id: UUID) -> UUID:
+    def get_quote_source_text(self, quote_id: UUID) -> str:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            SELECT p.[extracted_text]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_files] f
+            LEFT JOIN [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_file_pages] p
+              ON p.[file_id] = f.[file_id]
+            WHERE f.[quote_id] = :quote_id
+            ORDER BY f.[uploaded_at], p.[page_no]
+            """
+        )
+        quote_stmt = text(
+            """
+            SELECT [notes]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quotes]
+            WHERE [quote_id] = :quote_id
+            """
+        )
+        try:
+            chunks: list[str] = []
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, {"quote_id": str(quote_id)}).mappings().all()
+                for row in rows:
+                    extracted = row.get("extracted_text")
+                    if extracted:
+                        chunks.append(str(extracted))
+                if not chunks:
+                    quote_row = conn.execute(quote_stmt, {"quote_id": str(quote_id)}).mappings().first()
+                    if quote_row and quote_row.get("notes"):
+                        chunks.append(str(quote_row.get("notes")))
+            return "\n\n".join(chunks).strip()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to load quote source text", exc_info=exc)
+            raise DatabaseError("Unable to load quote source text") from exc
+
+    def create_analysis_run(self, quote_id: UUID, *, model_name: str, stage: str = "routing") -> UUID:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
         run_id = uuid4()
@@ -541,22 +586,261 @@ class CeduleVentesSousTraitanceRepository:
             """
             INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_llm_runs]
             (
-                [run_id], [quote_id], [stage], [model_name], [input_json], [output_json], [ended_at], [status]
+                [run_id], [quote_id], [stage], [model_name], [input_json], [status]
             )
             VALUES
             (
-                :run_id, :quote_id, 'routing', 'manual-trigger', '{}',
-                '{"message":"analysis scheduled"}', SYSUTCDATETIME(), 'ok'
+                :run_id, :quote_id, :stage, :model_name, :input_json, 'ok'
             )
             """
         )
         try:
             with self._engine.begin() as conn:
-                conn.execute(stmt, {"run_id": str(run_id), "quote_id": str(quote_id)})
+                conn.execute(
+                    stmt,
+                    {
+                        "run_id": str(run_id),
+                        "quote_id": str(quote_id),
+                        "stage": stage,
+                        "model_name": model_name,
+                        "input_json": "{}",
+                    },
+                )
             return run_id
         except SQLAlchemyError as exc:
-            logger.error("Failed to start analysis run", exc_info=exc)
-            raise DatabaseError("Unable to start analysis") from exc
+            logger.error("Failed to create analysis run", exc_info=exc)
+            raise DatabaseError("Unable to create analysis run") from exc
+
+    def complete_analysis_run(self, run_id: UUID, output: dict[str, Any]) -> None:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_llm_runs]
+            SET [output_json] = :output_json, [ended_at] = SYSUTCDATETIME(), [status] = 'ok'
+            WHERE [run_id] = :run_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(stmt, {"run_id": str(run_id), "output_json": json.dumps(output, ensure_ascii=True)})
+        except SQLAlchemyError as exc:
+            logger.error("Failed to complete analysis run", exc_info=exc)
+            raise DatabaseError("Unable to complete analysis run") from exc
+
+    def fail_analysis_run(self, run_id: UUID, error_text: str) -> None:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_llm_runs]
+            SET [error_text] = :error_text, [ended_at] = SYSUTCDATETIME(), [status] = 'error'
+            WHERE [run_id] = :run_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(stmt, {"run_id": str(run_id), "error_text": error_text[:4000]})
+        except SQLAlchemyError as exc:
+            logger.error("Failed to mark analysis run as failed", exc_info=exc)
+            raise DatabaseError("Unable to update failed analysis run") from exc
+
+    def upsert_part_from_analysis(self, quote_id: UUID, metadata: dict[str, Any], classification: dict[str, Any], complexity: dict[str, Any]) -> UUID:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        find_stmt = text(
+            """
+            SELECT TOP 1 [part_id]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            WHERE [quote_id] = :quote_id
+            ORDER BY [created_at]
+            """
+        )
+        update_stmt = text(
+            """
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            SET
+                [customer_part_number] = :customer_part_number,
+                [internal_part_number] = :internal_part_number,
+                [quantity] = :quantity,
+                [material] = :material,
+                [thickness_mm] = :thickness_mm,
+                [weight_kg] = :weight_kg,
+                [envelope_x_mm] = :envelope_x_mm,
+                [envelope_y_mm] = :envelope_y_mm,
+                [envelope_z_mm] = :envelope_z_mm,
+                [shape] = :shape,
+                [complexity_score] = :complexity_score,
+                [updated_at] = SYSUTCDATETIME()
+            WHERE [part_id] = :part_id
+            """
+        )
+        insert_stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            (
+                [part_id], [quote_id], [customer_part_number], [internal_part_number], [quantity], [material],
+                [thickness_mm], [weight_kg], [envelope_x_mm], [envelope_y_mm], [envelope_z_mm], [shape], [complexity_score]
+            )
+            VALUES
+            (
+                :part_id, :quote_id, :customer_part_number, :internal_part_number, :quantity, :material,
+                :thickness_mm, :weight_kg, :envelope_x_mm, :envelope_y_mm, :envelope_z_mm, :shape, :complexity_score
+            )
+            """
+        )
+
+        envelope = classification.get("overall_envelope_mm") or {}
+        params = {
+            "quote_id": str(quote_id),
+            "customer_part_number": metadata.get("customer_part_number"),
+            "internal_part_number": metadata.get("internal_part_number"),
+            "quantity": _safe_int(metadata.get("quantity_requested"), default=1),
+            "material": metadata.get("material_spec"),
+            "thickness_mm": metadata.get("thickness_mm"),
+            "weight_kg": classification.get("weight_estimate_kg"),
+            "envelope_x_mm": envelope.get("x"),
+            "envelope_y_mm": envelope.get("y"),
+            "envelope_z_mm": envelope.get("z"),
+            "shape": str(classification.get("shape_class") or "unknown"),
+            "complexity_score": complexity.get("complexity_score"),
+        }
+
+        try:
+            with self._engine.begin() as conn:
+                existing = conn.execute(find_stmt, {"quote_id": str(quote_id)}).scalar()
+                if existing:
+                    conn.execute(update_stmt, {"part_id": str(existing), **params})
+                    return UUID(str(existing))
+                new_part_id = uuid4()
+                conn.execute(insert_stmt, {"part_id": str(new_part_id), **params})
+                return new_part_id
+        except SQLAlchemyError as exc:
+            logger.error("Failed to upsert quote part from analysis", exc_info=exc)
+            raise DatabaseError("Unable to upsert quote part") from exc
+
+    def save_part_extraction(self, part_id: UUID, *, model_name: str, prompt_version: str, payload: dict[str, Any], confidence: float | None) -> None:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        extraction_id = uuid4()
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_extractions]
+            (
+                [extraction_id], [part_id], [model_name], [prompt_version], [extracted_json], [confidence]
+            )
+            VALUES
+            (
+                :extraction_id, :part_id, :model_name, :prompt_version, :extracted_json, :confidence
+            )
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "extraction_id": str(extraction_id),
+                        "part_id": str(part_id),
+                        "model_name": model_name,
+                        "prompt_version": prompt_version,
+                        "extracted_json": json.dumps(payload, ensure_ascii=True),
+                        "confidence": confidence,
+                    },
+                )
+        except SQLAlchemyError as exc:
+            logger.error("Failed to save part extraction", exc_info=exc)
+            raise DatabaseError("Unable to save part extraction") from exc
+
+    def ensure_operation_catalog_entry(self, operation_code: str) -> UUID:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        normalized = (operation_code or "OP_GENERIC").strip().upper()[:50]
+        select_stmt = text(
+            """
+            SELECT [operation_id]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_operation_catalog]
+            WHERE [code] = :code
+            """
+        )
+        insert_stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_operation_catalog]
+            ([operation_id], [code], [name], [default_unit])
+            VALUES
+            (:operation_id, :code, :name, 'min')
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                existing = conn.execute(select_stmt, {"code": normalized}).scalar()
+                if existing:
+                    return UUID(str(existing))
+                operation_id = uuid4()
+                conn.execute(
+                    insert_stmt,
+                    {
+                        "operation_id": str(operation_id),
+                        "code": normalized,
+                        "name": normalized.replace("_", " ").title(),
+                    },
+                )
+                return operation_id
+        except SQLAlchemyError as exc:
+            logger.error("Failed to ensure operation catalog entry", exc_info=exc)
+            raise DatabaseError("Unable to ensure operation catalog entry") from exc
+
+    def save_generated_routings(self, part_id: UUID, scenarios_payload: dict[str, Any]) -> list[RoutingResponse]:
+        scenarios = scenarios_payload.get("scenarios") if isinstance(scenarios_payload, dict) else None
+        if not isinstance(scenarios, list):
+            return []
+
+        created: list[RoutingResponse] = []
+        for index, scenario in enumerate(scenarios[:3]):
+            if not isinstance(scenario, dict):
+                continue
+            routing = self.create_routing(
+                part_id,
+                RoutingCreateRequest(
+                    scenario_name=str(scenario.get("scenario_name") or f"Scenario {index + 1}")[:200],
+                    created_by="llm",
+                    selected=index == 0,
+                    rationale=str(scenario.get("rationale") or "")[:4000] or None,
+                ),
+            )
+            steps = scenario.get("steps") or []
+            if not isinstance(steps, list):
+                steps = []
+            for step_index, step in enumerate(steps):
+                if not isinstance(step, dict):
+                    continue
+                op_code = str(step.get("operation_code") or f"OP_{step_index + 1}")
+                operation_id = self.ensure_operation_catalog_entry(op_code)
+                self.create_routing_step(
+                    routing.routing_id,
+                    RoutingStepCreateRequest(
+                        step_no=step_index + 1,
+                        operation_id=operation_id,
+                        machine_group_id=step.get("machine_group_id"),
+                        description=step.get("description"),
+                        setup_time_min=Decimal(str(step.get("setup_time_min") or "0")),
+                        cycle_time_min=Decimal(str(step.get("cycle_time_min") or "0")),
+                        handling_time_min=Decimal(str(step.get("handling_time_min") or "0")),
+                        inspection_time_min=Decimal(str(step.get("inspection_time_min") or "0")),
+                        qty_basis=1,
+                        estimator_note=None,
+                        time_confidence=Decimal(str(step.get("time_confidence") or "0")) if step.get("time_confidence") is not None else None,
+                        source="llm",
+                    ),
+                )
+            created.append(routing)
+        return created
+
+    def start_analysis(self, quote_id: UUID) -> UUID:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        # Backward-compatible fallback used by older service code paths.
+        return self.create_analysis_run(quote_id, model_name="manual-trigger")
 
     def get_job(self, job_id: UUID) -> Optional[JobStatusResponse]:
         if not self._engine:

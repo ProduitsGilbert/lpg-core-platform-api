@@ -1,0 +1,120 @@
+version: 1
+units:
+  length: mm
+  weight: kg
+  time: min
+
+machine_groups:
+  - id: CNC_BORING_LARGE_4AX
+    name: "CNC Boring Large 4-Axis"
+    process_families: ["milling", "boring", "drilling", "tapping"]
+    axes: 4
+    envelope_mm: { x: 2500, y: 1500, z: 1200 }
+    max_part_weight_kg: 5000
+    table_mm: { x: 2000, y: 1200 }
+    rotary:
+      has_rotary: true
+      type: "indexing"
+      axis: "B"
+    capabilities:
+      can_turn: false
+      can_bore: true
+      can_threadmill: true
+      can_probe: true
+      coolant_through_spindle: true
+    limits:
+      min_hole_dia_mm: 3
+      max_bore_dia_mm: 300
+      min_wall_thickness_mm: 4
+      max_tool_stickout_mm: 250
+    quality:
+      typical_tolerance_mm: 0.05
+      best_tolerance_mm: 0.02
+      typical_surface_finish_ra_um: 3.2
+      best_surface_finish_ra_um: 1.6
+    materials:
+      allowed: ["steel", "stainless", "aluminum"]
+      notes: "Avoid hardened > 32 HRC unless approved."
+    costing:
+      shop_rate_per_hr: 150
+      setup_rate_per_hr: 150
+    time_defaults:
+      load_unload_min: 10
+      flip_reclamp_min: 15
+      tool_change_sec: 8
+    setup_model:
+      baseline_setup_min: 120
+      modifiers:
+        extra_setup_each_min: 45
+        heavy_part_over_2000kg_min: 30
+        tight_tolerance_multiplier: 1.25
+        complex_fixturing_multiplier: 1.30
+    notes:
+      - "Prefer this group for prismatic parts requiring large envelope."
+      - "If angled features > 1 orientation, consider 5-axis group."
+
+  - id: CNC_TURN_BAR_MEDIUM
+    name: "CNC Turning - Bar Work Medium"
+    process_families: ["turning", "drilling", "tapping"]
+    axes: 2
+    turning:
+      max_bar_dia_mm: 80
+      max_turn_length_mm: 400
+      max_swing_mm: 250
+    max_part_weight_kg: 40
+    capabilities:
+      can_turn: true
+      can_live_tooling: false
+      can_subspindle: false
+    quality:
+      typical_tolerance_mm: 0.05
+      best_tolerance_mm: 0.02
+    costing:
+      shop_rate_per_hr: 120
+      setup_rate_per_hr: 120
+    setup_model:
+      baseline_setup_min: 45
+      modifiers:
+        new_programming_min: 30
+        threading_multiplier: 1.15
+        tight_tolerance_multiplier: 1.20
+
+  - id: PLASMA_TABLE_LARGE
+    name: "Plasma Cutting Table Large"
+    process_families: ["plasma_cut"]
+    envelope_mm: { x: 3000, y: 1500, z: 0 }
+    plasma:
+      max_thickness_mm: 50
+      min_hole_dia_mm: 8
+    costing:
+      shop_rate_per_hr: 95
+    time_model:
+      params:
+        pierce_time_sec_each: 3
+        leadin_out_sec_each: 2
+      speed_table_mm_per_min:
+        steel:
+          "6": 6000
+          "12": 3500
+          "25": 1800
+          "50": 800
+    notes:
+      - "Small holes may require drilling instead of plasma."
+
+  - id: WELD_FAB_STANDARD
+    name: "Welding / Fabrication Standard Bay"
+    process_families: ["welding", "fitting", "grinding"]
+    envelope_mm: { x: 6000, y: 2500, z: 2500 }
+    max_part_weight_kg: 8000
+    welding:
+      processes: ["MIG", "TIG"]
+      positioner: false
+    costing:
+      shop_rate_per_hr: 110
+    time_model:
+      weld_minutes_per_meter_by_size_mm:
+        "3": 10
+        "6": 18
+        "10": 30
+      fitting_min_per_joint: 8
+      grind_min_per_meter: 6

@@ -18,6 +18,7 @@ from tenacity import (
 import logging
 
 logger = logging.getLogger(__name__)
+import logfire
 
 from app.settings import settings
 from app.errors import ExternalServiceException

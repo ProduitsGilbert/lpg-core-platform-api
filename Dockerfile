@@ -51,6 +51,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application code
 COPY --chown=appuser:appuser app/ ./app/
+COPY --chown=appuser:appuser config/ ./config/
 COPY --chown=appuser:appuser migration/ ./migration/
 COPY --chown=appuser:appuser tests/ ./tests/
 COPY --chown=appuser:appuser docs/ ./docs/
