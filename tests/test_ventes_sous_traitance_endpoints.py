@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.api.v1.ventes_sous_traitance.router import get_service
-from app.domain.ventes_sous_traitance.models import QuoteSummary
+from app.domain.ventes_sous_traitance.models import CustomerSummary, QuoteSummary
 
 
 def _client_with_service(stub: MagicMock) -> TestClient:
@@ -56,6 +56,27 @@ def test_list_quotes_endpoint() -> None:
     assert len(payload) == 1
     assert payload[0]["quote_id"] == str(quote.quote_id)
     stub.list_quotes.assert_called_once_with(status="draft", customer_id=quote.customer_id)
+    app.dependency_overrides.clear()
+
+
+def test_list_customers_endpoint() -> None:
+    stub = MagicMock()
+    customer = CustomerSummary(
+        customer_id=uuid4(),
+        name="Produits Gilbert Inc.",
+        email="sales@example.com",
+        phone="555-111-2222",
+        created_at=datetime.now(timezone.utc),
+    )
+    stub.list_customers.return_value = [customer]
+    client = _client_with_service(stub)
+    response = client.get("/api/v1/customers?q=gilbert&limit=50")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["customer_id"] == str(customer.customer_id)
+    assert payload[0]["name"] == customer.name
+    stub.list_customers.assert_called_once_with(search="gilbert", limit=50)
     app.dependency_overrides.clear()
 
 

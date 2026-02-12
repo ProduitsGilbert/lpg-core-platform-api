@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.domain.ventes_sous_traitance.analysis_pipeline import VentesSousTraitanceAnalysisPipeline
 from app.domain.ventes_sous_traitance.models import (
+    CustomerSummary,
     JobStatusResponse,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
@@ -40,6 +41,9 @@ class VentesSousTraitanceService:
     @property
     def is_configured(self) -> bool:
         return self._repository.is_configured
+
+    def list_customers(self, *, search: Optional[str], limit: int = 200) -> list[CustomerSummary]:
+        return self._repository.list_customers(search=search, limit=limit)
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         return self._repository.list_quotes(status=status, customer_id=customer_id)

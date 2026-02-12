@@ -52,6 +52,14 @@ class QuoteSummary(BaseModel):
     updated_at: datetime
 
 
+class CustomerSummary(BaseModel):
+    customer_id: UUID
+    name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    created_at: datetime
+
+
 class RoutingCreateRequest(BaseModel):
     scenario_name: str = Field(min_length=1, max_length=200)
     created_by: Optional[str] = Field(default=None, max_length=200)

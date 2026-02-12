@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from pypdf import PdfReader
 
 from app.domain.ventes_sous_traitance.models import (
+    CustomerSummary,
     JobStatusResponse,
     QuoteAnalysisStartResponse,
     QuoteCreateRequest,
@@ -96,6 +97,15 @@ async def create_quote(
     service: VentesSousTraitanceService = Depends(get_service),
 ) -> QuoteSummary:
     return service.create_quote(payload)
+
+
+@router.get("/customers", response_model=list[CustomerSummary])
+async def list_customers(
+    search: Optional[str] = Query(default=None, alias="q"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[CustomerSummary]:
+    return service.list_customers(search=search, limit=limit)
 
 
 @router.get("/quotes", response_model=list[QuoteSummary])

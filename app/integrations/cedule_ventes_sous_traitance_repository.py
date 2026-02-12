@@ -12,6 +12,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.domain.ventes_sous_traitance.models import (
+    CustomerSummary,
     JobStatusResponse,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
@@ -44,6 +45,34 @@ class CeduleVentesSousTraitanceRepository:
     @property
     def is_configured(self) -> bool:
         return self._engine is not None
+
+    def list_customers(self, *, search: Optional[str], limit: int = 200) -> list[CustomerSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters: list[str] = []
+        params: dict[str, Any] = {"limit": safe_limit}
+        if search:
+            filters.append("([name] LIKE :search OR [email] LIKE :search OR [phone] LIKE :search)")
+            params["search"] = f"%{search.strip()}%"
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [customer_id], [name], [email], [phone], [created_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            {where_clause}
+            ORDER BY [name] ASC, [created_at] DESC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).mappings().all()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to list subcontracting customers", exc_info=exc)
+            raise DatabaseError("Unable to list customers") from exc
+        return [self._to_customer(row) for row in rows]
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         if not self._engine:
@@ -938,6 +967,15 @@ class CeduleVentesSousTraitanceRepository:
             notes=row.get("notes"),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
+        )
+
+    def _to_customer(self, row: dict[str, Any]) -> CustomerSummary:
+        return CustomerSummary(
+            customer_id=UUID(str(row.get("customer_id"))),
+            name=str(row.get("name") or ""),
+            email=row.get("email"),
+            phone=row.get("phone"),
+            created_at=row.get("created_at"),
         )
 
     def _to_routing(self, row: dict[str, Any]) -> RoutingResponse:
