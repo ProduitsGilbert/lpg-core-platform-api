@@ -106,6 +106,36 @@ class _InMemoryAnalyzeRepo:
         return self._runs.get(job_id)
 
 
+class _StubAIClient:
+    enabled = True
+
+    def extract_structured_data(self, text: str, schema: dict, context: str | None = None) -> dict:
+        payload = dict(schema)
+        if "customer_name" in payload:
+            payload["customer_name"] = "Inotech Fabrication Inc" if "inotech" in text.lower() else "Unknown"
+            payload["confidence"] = 0.9
+        elif "shape_class" in payload:
+            payload["shape_class"] = "prismatic"
+            payload["confidence"] = 0.7
+        elif "complexity_score" in payload:
+            payload["complexity_score"] = 2
+            payload["drivers"] = ["light plate work"]
+            payload["risk_flags"] = []
+            payload["confidence"] = 0.75
+        elif "scenarios" in payload:
+            payload["scenarios"] = [
+                {
+                    "scenario_name": "Baseline",
+                    "rationale": "stub for endpoint pipeline test",
+                    "confidence_score": 0.7,
+                    "assumptions": [],
+                    "unknowns": [],
+                    "steps": [],
+                }
+            ]
+        return payload
+
+
 def test_analyze_endpoint_extracts_customer_from_sample_pdf() -> None:
     sample_pdf = Path("docs/sous-traitance_example/803100-1343_ok.pdf")
     if not sample_pdf.exists():
@@ -114,7 +144,10 @@ def test_analyze_endpoint_extracts_customer_from_sample_pdf() -> None:
     quote_id = uuid4()
 
     repo = _InMemoryAnalyzeRepo(quote_id=quote_id, source_text=source_text)
-    service = VentesSousTraitanceService(repository=repo, analysis_pipeline=VentesSousTraitanceAnalysisPipeline())
+    service = VentesSousTraitanceService(
+        repository=repo,
+        analysis_pipeline=VentesSousTraitanceAnalysisPipeline(ai_client=_StubAIClient()),
+    )
     app.dependency_overrides[get_service] = lambda: service
     client = TestClient(app)
 

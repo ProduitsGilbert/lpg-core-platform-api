@@ -63,6 +63,9 @@ class VentesSousTraitanceAnalysisPipeline:
                 "Return only factual values found in text; keep missing fields null."
             ),
         )
+        # Keep strictly LLM-first when AI assistance is enabled.
+        if self._ai.enabled:
+            return result if isinstance(result, dict) else schema
         return self._enrich_step1_from_text(source_text, result if isinstance(result, dict) else schema)
 
     def _step2_classify(self, source_text: str) -> dict[str, Any]:

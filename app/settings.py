@@ -369,6 +369,22 @@ class Settings(BaseSettings):
         description="xAI API key used for Grok image/video generation",
     )
 
+    xai_model: str = Field(
+        default="grok-4-1-fast-reasoning",
+        description="xAI model to use for structured reasoning tasks"
+    )
+
+    xai_reasoning_effort: str = Field(
+        default="high",
+        description="xAI reasoning effort: low|medium|high"
+    )
+
+    xai_timeout_seconds: int = Field(
+        default=3600,
+        ge=30,
+        description="xAI request timeout in seconds for long reasoning tasks"
+    )
+
     openrouter_ocr_model: str = Field(
         default="openrouter/auto",
         description="OpenRouter model to use for OCR fallback"
@@ -923,6 +939,14 @@ class Settings(BaseSettings):
         if v and not v.startswith(("http://", "https://")):
             raise ValueError("ERP base URL must start with http:// or https://")
         return v
+
+    @field_validator("xai_reasoning_effort", mode="before")
+    @classmethod
+    def validate_xai_reasoning_effort(cls, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if normalized not in {"low", "medium", "high"}:
+            return "high"
+        return normalized
 
     @field_validator("fastems1_plan_jobs_per_machine", mode="before")
     @classmethod

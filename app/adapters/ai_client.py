@@ -27,6 +27,7 @@ from app.ports import AIClientProtocol
 
 class AIProvider(str, Enum):
     """AI service provider enumeration."""
+    XAI = "xai"
     OPENAI = "openai"
     LOCAL_AGENT = "local_agent"
 
@@ -51,8 +52,11 @@ class AIClient(AIClientProtocol):
             local_agent_url: Override local agent URL from settings
         """
         self.openai_key = openai_key or settings.openai_api_key
+        self.grok_key = settings.grok_api_key
         self.local_agent_url = local_agent_url or settings.local_agent_base_url
         self.openai_model = settings.openai_model
+        self.xai_model = settings.xai_model
+        self.xai_reasoning_effort = settings.xai_reasoning_effort
         self._enabled = settings.enable_ai_assistance
         
         # Initialize OpenAI client if configured
@@ -66,6 +70,19 @@ class AIClient(AIClientProtocol):
                 },
                 timeout=settings.request_timeout
             )
+
+        # Initialize xAI client if configured.
+        self.xai_client = None
+        if self._enabled and self.grok_key:
+            xai_timeout = max(settings.request_timeout, settings.xai_timeout_seconds)
+            self.xai_client = httpx.Client(
+                base_url="https://api.x.ai/v1",
+                headers={
+                    "Authorization": f"Bearer {self.grok_key}",
+                    "Content-Type": "application/json",
+                },
+                timeout=xai_timeout,
+            )
         
         # Initialize local agent client if configured
         self.local_client = None
@@ -78,6 +95,8 @@ class AIClient(AIClientProtocol):
     
     def __del__(self):
         """Clean up HTTP clients on deletion."""
+        if hasattr(self, 'xai_client') and self.xai_client:
+            self.xai_client.close()
         if hasattr(self, 'openai_client') and self.openai_client:
             self.openai_client.close()
         if hasattr(self, 'local_client') and self.local_client:
@@ -135,19 +154,26 @@ class AIClient(AIClientProtocol):
         ):
             prompt = self._build_po_analysis_prompt(po_data, analysis_type)
             
+            # Prefer xAI Grok for extraction/reasoning when configured.
+            if self.xai_client:
+                try:
+                    return self._analyze_with_xai(prompt, "po_analysis")
+                except Exception as e:
+                    logger.warning("xAI analysis failed, trying OpenAI/local fallback: %s", e)
+
             # Try OpenAI first, fallback to local agent
             if self.openai_client:
                 try:
                     return self._analyze_with_openai(prompt, "po_analysis")
                 except Exception as e:
-                    logfire.warning(f"OpenAI analysis failed, trying local agent: {e}")
+                    logger.warning("OpenAI analysis failed, trying local agent: %s", e)
             
             if self.local_client:
                 return self._analyze_with_local_agent(prompt, "po_analysis")
             
             raise ExternalServiceException(
-                "AI",
-                "No AI service available for analysis"
+                detail="No AI service available for analysis",
+                service="AI",
             )
     
     def _build_po_analysis_prompt(
@@ -241,18 +267,24 @@ Expected Schema:
 
 Return only valid JSON matching the schema."""
             
+            if self.xai_client:
+                try:
+                    return self._analyze_with_xai(prompt, "extraction")
+                except Exception as e:
+                    logger.warning("xAI structured extraction failed, trying OpenAI/local fallback: %s", e)
+
             if self.openai_client:
                 try:
                     return self._analyze_with_openai(prompt, "extraction")
                 except Exception as e:
-                    logfire.warning(f"OpenAI extraction failed: {e}")
+                    logger.warning("OpenAI extraction failed: %s", e)
             
             if self.local_client:
                 return self._analyze_with_local_agent(prompt, "extraction")
             
             raise ExternalServiceException(
-                "AI",
-                "No AI service available for extraction"
+                detail="No AI service available for extraction",
+                service="AI",
             )
     
     @retry(
@@ -303,11 +335,17 @@ Validation Errors:
 
 Provide specific corrections for each field with explanations."""
             
+            if self.xai_client:
+                try:
+                    return self._analyze_with_xai(prompt, "corrections")
+                except Exception as e:
+                    logger.warning("xAI correction suggestion failed, trying OpenAI/local fallback: %s", e)
+
             if self.openai_client:
                 try:
                     return self._analyze_with_openai(prompt, "corrections")
                 except Exception as e:
-                    logfire.warning(f"OpenAI correction suggestion failed: {e}")
+                    logger.warning("OpenAI correction suggestion failed: %s", e)
             
             if self.local_client:
                 return self._analyze_with_local_agent(prompt, "corrections")
@@ -337,7 +375,7 @@ Provide specific corrections for each field with explanations."""
             ExternalServiceException: If OpenAI API fails
         """
         if not self.openai_client:
-            raise ExternalServiceException("AI", "OpenAI client not configured")
+            raise ExternalServiceException(detail="OpenAI client not configured", service="AI")
         
         try:
             response = self.openai_client.post(
@@ -371,7 +409,7 @@ Provide specific corrections for each field with explanations."""
                     return parsed
                 except json.JSONDecodeError:
                     logfire.error(f"Failed to parse OpenAI JSON response: {content}")
-                    raise ExternalServiceException("AI", "Invalid JSON response from OpenAI")
+                    raise ExternalServiceException(detail="Invalid JSON response from OpenAI", service="AI")
             
             # For analysis tasks, structure the response
             return self._structure_analysis_response(content, "openai")
@@ -379,15 +417,95 @@ Provide specific corrections for each field with explanations."""
         except httpx.HTTPStatusError as e:
             logfire.error(f"OpenAI API error: {e.response.status_code}")
             raise ExternalServiceException(
-                "AI",
-                f"OpenAI API error: {e.response.status_code}",
-                context={"status_code": e.response.status_code}
+                detail=f"OpenAI API error: {e.response.status_code}",
+                service="AI",
             )
         except httpx.TimeoutException:
-            raise ExternalServiceException("AI", "OpenAI API timeout")
+            raise ExternalServiceException(detail="OpenAI API timeout", service="AI")
         except Exception as e:
             logfire.error(f"OpenAI analysis error: {str(e)}")
-            raise ExternalServiceException("AI", f"OpenAI error: {str(e)}")
+            raise ExternalServiceException(detail=f"OpenAI error: {str(e)}", service="AI")
+
+    def _analyze_with_xai(
+        self,
+        prompt: str,
+        task_type: str,
+    ) -> Dict[str, Any]:
+        """
+        Perform analysis using xAI Grok chat completions.
+        """
+        if not self.xai_client:
+            raise ExternalServiceException(detail="xAI client not configured", service="AI")
+
+        try:
+            payload: Dict[str, Any] = {
+                "model": self.xai_model,
+                "reasoning_effort": self.xai_reasoning_effort,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert manufacturing estimator and technical drawing analyst. "
+                            "Return high-quality structured outputs that strictly follow schema constraints."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                "temperature": 0.1,
+            }
+            if task_type in {"extraction", "corrections"}:
+                payload["response_format"] = {"type": "json_object"}
+
+            response = self.xai_client.post("/chat/completions", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            content = (data.get("choices") or [{}])[0].get("message", {}).get("content")
+            if not isinstance(content, str):
+                raise ExternalServiceException(detail="xAI returned empty response content", service="AI")
+
+            if task_type in {"extraction", "corrections"}:
+                try:
+                    parsed = json.loads(content)
+                    if isinstance(parsed, dict):
+                        parsed["provider"] = "xai"
+                        parsed["model"] = self.xai_model
+                        parsed["reasoning_effort"] = self.xai_reasoning_effort
+                        return parsed
+                    raise ExternalServiceException(detail="xAI returned non-object JSON", service="AI")
+                except json.JSONDecodeError as exc:
+                    logfire.error(f"Failed to parse xAI JSON response: {content}")
+                    raise ExternalServiceException(detail="Invalid JSON response from xAI", service="AI") from exc
+
+            return self._structure_analysis_response(content, "xai")
+        except httpx.HTTPStatusError as e:
+            logfire.error(f"xAI API error: {e.response.status_code}")
+            response_text = ""
+            try:
+                response_text = (e.response.text or "")[:400]
+            except Exception:
+                response_text = ""
+            logger.error("xAI API error body: %s", response_text)
+            if task_type in {"extraction", "corrections"} and self.openai_client:
+                logger.warning("Retrying extraction with OpenAI fallback after xAI 4xx/5xx")
+                return self._analyze_with_openai(prompt, task_type)
+            raise ExternalServiceException(
+                detail=f"xAI API error: {e.response.status_code}",
+                service="AI",
+            )
+        except httpx.TimeoutException:
+            if task_type in {"extraction", "corrections"} and self.openai_client:
+                logger.warning("xAI timeout, retrying extraction with OpenAI fallback")
+                return self._analyze_with_openai(prompt, task_type)
+            raise ExternalServiceException(detail="xAI API timeout", service="AI")
+        except Exception as e:
+            logfire.error(f"xAI analysis error: {str(e)}")
+            if task_type in {"extraction", "corrections"} and self.openai_client:
+                logger.warning("xAI generic error, retrying extraction with OpenAI fallback: %s", e)
+                return self._analyze_with_openai(prompt, task_type)
+            raise ExternalServiceException(detail=f"xAI error: {str(e)}", service="AI")
     
     def _analyze_with_local_agent(
         self,
@@ -408,7 +526,7 @@ Provide specific corrections for each field with explanations."""
             ExternalServiceException: If local agent fails
         """
         if not self.local_client:
-            raise ExternalServiceException("AI", "Local agent not configured")
+            raise ExternalServiceException(detail="Local agent not configured", service="AI")
         
         try:
             response = self.local_client.post(
@@ -427,15 +545,14 @@ Provide specific corrections for each field with explanations."""
         except httpx.HTTPStatusError as e:
             logfire.error(f"Local agent error: {e.response.status_code}")
             raise ExternalServiceException(
-                "AI",
-                f"Local agent error: {e.response.status_code}",
-                context={"status_code": e.response.status_code}
+                detail=f"Local agent error: {e.response.status_code}",
+                service="AI",
             )
         except httpx.TimeoutException:
-            raise ExternalServiceException("AI", "Local agent timeout")
+            raise ExternalServiceException(detail="Local agent timeout", service="AI")
         except Exception as e:
             logfire.error(f"Local agent error: {str(e)}")
-            raise ExternalServiceException("AI", f"Local agent error: {str(e)}")
+            raise ExternalServiceException(detail=f"Local agent error: {str(e)}", service="AI")
     
     def _structure_analysis_response(
         self,
@@ -490,6 +607,7 @@ Provide specific corrections for each field with explanations."""
             Dictionary with service health status
         """
         health = {
+            "xai": False,
             "openai": False,
             "local_agent": False,
             "enabled": self.enabled
@@ -498,13 +616,20 @@ Provide specific corrections for each field with explanations."""
         if not self.enabled:
             return health
         
+        if self.xai_client:
+            try:
+                response = self.xai_client.get("/models", timeout=10)
+                health["xai"] = response.status_code == 200
+            except Exception as e:
+                logger.warning("xAI health check failed: %s", e)
+
         # Check OpenAI
         if self.openai_client:
             try:
                 response = self.openai_client.get("/models", timeout=5)
                 health["openai"] = response.status_code == 200
             except Exception as e:
-                logfire.warning(f"OpenAI health check failed: {e}")
+                logger.warning("OpenAI health check failed: %s", e)
         
         # Check local agent
         if self.local_client:
@@ -512,6 +637,6 @@ Provide specific corrections for each field with explanations."""
                 response = self.local_client.get("/health", timeout=5)
                 health["local_agent"] = response.status_code == 200
             except Exception as e:
-                logfire.warning(f"Local agent health check failed: {e}")
+                logger.warning("Local agent health check failed: %s", e)
         
         return health

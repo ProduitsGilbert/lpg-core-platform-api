@@ -30,6 +30,12 @@ class VentesSousTraitanceService:
         self._repository = repository or CeduleVentesSousTraitanceRepository()
         self._analysis_pipeline = analysis_pipeline or VentesSousTraitanceAnalysisPipeline()
 
+    @staticmethod
+    def _analysis_model_name() -> str:
+        if settings.grok_api_key:
+            return settings.xai_model
+        return settings.openai_model or "manual-trigger"
+
     @property
     def is_configured(self) -> bool:
         return self._repository.is_configured
@@ -82,7 +88,7 @@ class VentesSousTraitanceService:
     def start_analysis(self, quote_id: UUID) -> UUID:
         run_id = self._repository.create_analysis_run(
             quote_id,
-            model_name=settings.openai_model or "manual-trigger",
+            model_name=self._analysis_model_name(),
             stage="routing",
         )
         try:
@@ -102,21 +108,21 @@ class VentesSousTraitanceService:
 
             self._repository.save_part_extraction(
                 part_id=part_id,
-                model_name=settings.openai_model or "manual-trigger",
+                model_name=self._analysis_model_name(),
                 prompt_version="step1_metadata_v1",
                 payload=metadata if isinstance(metadata, dict) else {},
                 confidence=(metadata.get("confidence") if isinstance(metadata, dict) else None),
             )
             self._repository.save_part_extraction(
                 part_id=part_id,
-                model_name=settings.openai_model or "manual-trigger",
+                model_name=self._analysis_model_name(),
                 prompt_version="step2_classification_v1",
                 payload=classification if isinstance(classification, dict) else {},
                 confidence=(classification.get("confidence") if isinstance(classification, dict) else None),
             )
             self._repository.save_part_extraction(
                 part_id=part_id,
-                model_name=settings.openai_model or "manual-trigger",
+                model_name=self._analysis_model_name(),
                 prompt_version="step3_complexity_v1",
                 payload=complexity if isinstance(complexity, dict) else {},
                 confidence=(complexity.get("confidence") if isinstance(complexity, dict) else None),
