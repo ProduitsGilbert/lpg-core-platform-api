@@ -261,3 +261,71 @@ class OpenRouterResponse(BaseModel):
         default=False,
         description="Indicates the response was generated locally because OpenRouter is not configured.",
     )
+
+
+class GrokImageGenerationRequest(BaseModel):
+    """Request payload for xAI image generation."""
+
+    prompt: str = Field(..., description="Text prompt describing the desired image.")
+    size: str = Field(
+        default="1024x1024",
+        description="Requested image size. Example: 1024x1024.",
+    )
+    n: int = Field(
+        default=1,
+        ge=1,
+        le=4,
+        description="Number of images to generate.",
+    )
+
+
+class GrokImageGenerationResponse(BaseModel):
+    """Response payload for xAI image generation."""
+
+    model: str
+    images: List[str] = Field(
+        default_factory=list,
+        description="Generated image URLs.",
+    )
+    revised_prompt: Optional[str] = Field(
+        default=None,
+        description="Prompt rewritten by the upstream model, when provided.",
+    )
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because Grok is not configured.",
+    )
+
+
+class GrokVideoGenerationRequest(BaseModel):
+    """Request payload for xAI video generation."""
+
+    prompt: str = Field(..., description="Text prompt describing the desired video.")
+    poll_timeout_seconds: int = Field(
+        default=180,
+        ge=10,
+        le=900,
+        description="Maximum time to wait for completion before returning timeout.",
+    )
+    poll_interval_seconds: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        description="Polling interval while waiting for video completion.",
+    )
+
+
+class GrokVideoGenerationResponse(BaseModel):
+    """Response payload for xAI video generation."""
+
+    model: str
+    request_id: str
+    status: str
+    video_url: Optional[str] = Field(
+        default=None,
+        description="Generated video URL when available.",
+    )
+    stubbed: bool = Field(
+        default=False,
+        description="Indicates the response was generated locally because Grok is not configured.",
+    )

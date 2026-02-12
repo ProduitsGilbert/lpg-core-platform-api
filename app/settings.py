@@ -360,6 +360,15 @@ class Settings(BaseSettings):
         description="OpenRouter API key for alternative LLM providers"
     )
 
+    grok_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GROK_API_KEY",
+            "XAI_API_KEY",
+        ),
+        description="xAI API key used for Grok image/video generation",
+    )
+
     openrouter_ocr_model: str = Field(
         default="openrouter/auto",
         description="OpenRouter model to use for OCR fallback"

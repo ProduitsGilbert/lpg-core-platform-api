@@ -271,6 +271,7 @@ Key configuration options (see `.env.example` for full list):
 | `ERP_MODE` | Integration mode: legacy/official/canary | legacy |
 | `LOGFIRE_API_KEY` | Logfire observability key | Optional |
 | `OPENAI_API_KEY` | OpenAI API key for AI features | Optional |
+| `GROK_API_KEY` | xAI Grok API key for image/video generation | Optional |
 | `ENABLE_SCHEDULER` | Enable background job scheduler | false |
 
 ### ERP Mode Migration
