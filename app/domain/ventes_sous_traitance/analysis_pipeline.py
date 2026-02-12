@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import re
 
 from app.adapters.ai_client import AIClient
 from app.domain.ventes_sous_traitance.machine_config import (
@@ -35,6 +36,12 @@ class VentesSousTraitanceAnalysisPipeline:
 
     def _step1_extract_metadata(self, source_text: str) -> dict[str, Any]:
         schema = {
+            "customer_name": None,
+            "customer_address": None,
+            "customer_phone": None,
+            "customer_email": None,
+            "customer_website": None,
+            "drawing_owner_note": None,
             "customer_part_number": None,
             "internal_part_number": None,
             "revision": None,
@@ -47,14 +54,16 @@ class VentesSousTraitanceAnalysisPipeline:
             "welding_requirements_note": None,
             "confidence": 0.0,
         }
-        return self._ai.extract_structured_data(
+        result = self._ai.extract_structured_data(
             source_text,
             schema,
             context=(
                 "Step 1 metadata extraction for manufacturing drawing. "
+                "Capture customer/company info from title block or legal notes. "
                 "Return only factual values found in text; keep missing fields null."
             ),
         )
+        return self._enrich_step1_from_text(source_text, result if isinstance(result, dict) else schema)
 
     def _step2_classify(self, source_text: str) -> dict[str, Any]:
         schema = {
@@ -147,3 +156,82 @@ class VentesSousTraitanceAnalysisPipeline:
             ),
         )
 
+    def _enrich_step1_from_text(self, source_text: str, current: dict[str, Any]) -> dict[str, Any]:
+        """
+        Fill important metadata directly from text when LLM extraction is missing fields.
+        """
+        text = source_text or ""
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        lowered = text.lower()
+
+        if not current.get("customer_name"):
+            owner_match = re.search(r"property of\s+([A-Za-z0-9 .,&'()-]{3,80}?)(?:\.| is| est|$)", text, flags=re.IGNORECASE)
+            if owner_match:
+                current["customer_name"] = owner_match.group(1).strip(" .")
+            else:
+                company_line = self._find_company_line(lines)
+                if company_line:
+                    current["customer_name"] = company_line
+
+        if not current.get("customer_phone"):
+            phone_match = re.search(r"(?:(?:t[eé]l)|(?:tel)|(?:phone))[:\s]*([+()0-9 .-]{7,})", text, flags=re.IGNORECASE)
+            if phone_match:
+                current["customer_phone"] = phone_match.group(1).strip()
+
+        if not current.get("customer_email"):
+            email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
+            if email_match:
+                current["customer_email"] = email_match.group(0)
+
+        if not current.get("customer_website"):
+            website_match = re.search(r"(?:https?://)?(?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?:/[A-Za-z0-9._~:/?#@!$&'()*+,;=-]*)?", text)
+            if website_match and "." in website_match.group(0):
+                current["customer_website"] = website_match.group(0)
+
+        if not current.get("customer_address"):
+            current["customer_address"] = self._find_address_block(lines)
+
+        if not current.get("drawing_owner_note"):
+            note_match = re.search(r"(All information.*?prohibited\.)", text, flags=re.IGNORECASE | re.DOTALL)
+            if note_match:
+                current["drawing_owner_note"] = " ".join(note_match.group(1).split())
+
+        if not current.get("units"):
+            if "dimensions imperial" in lowered or "lbm" in lowered or "inch" in lowered:
+                current["units"] = "inch"
+            elif " mm" in lowered or "dimensions metric" in lowered:
+                current["units"] = "mm"
+
+        if not current.get("material_spec"):
+            material_match = re.search(r"(?:materiau|material)\s+([A-Za-z0-9 ./-]{2,60})", text, flags=re.IGNORECASE)
+            if material_match:
+                current["material_spec"] = material_match.group(1).strip(" .")
+
+        if not current.get("revision"):
+            rev_match = re.search(r"(?:\brev(?:ision)?\b[ .:-]*)([A-Z0-9]{1,6})", text, flags=re.IGNORECASE)
+            if rev_match:
+                current["revision"] = rev_match.group(1).upper()
+
+        if current.get("confidence") in (None, 0, 0.0):
+            current["confidence"] = 0.45
+        return current
+
+    def _find_company_line(self, lines: list[str]) -> str | None:
+        company_keywords = (" inc", " ltee", " ltée", " ltd", " corporation", " fabrication", " industries", " international")
+        for ln in lines:
+            lowered = f" {ln.lower()} "
+            if any(keyword in lowered for keyword in company_keywords) and len(ln) <= 90:
+                # Avoid generic legal sentence fragments as company name.
+                if "all information" in lowered or "prohibited" in lowered:
+                    continue
+                return ln.strip(" .")
+        return None
+
+    def _find_address_block(self, lines: list[str]) -> str | None:
+        postal_pattern = re.compile(r"[A-Z]\d[A-Z]\s?\d[A-Z]\d")
+        for idx, ln in enumerate(lines):
+            if postal_pattern.search(ln.upper()):
+                start = max(0, idx - 3)
+                block = lines[start : idx + 1]
+                return ", ".join(block)
+        return None
