@@ -117,6 +117,7 @@ class CeduleVentesSousTraitanceRepository:
         )
         try:
             with self._engine.begin() as conn:
+                self._ensure_customer_exists(conn, payload.customer_id, payload.notes)
                 conn.execute(
                     stmt,
                     {
@@ -165,6 +166,8 @@ class CeduleVentesSousTraitanceRepository:
         )
         try:
             with self._engine.begin() as conn:
+                if payload.customer_id is not None:
+                    self._ensure_customer_exists(conn, payload.customer_id, payload.notes)
                 result = conn.execute(stmt, params)
                 if result.rowcount == 0:
                     return None
@@ -172,6 +175,51 @@ class CeduleVentesSousTraitanceRepository:
         except SQLAlchemyError as exc:
             logger.error("Failed to update subcontracting quote", exc_info=exc)
             raise DatabaseError("Unable to update quote") from exc
+
+    def _ensure_customer_exists(self, conn, customer_id: UUID, notes: Optional[str]) -> None:
+        """
+        Ensure FK customer exists for quote operations.
+        Creates a placeholder customer row when a new external UUID is provided.
+        """
+        customer_name = self._derive_customer_name(customer_id, notes)
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            (
+                [customer_id], [name]
+            )
+            SELECT
+                :customer_id, :name
+            WHERE NOT EXISTS
+            (
+                SELECT 1
+                FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+                WHERE [customer_id] = :customer_id
+            )
+            """
+        )
+        conn.execute(
+            stmt,
+            {
+                "customer_id": str(customer_id),
+                "name": customer_name,
+            },
+        )
+
+    @staticmethod
+    def _derive_customer_name(customer_id: UUID, notes: Optional[str]) -> str:
+        fallback = f"Customer {customer_id}"
+        if not notes:
+            return fallback
+        for raw_line in notes.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            lowered = line.lower()
+            if lowered.startswith("customer:"):
+                name = line.split(":", 1)[1].strip()
+                return name[:200] if name else fallback
+        return fallback
 
     def update_quote_status(self, quote_id: UUID, payload: QuoteStatusUpdateRequest) -> Optional[QuoteSummary]:
         if not self._engine:
