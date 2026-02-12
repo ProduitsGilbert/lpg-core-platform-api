@@ -38,6 +38,35 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+ALLOWED_PART_SHAPES = {"round", "sheet", "prismatic", "weldment", "assembly", "unknown"}
+
+
+def _normalize_shape(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return "unknown"
+    synonyms = {
+        "plate": "sheet",
+        "sheet_metal": "sheet",
+        "sheet metal": "sheet",
+        "plaque": "sheet",
+        "round_part": "round",
+        "cylindrical": "round",
+        "cylinder": "round",
+        "tube": "round",
+        "shaft": "round",
+        "block": "prismatic",
+        "prism": "prismatic",
+        "welded": "weldment",
+        "fabrication": "weldment",
+        "assy": "assembly",
+    }
+    normalized = synonyms.get(raw, raw)
+    if normalized in ALLOWED_PART_SHAPES:
+        return normalized
+    return "unknown"
+
+
 class CeduleVentesSousTraitanceRepository:
     def __init__(self, engine: Optional[Engine] = None) -> None:
         self._engine = engine or get_cedule_engine()
@@ -509,6 +538,8 @@ class CeduleVentesSousTraitanceRepository:
                 if step_no is None:
                     current_max = conn.execute(max_step_stmt, {"routing_id": str(routing_id)}).scalar()
                     step_no = int(current_max or 0) + 1
+                if payload.machine_group_id:
+                    self._ensure_machine_group_entry(conn, payload.machine_group_id)
                 conn.execute(
                     insert_stmt,
                     {
@@ -779,7 +810,7 @@ class CeduleVentesSousTraitanceRepository:
             "envelope_x_mm": envelope.get("x"),
             "envelope_y_mm": envelope.get("y"),
             "envelope_z_mm": envelope.get("z"),
-            "shape": str(classification.get("shape_class") or "unknown"),
+            "shape": _normalize_shape(classification.get("shape_class")),
             "complexity_score": complexity.get("complexity_score"),
         }
 
@@ -866,6 +897,55 @@ class CeduleVentesSousTraitanceRepository:
         except SQLAlchemyError as exc:
             logger.error("Failed to ensure operation catalog entry", exc_info=exc)
             raise DatabaseError("Unable to ensure operation catalog entry") from exc
+
+    def ensure_machine_group_entry(self, machine_group_id: str) -> str:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        try:
+            with self._engine.begin() as conn:
+                return self._ensure_machine_group_entry(conn, machine_group_id)
+        except SQLAlchemyError as exc:
+            logger.error("Failed to ensure machine group entry", exc_info=exc)
+            raise DatabaseError("Unable to ensure machine group entry") from exc
+
+    @staticmethod
+    def _normalize_machine_group_id(machine_group_id: str) -> str:
+        return (machine_group_id or "UNKNOWN_MACHINE_GROUP").strip().upper()[:100]
+
+    def _ensure_machine_group_entry(self, conn, machine_group_id: str) -> str:
+        normalized = self._normalize_machine_group_id(machine_group_id)
+        select_stmt = text(
+            """
+            SELECT [machine_group_id]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            WHERE [machine_group_id] = :machine_group_id
+            """
+        )
+        insert_stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            (
+                [machine_group_id], [name], [process_families_json], [config_json]
+            )
+            VALUES
+            (
+                :machine_group_id, :name, :process_families_json, :config_json
+            )
+            """
+        )
+        existing = conn.execute(select_stmt, {"machine_group_id": normalized}).scalar()
+        if existing:
+            return normalized
+        conn.execute(
+            insert_stmt,
+            {
+                "machine_group_id": normalized,
+                "name": normalized.replace("_", " ").title(),
+                "process_families_json": None,
+                "config_json": None,
+            },
+        )
+        return normalized
 
     def save_generated_routings(self, part_id: UUID, scenarios_payload: dict[str, Any]) -> list[RoutingResponse]:
         scenarios = scenarios_payload.get("scenarios") if isinstance(scenarios_payload, dict) else None
