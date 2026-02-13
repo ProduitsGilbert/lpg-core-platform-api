@@ -151,11 +151,11 @@ def test_analyze_endpoint_extracts_customer_from_sample_pdf() -> None:
     app.dependency_overrides[get_service] = lambda: service
     client = TestClient(app)
 
-    analyze_response = client.post(f"/api/v1/quotes/{quote_id}/analyze")
+    analyze_response = client.post(f"/api/v1/vente-sous-traitance/quotes/{quote_id}/analyze")
     assert analyze_response.status_code == 200, analyze_response.text
     run_id = UUID(analyze_response.json()["job_id"])
 
-    job_response = client.get(f"/api/v1/jobs/{run_id}")
+    job_response = client.get(f"/api/v1/vente-sous-traitance/jobs/{run_id}")
     assert job_response.status_code == 200, job_response.text
     payload = job_response.json()
     assert payload["status"] == "ok"

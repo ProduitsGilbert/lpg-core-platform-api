@@ -41,7 +41,7 @@ def test_openapi_contains_ventes_tag() -> None:
     response = client.get("/openapi.json")
     assert response.status_code == 200
     payload = response.json()
-    quote_post = payload["paths"]["/api/v1/quotes"]["post"]
+    quote_post = payload["paths"]["/api/v1/vente-sous-traitance/quotes"]["post"]
     assert "Ventes - Sous-Traitance" in quote_post["tags"]
 
 
@@ -50,7 +50,7 @@ def test_list_quotes_endpoint() -> None:
     quote = _sample_quote()
     stub.list_quotes.return_value = [quote]
     client = _client_with_service(stub)
-    response = client.get(f"/api/v1/quotes?status=draft&customer={quote.customer_id}")
+    response = client.get(f"/api/v1/vente-sous-traitance/quotes?status=draft&customer={quote.customer_id}")
     assert response.status_code == 200
     payload = response.json()
     assert len(payload) == 1
@@ -70,7 +70,7 @@ def test_list_customers_endpoint() -> None:
     )
     stub.list_customers.return_value = [customer]
     client = _client_with_service(stub)
-    response = client.get("/api/v1/customers?q=gilbert&limit=50")
+    response = client.get("/api/v1/vente-sous-traitance/customers?q=gilbert&limit=50")
     assert response.status_code == 200
     payload = response.json()
     assert len(payload) == 1
@@ -93,7 +93,7 @@ def test_create_customer_endpoint() -> None:
     }
     client = _client_with_service(stub)
     response = client.post(
-        "/api/v1/customers",
+        "/api/v1/vente-sous-traitance/customers",
         json={"name": "New Customer", "email": "new@example.com", "phone": "555-1234"},
     )
     assert response.status_code == 201
@@ -106,7 +106,7 @@ def test_update_customer_not_found() -> None:
     customer_id = uuid4()
     stub.update_customer.return_value = None
     client = _client_with_service(stub)
-    response = client.patch(f"/api/v1/customers/{customer_id}", json={"name": "Updated"})
+    response = client.patch(f"/api/v1/vente-sous-traitance/customers/{customer_id}", json={"name": "Updated"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Customer not found"
     app.dependency_overrides.clear()
@@ -124,7 +124,7 @@ def test_list_machine_groups_endpoint() -> None:
         }
     ]
     client = _client_with_service(stub)
-    response = client.get("/api/v1/machine-groups?q=boring&limit=25")
+    response = client.get("/api/v1/vente-sous-traitance/machine-groups?q=boring&limit=25")
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["machine_group_id"] == "CNC_BORING_LARGE_4AX"
@@ -143,7 +143,7 @@ def test_create_machine_group_endpoint() -> None:
     }
     client = _client_with_service(stub)
     response = client.post(
-        "/api/v1/machine-groups",
+        "/api/v1/vente-sous-traitance/machine-groups",
         json={"machine_group_id": "CNC_NEW", "name": "CNC New", "process_families_json": '["milling"]'},
     )
     assert response.status_code == 201
@@ -155,7 +155,7 @@ def test_update_machine_group_not_found() -> None:
     stub = MagicMock()
     stub.update_machine_group.return_value = None
     client = _client_with_service(stub)
-    response = client.patch("/api/v1/machine-groups/CNC_UNKNOWN", json={"name": "Unknown"})
+    response = client.patch("/api/v1/vente-sous-traitance/machine-groups/CNC_UNKNOWN", json={"name": "Unknown"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Machine group not found"
     app.dependency_overrides.clear()
@@ -172,7 +172,7 @@ def test_list_machine_capability_options_endpoint() -> None:
         }
     ]
     client = _client_with_service(stub)
-    response = client.get("/api/v1/machine-capabilities/options?q=mill&capability_code=PROCESS_FAMILY&limit=30")
+    response = client.get("/api/v1/vente-sous-traitance/machine-capabilities/options?q=mill&capability_code=PROCESS_FAMILY&limit=30")
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["capability_code"] == "PROCESS_FAMILY"
@@ -201,7 +201,7 @@ def test_create_machine_capability_option_endpoint() -> None:
     }
     client = _client_with_service(stub)
     response = client.post(
-        "/api/v1/machine-capabilities/options",
+        "/api/v1/vente-sous-traitance/machine-capabilities/options",
         json={"capability_code": "AXES", "is_active": True},
     )
     assert response.status_code == 201
@@ -214,7 +214,7 @@ def test_update_machine_capability_option_not_found() -> None:
     option_id = uuid4()
     stub.update_machine_capability_option.return_value = None
     client = _client_with_service(stub)
-    response = client.patch(f"/api/v1/machine-capabilities/options/{option_id}", json={"is_active": False})
+    response = client.patch(f"/api/v1/vente-sous-traitance/machine-capabilities/options/{option_id}", json={"is_active": False})
     assert response.status_code == 404
     assert response.json()["detail"] == "Machine capability option not found"
     app.dependency_overrides.clear()
@@ -232,7 +232,7 @@ def test_list_machine_capability_catalog_endpoint() -> None:
         }
     ]
     client = _client_with_service(stub)
-    response = client.get("/api/v1/machine-capabilities/catalog?q=AX&limit=15")
+    response = client.get("/api/v1/vente-sous-traitance/machine-capabilities/catalog?q=AX&limit=15")
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["capability_code"] == "AXES"
@@ -266,7 +266,7 @@ def test_list_machines_endpoint() -> None:
     )
     stub.list_machines.return_value = [machine]
     client = _client_with_service(stub)
-    response = client.get("/api/v1/machines?q=mc&machine_group_id=CNC_BORING_LARGE_4AX&active_only=true&limit=10")
+    response = client.get("/api/v1/vente-sous-traitance/machines?q=mc&machine_group_id=CNC_BORING_LARGE_4AX&active_only=true&limit=10")
     assert response.status_code == 200
     payload = response.json()
     assert payload[0]["machine_code"] == "MC-01"
@@ -302,7 +302,7 @@ def test_create_machine_endpoint() -> None:
     }
     client = _client_with_service(stub)
     response = client.post(
-        "/api/v1/machines",
+        "/api/v1/vente-sous-traitance/machines",
         json={
             "machine_code": "MC-NEW",
             "machine_name": "Machine New",
@@ -322,7 +322,7 @@ def test_update_machine_not_found() -> None:
     machine_id = uuid4()
     stub.update_machine.return_value = None
     client = _client_with_service(stub)
-    response = client.patch(f"/api/v1/machines/{machine_id}", json={"default_runtime_min": "55"})
+    response = client.patch(f"/api/v1/vente-sous-traitance/machines/{machine_id}", json={"default_runtime_min": "55"})
     assert response.status_code == 404
     assert response.json()["detail"] == "Machine not found"
     app.dependency_overrides.clear()
@@ -333,7 +333,7 @@ def test_get_quote_not_found() -> None:
     stub.get_quote.return_value = None
     quote_id = uuid4()
     client = _client_with_service(stub)
-    response = client.get(f"/api/v1/quotes/{quote_id}")
+    response = client.get(f"/api/v1/vente-sous-traitance/quotes/{quote_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Quote not found"
     app.dependency_overrides.clear()
@@ -346,7 +346,7 @@ def test_create_quote_endpoint() -> None:
     client = _client_with_service(stub)
 
     response = client.post(
-        "/api/v1/quotes",
+        "/api/v1/vente-sous-traitance/quotes",
         json={
             "customer_id": str(quote.customer_id),
             "quote_number": "Q-0001",
@@ -386,7 +386,7 @@ def test_patch_routing_step_endpoint() -> None:
     client = _client_with_service(stub)
 
     response = client.patch(
-        f"/api/v1/routing_steps/{step_id}",
+        f"/api/v1/vente-sous-traitance/routing_steps/{step_id}",
         json={"setup_time_min": "5.0", "source": "user", "user_override": True},
     )
     assert response.status_code == 200
@@ -404,7 +404,7 @@ def test_analyze_quote_upload_endpoint() -> None:
 
     with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
         response = client.post(
-            f"/api/v1/quotes/{quote.quote_id}/analyze-upload",
+            f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/analyze-upload",
             files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
             data={
                 "user_cue": "Prefer no welding",
@@ -431,7 +431,7 @@ def test_analyze_quote_upload_rejects_invalid_part_cues_json() -> None:
 
     with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
         response = client.post(
-            f"/api/v1/quotes/{quote.quote_id}/analyze-upload",
+            f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/analyze-upload",
             files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
             data={"part_cues_json": '{"part_ref":"A"}'},
         )
