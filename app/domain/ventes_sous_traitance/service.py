@@ -8,6 +8,7 @@ from app.domain.ventes_sous_traitance.analysis_pipeline import VentesSousTraitan
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCapabilityCatalogItem,
     MachineCapabilityOption,
     MachineCreateRequest,
     MachineGroupSummary,
@@ -61,6 +62,11 @@ class VentesSousTraitanceService:
             capability_code=capability_code,
             limit=limit,
         )
+
+    def list_machine_capability_catalog(
+        self, *, search: Optional[str], limit: int = 200
+    ) -> list[MachineCapabilityCatalogItem]:
+        return self._repository.list_machine_capability_catalog(search=search, limit=limit)
 
     def list_machines(
         self,

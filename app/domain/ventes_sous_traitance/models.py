@@ -97,6 +97,14 @@ class MachineCapabilityOption(BaseModel):
     usage_count: int = 0
 
 
+class MachineCapabilityCatalogItem(BaseModel):
+    capability_code: str
+    recommended_input_type: str
+    suggested_unit: Optional[str] = None
+    usage_count: int = 0
+    example_values: list[str] = Field(default_factory=list)
+
+
 class MachineCreateRequest(BaseModel):
     machine_code: str = Field(min_length=1, max_length=100)
     machine_name: str = Field(min_length=1, max_length=200)

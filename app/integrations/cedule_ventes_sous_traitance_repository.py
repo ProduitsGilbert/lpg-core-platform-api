@@ -14,6 +14,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCapabilityCatalogItem,
     MachineCapabilityInput,
     MachineCapabilityOption,
     MachineCapabilityResponse,
@@ -189,6 +190,76 @@ class CeduleVentesSousTraitanceRepository:
             for row in rows
             if row.get("capability_code")
         ]
+
+    def list_machine_capability_catalog(self, *, search: Optional[str], limit: int = 200) -> list[MachineCapabilityCatalogItem]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters: list[str] = []
+        params: dict[str, Any] = {"limit": safe_limit}
+        if search:
+            filters.append("[capability_code] LIKE :search")
+            params["search"] = f"%{search.strip()}%"
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        summary_stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [capability_code],
+                COUNT(1) AS [usage_count],
+                SUM(CASE WHEN [bool_value] IS NOT NULL THEN 1 ELSE 0 END) AS [bool_count],
+                SUM(CASE WHEN [numeric_value] IS NOT NULL THEN 1 ELSE 0 END) AS [numeric_count],
+                SUM(CASE WHEN [capability_value] IS NOT NULL AND LTRIM(RTRIM([capability_value])) <> '' THEN 1 ELSE 0 END) AS [text_count],
+                MAX(NULLIF([unit], '')) AS [suggested_unit]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            {where_clause}
+            GROUP BY [capability_code]
+            ORDER BY [usage_count] DESC, [capability_code] ASC
+            """
+        )
+        examples_stmt = text(
+            """
+            SELECT TOP (5)
+                [capability_value]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            WHERE [capability_code] = :capability_code
+              AND [capability_value] IS NOT NULL
+              AND LTRIM(RTRIM([capability_value])) <> ''
+            GROUP BY [capability_value]
+            ORDER BY COUNT(1) DESC, [capability_value] ASC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(summary_stmt, params).mappings().all()
+                items: list[MachineCapabilityCatalogItem] = []
+                for row in rows:
+                    code = str(row.get("capability_code") or "").strip()
+                    if not code:
+                        continue
+                    bool_count = _safe_int(row.get("bool_count"), 0)
+                    numeric_count = _safe_int(row.get("numeric_count"), 0)
+                    text_count = _safe_int(row.get("text_count"), 0)
+                    recommended_input_type = "text"
+                    if bool_count >= numeric_count and bool_count >= text_count and bool_count > 0:
+                        recommended_input_type = "boolean"
+                    elif numeric_count >= bool_count and numeric_count >= text_count and numeric_count > 0:
+                        recommended_input_type = "number"
+                    examples = conn.execute(examples_stmt, {"capability_code": code}).scalars().all()
+                    items.append(
+                        MachineCapabilityCatalogItem(
+                            capability_code=code,
+                            recommended_input_type=recommended_input_type,
+                            suggested_unit=row.get("suggested_unit"),
+                            usage_count=_safe_int(row.get("usage_count"), 0),
+                            example_values=[str(value) for value in examples if value is not None],
+                        )
+                    )
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                return []
+            logger.error("Failed to list machine capability catalog", exc_info=exc)
+            raise DatabaseError("Unable to list machine capability catalog") from exc
+        return items
 
     def list_machines(
         self,

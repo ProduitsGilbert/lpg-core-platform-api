@@ -124,6 +124,30 @@ def test_list_machine_capability_options_endpoint() -> None:
     app.dependency_overrides.clear()
 
 
+def test_list_machine_capability_catalog_endpoint() -> None:
+    stub = MagicMock()
+    stub.list_machine_capability_catalog.return_value = [
+        {
+            "capability_code": "AXES",
+            "recommended_input_type": "number",
+            "suggested_unit": None,
+            "usage_count": 12,
+            "example_values": ["2", "4", "5"],
+        }
+    ]
+    client = _client_with_service(stub)
+    response = client.get("/api/v1/machine-capabilities/catalog?q=AX&limit=15")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["capability_code"] == "AXES"
+    assert payload[0]["recommended_input_type"] == "number"
+    stub.list_machine_capability_catalog.assert_called_once_with(
+        search="AX",
+        limit=15,
+    )
+    app.dependency_overrides.clear()
+
+
 def test_list_machines_endpoint() -> None:
     stub = MagicMock()
     now = datetime.now(timezone.utc)

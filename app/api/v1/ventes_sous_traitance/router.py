@@ -12,6 +12,7 @@ from pypdf import PdfReader
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCapabilityCatalogItem,
     MachineCapabilityOption,
     MachineCreateRequest,
     MachineGroupSummary,
@@ -134,6 +135,15 @@ async def list_machine_capability_options(
         capability_code=capability_code,
         limit=limit,
     )
+
+
+@router.get("/machine-capabilities/catalog", response_model=list[MachineCapabilityCatalogItem])
+async def list_machine_capability_catalog(
+    search: Optional[str] = Query(default=None, alias="q"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[MachineCapabilityCatalogItem]:
+    return service.list_machine_capability_catalog(search=search, limit=limit)
 
 
 @router.get("/machines", response_model=list[MachineResponse])
