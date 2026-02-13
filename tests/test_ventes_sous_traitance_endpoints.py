@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.api.v1.ventes_sous_traitance.router import get_service
-from app.domain.ventes_sous_traitance.models import CustomerSummary, QuoteSummary
+from app.domain.ventes_sous_traitance.models import CustomerSummary, MachineResponse, QuoteSummary
 
 
 def _client_with_service(stub: MagicMock) -> TestClient:
@@ -77,6 +77,110 @@ def test_list_customers_endpoint() -> None:
     assert payload[0]["customer_id"] == str(customer.customer_id)
     assert payload[0]["name"] == customer.name
     stub.list_customers.assert_called_once_with(search="gilbert", limit=50)
+    app.dependency_overrides.clear()
+
+
+def test_list_machine_groups_endpoint() -> None:
+    stub = MagicMock()
+    stub.list_machine_groups.return_value = [
+        {
+            "machine_group_id": "CNC_BORING_LARGE_4AX",
+            "name": "CNC Boring Large 4-Axis",
+            "process_families_json": '["milling"]',
+            "config_json": None,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    ]
+    client = _client_with_service(stub)
+    response = client.get("/api/v1/machine-groups?q=boring&limit=25")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["machine_group_id"] == "CNC_BORING_LARGE_4AX"
+    stub.list_machine_groups.assert_called_once_with(search="boring", limit=25)
+    app.dependency_overrides.clear()
+
+
+def test_list_machines_endpoint() -> None:
+    stub = MagicMock()
+    now = datetime.now(timezone.utc)
+    machine = MachineResponse(
+        machine_id=uuid4(),
+        machine_code="MC-01",
+        machine_name="Machine 01",
+        machine_group_id="CNC_BORING_LARGE_4AX",
+        is_active=True,
+        default_setup_time_min="120",
+        default_runtime_min="45",
+        envelope_x_mm="2000",
+        envelope_y_mm="1200",
+        envelope_z_mm="1000",
+        max_part_weight_kg="3000",
+        notes=None,
+        created_at=now,
+        updated_at=now,
+        capabilities=[],
+    )
+    stub.list_machines.return_value = [machine]
+    client = _client_with_service(stub)
+    response = client.get("/api/v1/machines?q=mc&machine_group_id=CNC_BORING_LARGE_4AX&active_only=true&limit=10")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["machine_code"] == "MC-01"
+    stub.list_machines.assert_called_once_with(
+        search="mc",
+        machine_group_id="CNC_BORING_LARGE_4AX",
+        active_only=True,
+        limit=10,
+    )
+    app.dependency_overrides.clear()
+
+
+def test_create_machine_endpoint() -> None:
+    stub = MagicMock()
+    now = datetime.now(timezone.utc)
+    machine_id = uuid4()
+    stub.create_machine.return_value = {
+        "machine_id": machine_id,
+        "machine_code": "MC-NEW",
+        "machine_name": "Machine New",
+        "machine_group_id": "CNC_BORING_LARGE_4AX",
+        "is_active": True,
+        "default_setup_time_min": "90",
+        "default_runtime_min": "30",
+        "envelope_x_mm": None,
+        "envelope_y_mm": None,
+        "envelope_z_mm": None,
+        "max_part_weight_kg": None,
+        "notes": None,
+        "created_at": now,
+        "updated_at": now,
+        "capabilities": [],
+    }
+    client = _client_with_service(stub)
+    response = client.post(
+        "/api/v1/machines",
+        json={
+            "machine_code": "MC-NEW",
+            "machine_name": "Machine New",
+            "machine_group_id": "CNC_BORING_LARGE_4AX",
+            "default_setup_time_min": "90",
+            "default_runtime_min": "30",
+            "capabilities": [],
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["machine_id"] == str(machine_id)
+    app.dependency_overrides.clear()
+
+
+def test_update_machine_not_found() -> None:
+    stub = MagicMock()
+    machine_id = uuid4()
+    stub.update_machine.return_value = None
+    client = _client_with_service(stub)
+    response = client.patch(f"/api/v1/machines/{machine_id}", json={"default_runtime_min": "55"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Machine not found"
     app.dependency_overrides.clear()
 
 

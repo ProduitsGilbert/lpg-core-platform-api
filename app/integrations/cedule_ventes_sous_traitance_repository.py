@@ -14,6 +14,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCapabilityInput,
+    MachineCapabilityResponse,
+    MachineCreateRequest,
+    MachineGroupSummary,
+    MachineResponse,
+    MachineUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -36,6 +42,11 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _is_missing_table_error(exc: Exception) -> bool:
+    text_value = str(exc).lower()
+    return "invalid object name" in text_value or "42s02" in text_value
 
 
 ALLOWED_PART_SHAPES = {"round", "sheet", "prismatic", "weldment", "assembly", "unknown"}
@@ -102,6 +113,213 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to list subcontracting customers", exc_info=exc)
             raise DatabaseError("Unable to list customers") from exc
         return [self._to_customer(row) for row in rows]
+
+    def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters: list[str] = []
+        params: dict[str, Any] = {"limit": safe_limit}
+        if search:
+            filters.append("[name] LIKE :search OR [machine_group_id] LIKE :search")
+            params["search"] = f"%{search.strip()}%"
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [machine_group_id], [name], [process_families_json], [config_json], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            {where_clause}
+            ORDER BY [name] ASC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).mappings().all()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to list machine groups", exc_info=exc)
+            raise DatabaseError("Unable to list machine groups") from exc
+        return [self._to_machine_group(row) for row in rows]
+
+    def list_machines(
+        self,
+        *,
+        search: Optional[str],
+        machine_group_id: Optional[str],
+        active_only: bool,
+        limit: int = 200,
+    ) -> list[MachineResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters: list[str] = []
+        params: dict[str, Any] = {"limit": safe_limit}
+        if search:
+            filters.append("([machine_name] LIKE :search OR [machine_code] LIKE :search)")
+            params["search"] = f"%{search.strip()}%"
+        if machine_group_id:
+            filters.append("[machine_group_id] = :machine_group_id")
+            params["machine_group_id"] = self._normalize_machine_group_id(machine_group_id)
+        if active_only:
+            filters.append("[is_active] = 1")
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [machine_id], [machine_code], [machine_name], [machine_group_id], [is_active],
+                [default_setup_time_min], [default_runtime_min], [envelope_x_mm], [envelope_y_mm], [envelope_z_mm],
+                [max_part_weight_kg], [notes], [created_at], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machines]
+            {where_clause}
+            ORDER BY [machine_name] ASC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).mappings().all()
+                machine_ids = [str(row.get("machine_id")) for row in rows if row.get("machine_id")]
+                caps_by_machine = self._load_capabilities_map(conn, machine_ids)
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                return []
+            logger.error("Failed to list machines", exc_info=exc)
+            raise DatabaseError("Unable to list machines") from exc
+
+        return [self._to_machine(row, caps_by_machine.get(str(row.get("machine_id")), [])) for row in rows]
+
+    def get_machine(self, machine_id: UUID) -> Optional[MachineResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            SELECT
+                [machine_id], [machine_code], [machine_name], [machine_group_id], [is_active],
+                [default_setup_time_min], [default_runtime_min], [envelope_x_mm], [envelope_y_mm], [envelope_z_mm],
+                [max_part_weight_kg], [notes], [created_at], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machines]
+            WHERE [machine_id] = :machine_id
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(stmt, {"machine_id": str(machine_id)}).mappings().first()
+                if not row:
+                    return None
+                caps_by_machine = self._load_capabilities_map(conn, [str(machine_id)])
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                return None
+            logger.error("Failed to get machine", exc_info=exc)
+            raise DatabaseError("Unable to get machine") from exc
+        return self._to_machine(row, caps_by_machine.get(str(machine_id), []))
+
+    def create_machine(self, payload: MachineCreateRequest) -> MachineResponse:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        machine_id = uuid4()
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machines]
+            (
+                [machine_id], [machine_code], [machine_name], [machine_group_id], [is_active],
+                [default_setup_time_min], [default_runtime_min], [envelope_x_mm], [envelope_y_mm], [envelope_z_mm],
+                [max_part_weight_kg], [notes]
+            )
+            VALUES
+            (
+                :machine_id, :machine_code, :machine_name, :machine_group_id, :is_active,
+                :default_setup_time_min, :default_runtime_min, :envelope_x_mm, :envelope_y_mm, :envelope_z_mm,
+                :max_part_weight_kg, :notes
+            )
+            """
+        )
+        group_id = self._normalize_machine_group_id(payload.machine_group_id) if payload.machine_group_id else None
+        try:
+            with self._engine.begin() as conn:
+                if group_id:
+                    self._ensure_machine_group_entry(conn, group_id)
+                conn.execute(
+                    stmt,
+                    {
+                        "machine_id": str(machine_id),
+                        "machine_code": payload.machine_code.strip().upper()[:100],
+                        "machine_name": payload.machine_name.strip()[:200],
+                        "machine_group_id": group_id,
+                        "is_active": payload.is_active,
+                        "default_setup_time_min": payload.default_setup_time_min,
+                        "default_runtime_min": payload.default_runtime_min,
+                        "envelope_x_mm": payload.envelope_x_mm,
+                        "envelope_y_mm": payload.envelope_y_mm,
+                        "envelope_z_mm": payload.envelope_z_mm,
+                        "max_part_weight_kg": payload.max_part_weight_kg,
+                        "notes": payload.notes,
+                    },
+                )
+                self._replace_machine_capabilities(conn, machine_id, payload.capabilities)
+            created = self.get_machine(machine_id)
+            if not created:
+                raise DatabaseError("Machine created but not found afterwards")
+            return created
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError("Machine config tables are missing. Run docs/ventes_sous_traitance_machine_config_schema.sql first.") from exc
+            logger.error("Failed to create machine", exc_info=exc)
+            raise DatabaseError("Unable to create machine") from exc
+
+    def update_machine(self, machine_id: UUID, payload: MachineUpdateRequest) -> Optional[MachineResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        updates: list[str] = []
+        params: dict[str, Any] = {"machine_id": str(machine_id)}
+
+        for field in (
+            "machine_name",
+            "is_active",
+            "default_setup_time_min",
+            "default_runtime_min",
+            "envelope_x_mm",
+            "envelope_y_mm",
+            "envelope_z_mm",
+            "max_part_weight_kg",
+            "notes",
+        ):
+            value = getattr(payload, field)
+            if value is not None:
+                updates.append(f"[{field}] = :{field}")
+                params[field] = value
+
+        normalized_group: Optional[str] = None
+        if payload.machine_group_id is not None:
+            normalized_group = self._normalize_machine_group_id(payload.machine_group_id)
+            updates.append("[machine_group_id] = :machine_group_id")
+            params["machine_group_id"] = normalized_group
+
+        if not updates and payload.capabilities is None:
+            return self.get_machine(machine_id)
+        updates.append("[updated_at] = SYSUTCDATETIME()")
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machines]
+            SET {', '.join(updates)}
+            WHERE [machine_id] = :machine_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                if normalized_group:
+                    self._ensure_machine_group_entry(conn, normalized_group)
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+                if payload.capabilities is not None:
+                    self._replace_machine_capabilities(conn, machine_id, payload.capabilities)
+            return self.get_machine(machine_id)
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError("Machine config tables are missing. Run docs/ventes_sous_traitance_machine_config_schema.sql first.") from exc
+            logger.error("Failed to update machine", exc_info=exc)
+            raise DatabaseError("Unable to update machine") from exc
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         if not self._engine:
@@ -947,6 +1165,71 @@ class CeduleVentesSousTraitanceRepository:
         )
         return normalized
 
+    def _replace_machine_capabilities(
+        self,
+        conn,
+        machine_id: UUID,
+        capabilities: list[MachineCapabilityInput],
+    ) -> None:
+        delete_stmt = text(
+            """
+            DELETE FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            WHERE [machine_id] = :machine_id
+            """
+        )
+        insert_stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            (
+                [capability_id], [machine_id], [capability_code], [capability_value], [numeric_value],
+                [bool_value], [unit], [notes]
+            )
+            VALUES
+            (
+                :capability_id, :machine_id, :capability_code, :capability_value, :numeric_value,
+                :bool_value, :unit, :notes
+            )
+            """
+        )
+        conn.execute(delete_stmt, {"machine_id": str(machine_id)})
+        for cap in capabilities:
+            conn.execute(
+                insert_stmt,
+                {
+                    "capability_id": str(uuid4()),
+                    "machine_id": str(machine_id),
+                    "capability_code": cap.capability_code.strip().upper()[:100],
+                    "capability_value": cap.capability_value,
+                    "numeric_value": cap.numeric_value,
+                    "bool_value": cap.bool_value,
+                    "unit": cap.unit,
+                    "notes": cap.notes,
+                },
+            )
+
+    def _load_capabilities_map(self, conn, machine_ids: list[str]) -> dict[str, list[MachineCapabilityResponse]]:
+        if not machine_ids:
+            return {}
+        quoted_ids = ", ".join(f"'{mid}'" for mid in machine_ids if mid)
+        if not quoted_ids:
+            return {}
+        stmt = text(
+            f"""
+            SELECT
+                [capability_id], [machine_id], [capability_code], [capability_value], [numeric_value],
+                [bool_value], [unit], [notes], [created_at], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            WHERE [machine_id] IN ({quoted_ids})
+            ORDER BY [capability_code] ASC
+            """
+        )
+        rows = conn.execute(stmt).mappings().all()
+        grouped: dict[str, list[MachineCapabilityResponse]] = {}
+        for row in rows:
+            machine_id = str(row.get("machine_id"))
+            grouped.setdefault(machine_id, []).append(self._to_machine_capability(row))
+        return grouped
+
     def save_generated_routings(self, part_id: UUID, scenarios_payload: dict[str, Any]) -> list[RoutingResponse]:
         scenarios = scenarios_payload.get("scenarios") if isinstance(scenarios_payload, dict) else None
         if not isinstance(scenarios, list):
@@ -1056,6 +1339,48 @@ class CeduleVentesSousTraitanceRepository:
             email=row.get("email"),
             phone=row.get("phone"),
             created_at=row.get("created_at"),
+        )
+
+    def _to_machine_group(self, row: dict[str, Any]) -> MachineGroupSummary:
+        return MachineGroupSummary(
+            machine_group_id=str(row.get("machine_group_id") or ""),
+            name=str(row.get("name") or ""),
+            process_families_json=row.get("process_families_json"),
+            config_json=row.get("config_json"),
+            updated_at=row.get("updated_at"),
+        )
+
+    def _to_machine_capability(self, row: dict[str, Any]) -> MachineCapabilityResponse:
+        return MachineCapabilityResponse(
+            capability_id=UUID(str(row.get("capability_id"))),
+            machine_id=UUID(str(row.get("machine_id"))),
+            capability_code=str(row.get("capability_code") or ""),
+            capability_value=row.get("capability_value"),
+            numeric_value=Decimal(str(row["numeric_value"])) if row.get("numeric_value") is not None else None,
+            bool_value=bool(row.get("bool_value")) if row.get("bool_value") is not None else None,
+            unit=row.get("unit"),
+            notes=row.get("notes"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+        )
+
+    def _to_machine(self, row: dict[str, Any], capabilities: list[MachineCapabilityResponse]) -> MachineResponse:
+        return MachineResponse(
+            machine_id=UUID(str(row.get("machine_id"))),
+            machine_code=str(row.get("machine_code") or ""),
+            machine_name=str(row.get("machine_name") or ""),
+            machine_group_id=row.get("machine_group_id"),
+            is_active=bool(row.get("is_active")),
+            default_setup_time_min=Decimal(str(row.get("default_setup_time_min") or "0")),
+            default_runtime_min=Decimal(str(row.get("default_runtime_min") or "0")),
+            envelope_x_mm=Decimal(str(row["envelope_x_mm"])) if row.get("envelope_x_mm") is not None else None,
+            envelope_y_mm=Decimal(str(row["envelope_y_mm"])) if row.get("envelope_y_mm") is not None else None,
+            envelope_z_mm=Decimal(str(row["envelope_z_mm"])) if row.get("envelope_z_mm") is not None else None,
+            max_part_weight_kg=Decimal(str(row["max_part_weight_kg"])) if row.get("max_part_weight_kg") is not None else None,
+            notes=row.get("notes"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+            capabilities=capabilities,
         )
 
     def _to_routing(self, row: dict[str, Any]) -> RoutingResponse:

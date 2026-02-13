@@ -60,6 +60,83 @@ class CustomerSummary(BaseModel):
     created_at: datetime
 
 
+class MachineGroupSummary(BaseModel):
+    machine_group_id: str
+    name: str
+    process_families_json: Optional[str] = None
+    config_json: Optional[str] = None
+    updated_at: datetime
+
+
+class MachineCapabilityInput(BaseModel):
+    capability_code: str = Field(min_length=1, max_length=100)
+    capability_value: Optional[str] = Field(default=None, max_length=200)
+    numeric_value: Optional[Decimal] = None
+    bool_value: Optional[bool] = None
+    unit: Optional[str] = Field(default=None, max_length=20)
+    notes: Optional[str] = None
+
+
+class MachineCapabilityResponse(BaseModel):
+    capability_id: UUID
+    machine_id: UUID
+    capability_code: str
+    capability_value: Optional[str] = None
+    numeric_value: Optional[Decimal] = None
+    bool_value: Optional[bool] = None
+    unit: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MachineCreateRequest(BaseModel):
+    machine_code: str = Field(min_length=1, max_length=100)
+    machine_name: str = Field(min_length=1, max_length=200)
+    machine_group_id: Optional[str] = Field(default=None, max_length=100)
+    is_active: bool = True
+    default_setup_time_min: Decimal = Field(default=Decimal("0"), ge=0)
+    default_runtime_min: Decimal = Field(default=Decimal("0"), ge=0)
+    envelope_x_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_y_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_z_mm: Optional[Decimal] = Field(default=None, ge=0)
+    max_part_weight_kg: Optional[Decimal] = Field(default=None, ge=0)
+    notes: Optional[str] = None
+    capabilities: list[MachineCapabilityInput] = Field(default_factory=list)
+
+
+class MachineUpdateRequest(BaseModel):
+    machine_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    machine_group_id: Optional[str] = Field(default=None, max_length=100)
+    is_active: Optional[bool] = None
+    default_setup_time_min: Optional[Decimal] = Field(default=None, ge=0)
+    default_runtime_min: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_x_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_y_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_z_mm: Optional[Decimal] = Field(default=None, ge=0)
+    max_part_weight_kg: Optional[Decimal] = Field(default=None, ge=0)
+    notes: Optional[str] = None
+    capabilities: Optional[list[MachineCapabilityInput]] = None
+
+
+class MachineResponse(BaseModel):
+    machine_id: UUID
+    machine_code: str
+    machine_name: str
+    machine_group_id: Optional[str] = None
+    is_active: bool
+    default_setup_time_min: Decimal
+    default_runtime_min: Decimal
+    envelope_x_mm: Optional[Decimal] = None
+    envelope_y_mm: Optional[Decimal] = None
+    envelope_z_mm: Optional[Decimal] = None
+    max_part_weight_kg: Optional[Decimal] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    capabilities: list[MachineCapabilityResponse] = Field(default_factory=list)
+
+
 class RoutingCreateRequest(BaseModel):
     scenario_name: str = Field(min_length=1, max_length=200)
     created_by: Optional[str] = Field(default=None, max_length=200)

@@ -8,6 +8,10 @@ from app.domain.ventes_sous_traitance.analysis_pipeline import VentesSousTraitan
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCreateRequest,
+    MachineGroupSummary,
+    MachineResponse,
+    MachineUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -44,6 +48,33 @@ class VentesSousTraitanceService:
 
     def list_customers(self, *, search: Optional[str], limit: int = 200) -> list[CustomerSummary]:
         return self._repository.list_customers(search=search, limit=limit)
+
+    def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
+        return self._repository.list_machine_groups(search=search, limit=limit)
+
+    def list_machines(
+        self,
+        *,
+        search: Optional[str],
+        machine_group_id: Optional[str],
+        active_only: bool,
+        limit: int = 200,
+    ) -> list[MachineResponse]:
+        return self._repository.list_machines(
+            search=search,
+            machine_group_id=machine_group_id,
+            active_only=active_only,
+            limit=limit,
+        )
+
+    def get_machine(self, machine_id: UUID) -> Optional[MachineResponse]:
+        return self._repository.get_machine(machine_id)
+
+    def create_machine(self, payload: MachineCreateRequest) -> MachineResponse:
+        return self._repository.create_machine(payload)
+
+    def update_machine(self, machine_id: UUID, payload: MachineUpdateRequest) -> Optional[MachineResponse]:
+        return self._repository.update_machine(machine_id, payload)
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         return self._repository.list_quotes(status=status, customer_id=customer_id)

@@ -12,6 +12,10 @@ from pypdf import PdfReader
 from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
+    MachineCreateRequest,
+    MachineGroupSummary,
+    MachineResponse,
+    MachineUpdateRequest,
     QuoteAnalysisStartResponse,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
@@ -106,6 +110,62 @@ async def list_customers(
     service: VentesSousTraitanceService = Depends(get_service),
 ) -> list[CustomerSummary]:
     return service.list_customers(search=search, limit=limit)
+
+
+@router.get("/machine-groups", response_model=list[MachineGroupSummary])
+async def list_machine_groups(
+    search: Optional[str] = Query(default=None, alias="q"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[MachineGroupSummary]:
+    return service.list_machine_groups(search=search, limit=limit)
+
+
+@router.get("/machines", response_model=list[MachineResponse])
+async def list_machines(
+    search: Optional[str] = Query(default=None, alias="q"),
+    machine_group_id: Optional[str] = Query(default=None),
+    active_only: bool = Query(default=True),
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[MachineResponse]:
+    return service.list_machines(
+        search=search,
+        machine_group_id=machine_group_id,
+        active_only=active_only,
+        limit=limit,
+    )
+
+
+@router.get("/machines/{machine_id}", response_model=MachineResponse)
+async def get_machine(
+    machine_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineResponse:
+    machine = service.get_machine(machine_id)
+    if not machine:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found")
+    return machine
+
+
+@router.post("/machines", response_model=MachineResponse, status_code=status.HTTP_201_CREATED)
+async def create_machine(
+    payload: MachineCreateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineResponse:
+    return service.create_machine(payload)
+
+
+@router.patch("/machines/{machine_id}", response_model=MachineResponse)
+async def update_machine(
+    machine_id: UUID,
+    payload: MachineUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineResponse:
+    machine = service.update_machine(machine_id, payload)
+    if not machine:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found")
+    return machine
 
 
 @router.get("/quotes", response_model=list[QuoteSummary])
