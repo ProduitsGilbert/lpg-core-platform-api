@@ -6,12 +6,19 @@ from uuid import UUID
 
 from app.domain.ventes_sous_traitance.analysis_pipeline import VentesSousTraitanceAnalysisPipeline
 from app.domain.ventes_sous_traitance.models import (
+    CustomerCreateRequest,
     CustomerSummary,
+    CustomerUpdateRequest,
     JobStatusResponse,
     MachineCapabilityCatalogItem,
     MachineCapabilityOption,
+    MachineCapabilityOptionCreateRequest,
+    MachineCapabilityOptionEntry,
+    MachineCapabilityOptionUpdateRequest,
     MachineCreateRequest,
+    MachineGroupCreateRequest,
     MachineGroupSummary,
+    MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
     QuoteCreateRequest,
@@ -51,8 +58,20 @@ class VentesSousTraitanceService:
     def list_customers(self, *, search: Optional[str], limit: int = 200) -> list[CustomerSummary]:
         return self._repository.list_customers(search=search, limit=limit)
 
+    def create_customer(self, payload: CustomerCreateRequest) -> CustomerSummary:
+        return self._repository.create_customer(payload)
+
+    def update_customer(self, customer_id: UUID, payload: CustomerUpdateRequest) -> Optional[CustomerSummary]:
+        return self._repository.update_customer(customer_id, payload)
+
     def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
         return self._repository.list_machine_groups(search=search, limit=limit)
+
+    def create_machine_group(self, payload: MachineGroupCreateRequest) -> MachineGroupSummary:
+        return self._repository.create_machine_group(payload)
+
+    def update_machine_group(self, machine_group_id: str, payload: MachineGroupUpdateRequest) -> Optional[MachineGroupSummary]:
+        return self._repository.update_machine_group(machine_group_id, payload)
 
     def list_machine_capability_options(
         self, *, search: Optional[str], capability_code: Optional[str], limit: int = 200
@@ -67,6 +86,16 @@ class VentesSousTraitanceService:
         self, *, search: Optional[str], limit: int = 200
     ) -> list[MachineCapabilityCatalogItem]:
         return self._repository.list_machine_capability_catalog(search=search, limit=limit)
+
+    def create_machine_capability_option(
+        self, payload: MachineCapabilityOptionCreateRequest
+    ) -> MachineCapabilityOptionEntry:
+        return self._repository.create_machine_capability_option(payload)
+
+    def update_machine_capability_option(
+        self, option_id: UUID, payload: MachineCapabilityOptionUpdateRequest
+    ) -> Optional[MachineCapabilityOptionEntry]:
+        return self._repository.update_machine_capability_option(option_id, payload)
 
     def list_machines(
         self,

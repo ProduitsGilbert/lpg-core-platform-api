@@ -10,12 +10,19 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from pypdf import PdfReader
 
 from app.domain.ventes_sous_traitance.models import (
+    CustomerCreateRequest,
     CustomerSummary,
+    CustomerUpdateRequest,
     JobStatusResponse,
     MachineCapabilityCatalogItem,
     MachineCapabilityOption,
+    MachineCapabilityOptionCreateRequest,
+    MachineCapabilityOptionEntry,
+    MachineCapabilityOptionUpdateRequest,
     MachineCreateRequest,
+    MachineGroupCreateRequest,
     MachineGroupSummary,
+    MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
     QuoteAnalysisStartResponse,
@@ -114,6 +121,26 @@ async def list_customers(
     return service.list_customers(search=search, limit=limit)
 
 
+@router.post("/customers", response_model=CustomerSummary, status_code=status.HTTP_201_CREATED)
+async def create_customer(
+    payload: CustomerCreateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> CustomerSummary:
+    return service.create_customer(payload)
+
+
+@router.patch("/customers/{customer_id}", response_model=CustomerSummary)
+async def update_customer(
+    customer_id: UUID,
+    payload: CustomerUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> CustomerSummary:
+    customer = service.update_customer(customer_id, payload)
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    return customer
+
+
 @router.get("/machine-groups", response_model=list[MachineGroupSummary])
 async def list_machine_groups(
     search: Optional[str] = Query(default=None, alias="q"),
@@ -121,6 +148,26 @@ async def list_machine_groups(
     service: VentesSousTraitanceService = Depends(get_service),
 ) -> list[MachineGroupSummary]:
     return service.list_machine_groups(search=search, limit=limit)
+
+
+@router.post("/machine-groups", response_model=MachineGroupSummary, status_code=status.HTTP_201_CREATED)
+async def create_machine_group(
+    payload: MachineGroupCreateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineGroupSummary:
+    return service.create_machine_group(payload)
+
+
+@router.patch("/machine-groups/{machine_group_id}", response_model=MachineGroupSummary)
+async def update_machine_group(
+    machine_group_id: str,
+    payload: MachineGroupUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineGroupSummary:
+    machine_group = service.update_machine_group(machine_group_id, payload)
+    if not machine_group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine group not found")
+    return machine_group
 
 
 @router.get("/machine-capabilities/options", response_model=list[MachineCapabilityOption])
@@ -135,6 +182,26 @@ async def list_machine_capability_options(
         capability_code=capability_code,
         limit=limit,
     )
+
+
+@router.post("/machine-capabilities/options", response_model=MachineCapabilityOptionEntry, status_code=status.HTTP_201_CREATED)
+async def create_machine_capability_option(
+    payload: MachineCapabilityOptionCreateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineCapabilityOptionEntry:
+    return service.create_machine_capability_option(payload)
+
+
+@router.patch("/machine-capabilities/options/{option_id}", response_model=MachineCapabilityOptionEntry)
+async def update_machine_capability_option(
+    option_id: UUID,
+    payload: MachineCapabilityOptionUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> MachineCapabilityOptionEntry:
+    option = service.update_machine_capability_option(option_id, payload)
+    if not option:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine capability option not found")
+    return option
 
 
 @router.get("/machine-capabilities/catalog", response_model=list[MachineCapabilityCatalogItem])

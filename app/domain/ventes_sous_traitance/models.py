@@ -60,12 +60,37 @@ class CustomerSummary(BaseModel):
     created_at: datetime
 
 
+class CustomerCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+
+
+class CustomerUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    email: Optional[str] = Field(default=None, max_length=200)
+    phone: Optional[str] = Field(default=None, max_length=50)
+
+
 class MachineGroupSummary(BaseModel):
     machine_group_id: str
     name: str
     process_families_json: Optional[str] = None
     config_json: Optional[str] = None
     updated_at: datetime
+
+
+class MachineGroupCreateRequest(BaseModel):
+    machine_group_id: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+    process_families_json: Optional[str] = None
+    config_json: Optional[str] = None
+
+
+class MachineGroupUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    process_families_json: Optional[str] = None
+    config_json: Optional[str] = None
 
 
 class MachineCapabilityInput(BaseModel):
@@ -95,6 +120,33 @@ class MachineCapabilityOption(BaseModel):
     capability_value: Optional[str] = None
     unit: Optional[str] = None
     usage_count: int = 0
+
+
+class MachineCapabilityOptionCreateRequest(BaseModel):
+    capability_code: str = Field(min_length=1, max_length=100)
+    capability_value: Optional[str] = Field(default=None, max_length=200)
+    unit: Optional[str] = Field(default=None, max_length=20)
+    is_active: bool = True
+    notes: Optional[str] = None
+
+
+class MachineCapabilityOptionUpdateRequest(BaseModel):
+    capability_code: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    capability_value: Optional[str] = Field(default=None, max_length=200)
+    unit: Optional[str] = Field(default=None, max_length=20)
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class MachineCapabilityOptionEntry(BaseModel):
+    option_id: UUID
+    capability_code: str
+    capability_value: Optional[str] = None
+    unit: Optional[str] = None
+    is_active: bool
+    notes: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class MachineCapabilityCatalogItem(BaseModel):

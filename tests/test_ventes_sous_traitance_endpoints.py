@@ -80,6 +80,38 @@ def test_list_customers_endpoint() -> None:
     app.dependency_overrides.clear()
 
 
+def test_create_customer_endpoint() -> None:
+    stub = MagicMock()
+    now = datetime.now(timezone.utc)
+    customer_id = uuid4()
+    stub.create_customer.return_value = {
+        "customer_id": customer_id,
+        "name": "New Customer",
+        "email": "new@example.com",
+        "phone": "555-1234",
+        "created_at": now,
+    }
+    client = _client_with_service(stub)
+    response = client.post(
+        "/api/v1/customers",
+        json={"name": "New Customer", "email": "new@example.com", "phone": "555-1234"},
+    )
+    assert response.status_code == 201
+    assert response.json()["customer_id"] == str(customer_id)
+    app.dependency_overrides.clear()
+
+
+def test_update_customer_not_found() -> None:
+    stub = MagicMock()
+    customer_id = uuid4()
+    stub.update_customer.return_value = None
+    client = _client_with_service(stub)
+    response = client.patch(f"/api/v1/customers/{customer_id}", json={"name": "Updated"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Customer not found"
+    app.dependency_overrides.clear()
+
+
 def test_list_machine_groups_endpoint() -> None:
     stub = MagicMock()
     stub.list_machine_groups.return_value = [
@@ -97,6 +129,35 @@ def test_list_machine_groups_endpoint() -> None:
     payload = response.json()
     assert payload[0]["machine_group_id"] == "CNC_BORING_LARGE_4AX"
     stub.list_machine_groups.assert_called_once_with(search="boring", limit=25)
+    app.dependency_overrides.clear()
+
+
+def test_create_machine_group_endpoint() -> None:
+    stub = MagicMock()
+    stub.create_machine_group.return_value = {
+        "machine_group_id": "CNC_NEW",
+        "name": "CNC New",
+        "process_families_json": '["milling"]',
+        "config_json": None,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    client = _client_with_service(stub)
+    response = client.post(
+        "/api/v1/machine-groups",
+        json={"machine_group_id": "CNC_NEW", "name": "CNC New", "process_families_json": '["milling"]'},
+    )
+    assert response.status_code == 201
+    assert response.json()["machine_group_id"] == "CNC_NEW"
+    app.dependency_overrides.clear()
+
+
+def test_update_machine_group_not_found() -> None:
+    stub = MagicMock()
+    stub.update_machine_group.return_value = None
+    client = _client_with_service(stub)
+    response = client.patch("/api/v1/machine-groups/CNC_UNKNOWN", json={"name": "Unknown"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Machine group not found"
     app.dependency_overrides.clear()
 
 
@@ -121,6 +182,41 @@ def test_list_machine_capability_options_endpoint() -> None:
         capability_code="PROCESS_FAMILY",
         limit=30,
     )
+    app.dependency_overrides.clear()
+
+
+def test_create_machine_capability_option_endpoint() -> None:
+    stub = MagicMock()
+    option_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.create_machine_capability_option.return_value = {
+        "option_id": option_id,
+        "capability_code": "AXES",
+        "capability_value": None,
+        "unit": None,
+        "is_active": True,
+        "notes": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    client = _client_with_service(stub)
+    response = client.post(
+        "/api/v1/machine-capabilities/options",
+        json={"capability_code": "AXES", "is_active": True},
+    )
+    assert response.status_code == 201
+    assert response.json()["option_id"] == str(option_id)
+    app.dependency_overrides.clear()
+
+
+def test_update_machine_capability_option_not_found() -> None:
+    stub = MagicMock()
+    option_id = uuid4()
+    stub.update_machine_capability_option.return_value = None
+    client = _client_with_service(stub)
+    response = client.patch(f"/api/v1/machine-capabilities/options/{option_id}", json={"is_active": False})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Machine capability option not found"
     app.dependency_overrides.clear()
 
 

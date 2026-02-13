@@ -12,14 +12,21 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.domain.ventes_sous_traitance.models import (
+    CustomerCreateRequest,
     CustomerSummary,
+    CustomerUpdateRequest,
     JobStatusResponse,
     MachineCapabilityCatalogItem,
     MachineCapabilityInput,
     MachineCapabilityOption,
+    MachineCapabilityOptionCreateRequest,
+    MachineCapabilityOptionEntry,
+    MachineCapabilityOptionUpdateRequest,
     MachineCapabilityResponse,
     MachineCreateRequest,
+    MachineGroupCreateRequest,
     MachineGroupSummary,
+    MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
     QuoteCreateRequest,
@@ -116,6 +123,70 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Unable to list customers") from exc
         return [self._to_customer(row) for row in rows]
 
+    def create_customer(self, payload: CustomerCreateRequest) -> CustomerSummary:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        customer_id = uuid4()
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            ([customer_id], [name], [email], [phone])
+            VALUES
+            (:customer_id, :name, :email, :phone)
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "customer_id": str(customer_id),
+                        "name": payload.name.strip()[:200],
+                        "email": payload.email.strip()[:200] if payload.email else None,
+                        "phone": payload.phone.strip()[:50] if payload.phone else None,
+                    },
+                )
+            created = self._get_customer(customer_id)
+            if not created:
+                raise DatabaseError("Customer created but not found afterwards")
+            return created
+        except SQLAlchemyError as exc:
+            logger.error("Failed to create customer", exc_info=exc)
+            raise DatabaseError("Unable to create customer") from exc
+
+    def update_customer(self, customer_id: UUID, payload: CustomerUpdateRequest) -> Optional[CustomerSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        updates: list[str] = []
+        params: dict[str, Any] = {"customer_id": str(customer_id)}
+        if payload.name is not None:
+            updates.append("[name] = :name")
+            params["name"] = payload.name.strip()[:200]
+        if payload.email is not None:
+            updates.append("[email] = :email")
+            params["email"] = payload.email.strip()[:200] if payload.email else None
+        if payload.phone is not None:
+            updates.append("[phone] = :phone")
+            params["phone"] = payload.phone.strip()[:50] if payload.phone else None
+        if not updates:
+            return self._get_customer(customer_id)
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            SET {', '.join(updates)}
+            WHERE [customer_id] = :customer_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+            return self._get_customer(customer_id)
+        except SQLAlchemyError as exc:
+            logger.error("Failed to update customer", exc_info=exc)
+            raise DatabaseError("Unable to update customer") from exc
+
     def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
@@ -143,13 +214,79 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Unable to list machine groups") from exc
         return [self._to_machine_group(row) for row in rows]
 
+    def create_machine_group(self, payload: MachineGroupCreateRequest) -> MachineGroupSummary:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        machine_group_id = self._normalize_machine_group_id(payload.machine_group_id)
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            ([machine_group_id], [name], [process_families_json], [config_json])
+            VALUES
+            (:machine_group_id, :name, :process_families_json, :config_json)
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "machine_group_id": machine_group_id,
+                        "name": payload.name.strip()[:200],
+                        "process_families_json": payload.process_families_json,
+                        "config_json": payload.config_json,
+                    },
+                )
+            created = self._get_machine_group(machine_group_id)
+            if not created:
+                raise DatabaseError("Machine group created but not found afterwards")
+            return created
+        except SQLAlchemyError as exc:
+            logger.error("Failed to create machine group", exc_info=exc)
+            raise DatabaseError("Unable to create machine group") from exc
+
+    def update_machine_group(self, machine_group_id: str, payload: MachineGroupUpdateRequest) -> Optional[MachineGroupSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        normalized = self._normalize_machine_group_id(machine_group_id)
+        updates: list[str] = []
+        params: dict[str, Any] = {"machine_group_id": normalized}
+        if payload.name is not None:
+            updates.append("[name] = :name")
+            params["name"] = payload.name.strip()[:200]
+        if payload.process_families_json is not None:
+            updates.append("[process_families_json] = :process_families_json")
+            params["process_families_json"] = payload.process_families_json
+        if payload.config_json is not None:
+            updates.append("[config_json] = :config_json")
+            params["config_json"] = payload.config_json
+        if not updates:
+            return self._get_machine_group(normalized)
+        updates.append("[updated_at] = SYSUTCDATETIME()")
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            SET {', '.join(updates)}
+            WHERE [machine_group_id] = :machine_group_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+            return self._get_machine_group(normalized)
+        except SQLAlchemyError as exc:
+            logger.error("Failed to update machine group", exc_info=exc)
+            raise DatabaseError("Unable to update machine group") from exc
+
     def list_machine_capability_options(
         self, *, search: Optional[str], capability_code: Optional[str], limit: int = 200
     ) -> list[MachineCapabilityOption]:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
         safe_limit = max(1, min(limit, 1000))
-        filters: list[str] = []
+        filters: list[str] = ["[is_active] = 1"]
         params: dict[str, Any] = {"limit": safe_limit}
         if capability_code:
             filters.append("[capability_code] = :capability_code")
@@ -157,8 +294,29 @@ class CeduleVentesSousTraitanceRepository:
         if search:
             filters.append("([capability_code] LIKE :search OR [capability_value] LIKE :search OR [unit] LIKE :search)")
             params["search"] = f"%{search.strip()}%"
-        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
-        stmt = text(
+        where_clause = f"WHERE {' AND '.join(filters)}"
+        table_stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [capability_code],
+                [capability_value],
+                [unit],
+                0 AS [usage_count]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capability_options]
+            {where_clause}
+            ORDER BY [capability_code] ASC, [capability_value] ASC
+            """
+        )
+        fallback_filters: list[str] = []
+        fallback_params: dict[str, Any] = {"limit": safe_limit}
+        if capability_code:
+            fallback_filters.append("[capability_code] = :capability_code")
+            fallback_params["capability_code"] = capability_code.strip().upper()
+        if search:
+            fallback_filters.append("([capability_code] LIKE :search OR [capability_value] LIKE :search OR [unit] LIKE :search)")
+            fallback_params["search"] = f"%{search.strip()}%"
+        fallback_where = f"WHERE {' AND '.join(fallback_filters)}" if fallback_filters else ""
+        fallback_stmt = text(
             f"""
             SELECT TOP (:limit)
                 [capability_code],
@@ -166,19 +324,29 @@ class CeduleVentesSousTraitanceRepository:
                 [unit],
                 COUNT(1) AS [usage_count]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
-            {where_clause}
+            {fallback_where}
             GROUP BY [capability_code], [capability_value], [unit]
             ORDER BY [capability_code] ASC, [usage_count] DESC, [capability_value] ASC
             """
         )
         try:
             with self._engine.connect() as conn:
-                rows = conn.execute(stmt, params).mappings().all()
+                rows = conn.execute(table_stmt, params).mappings().all()
+                if not rows:
+                    rows = conn.execute(fallback_stmt, fallback_params).mappings().all()
         except SQLAlchemyError as exc:
             if _is_missing_table_error(exc):
-                return []
-            logger.error("Failed to list machine capability options", exc_info=exc)
-            raise DatabaseError("Unable to list machine capability options") from exc
+                try:
+                    with self._engine.connect() as conn:
+                        rows = conn.execute(fallback_stmt, fallback_params).mappings().all()
+                except SQLAlchemyError as fallback_exc:
+                    if _is_missing_table_error(fallback_exc):
+                        return []
+                    logger.error("Failed to list machine capability options", exc_info=fallback_exc)
+                    raise DatabaseError("Unable to list machine capability options") from fallback_exc
+            else:
+                logger.error("Failed to list machine capability options", exc_info=exc)
+                raise DatabaseError("Unable to list machine capability options") from exc
 
         return [
             MachineCapabilityOption(
@@ -190,6 +358,89 @@ class CeduleVentesSousTraitanceRepository:
             for row in rows
             if row.get("capability_code")
         ]
+
+    def create_machine_capability_option(self, payload: MachineCapabilityOptionCreateRequest) -> MachineCapabilityOptionEntry:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        option_id = uuid4()
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capability_options]
+            ([option_id], [capability_code], [capability_value], [unit], [is_active], [notes])
+            VALUES
+            (:option_id, :capability_code, :capability_value, :unit, :is_active, :notes)
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "option_id": str(option_id),
+                        "capability_code": payload.capability_code.strip().upper()[:100],
+                        "capability_value": payload.capability_value,
+                        "unit": payload.unit,
+                        "is_active": payload.is_active,
+                        "notes": payload.notes,
+                    },
+                )
+            created = self._get_machine_capability_option(option_id)
+            if not created:
+                raise DatabaseError("Machine capability option created but not found afterwards")
+            return created
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Machine capability option table is missing. Run docs/ventes_sous_traitance_machine_capability_options_schema.sql first."
+                ) from exc
+            logger.error("Failed to create machine capability option", exc_info=exc)
+            raise DatabaseError("Unable to create machine capability option") from exc
+
+    def update_machine_capability_option(
+        self, option_id: UUID, payload: MachineCapabilityOptionUpdateRequest
+    ) -> Optional[MachineCapabilityOptionEntry]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        updates: list[str] = []
+        params: dict[str, Any] = {"option_id": str(option_id)}
+        if payload.capability_code is not None:
+            updates.append("[capability_code] = :capability_code")
+            params["capability_code"] = payload.capability_code.strip().upper()[:100]
+        if payload.capability_value is not None:
+            updates.append("[capability_value] = :capability_value")
+            params["capability_value"] = payload.capability_value
+        if payload.unit is not None:
+            updates.append("[unit] = :unit")
+            params["unit"] = payload.unit
+        if payload.is_active is not None:
+            updates.append("[is_active] = :is_active")
+            params["is_active"] = payload.is_active
+        if payload.notes is not None:
+            updates.append("[notes] = :notes")
+            params["notes"] = payload.notes
+        if not updates:
+            return self._get_machine_capability_option(option_id)
+        updates.append("[updated_at] = SYSUTCDATETIME()")
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capability_options]
+            SET {', '.join(updates)}
+            WHERE [option_id] = :option_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+            return self._get_machine_capability_option(option_id)
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Machine capability option table is missing. Run docs/ventes_sous_traitance_machine_capability_options_schema.sql first."
+                ) from exc
+            logger.error("Failed to update machine capability option", exc_info=exc)
+            raise DatabaseError("Unable to update machine capability option") from exc
 
     def list_machine_capability_catalog(self, *, search: Optional[str], limit: int = 200) -> list[MachineCapabilityCatalogItem]:
         if not self._engine:
@@ -440,6 +691,49 @@ class CeduleVentesSousTraitanceRepository:
                 raise DatabaseError("Machine config tables are missing. Run docs/ventes_sous_traitance_machine_config_schema.sql first.") from exc
             logger.error("Failed to update machine", exc_info=exc)
             raise DatabaseError("Unable to update machine") from exc
+
+    def _get_customer(self, customer_id: UUID) -> Optional[CustomerSummary]:
+        stmt = text(
+            """
+            SELECT [customer_id], [name], [email], [phone], [created_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            WHERE [customer_id] = :customer_id
+            """
+        )
+        with self._engine.connect() as conn:  # type: ignore[union-attr]
+            row = conn.execute(stmt, {"customer_id": str(customer_id)}).mappings().first()
+        if not row:
+            return None
+        return self._to_customer(row)
+
+    def _get_machine_group(self, machine_group_id: str) -> Optional[MachineGroupSummary]:
+        stmt = text(
+            """
+            SELECT [machine_group_id], [name], [process_families_json], [config_json], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            WHERE [machine_group_id] = :machine_group_id
+            """
+        )
+        with self._engine.connect() as conn:  # type: ignore[union-attr]
+            row = conn.execute(stmt, {"machine_group_id": machine_group_id}).mappings().first()
+        if not row:
+            return None
+        return self._to_machine_group(row)
+
+    def _get_machine_capability_option(self, option_id: UUID) -> Optional[MachineCapabilityOptionEntry]:
+        stmt = text(
+            """
+            SELECT
+                [option_id], [capability_code], [capability_value], [unit], [is_active], [notes], [created_at], [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capability_options]
+            WHERE [option_id] = :option_id
+            """
+        )
+        with self._engine.connect() as conn:  # type: ignore[union-attr]
+            row = conn.execute(stmt, {"option_id": str(option_id)}).mappings().first()
+        if not row:
+            return None
+        return self._to_machine_capability_option_entry(row)
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         if not self._engine:
@@ -1479,6 +1773,18 @@ class CeduleVentesSousTraitanceRepository:
             numeric_value=Decimal(str(row["numeric_value"])) if row.get("numeric_value") is not None else None,
             bool_value=bool(row.get("bool_value")) if row.get("bool_value") is not None else None,
             unit=row.get("unit"),
+            notes=row.get("notes"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+        )
+
+    def _to_machine_capability_option_entry(self, row: dict[str, Any]) -> MachineCapabilityOptionEntry:
+        return MachineCapabilityOptionEntry(
+            option_id=UUID(str(row.get("option_id"))),
+            capability_code=str(row.get("capability_code") or ""),
+            capability_value=row.get("capability_value"),
+            unit=row.get("unit"),
+            is_active=bool(row.get("is_active")),
             notes=row.get("notes"),
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
