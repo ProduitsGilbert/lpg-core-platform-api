@@ -112,6 +112,17 @@ def test_update_customer_not_found() -> None:
     app.dependency_overrides.clear()
 
 
+def test_delete_customer_not_found() -> None:
+    stub = MagicMock()
+    customer_id = uuid4()
+    stub.delete_customer.return_value = False
+    client = _client_with_service(stub)
+    response = client.delete(f"/api/v1/vente-sous-traitance/customers/{customer_id}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Customer not found"
+    app.dependency_overrides.clear()
+
+
 def test_list_machine_groups_endpoint() -> None:
     stub = MagicMock()
     stub.list_machine_groups.return_value = [
@@ -156,6 +167,16 @@ def test_update_machine_group_not_found() -> None:
     stub.update_machine_group.return_value = None
     client = _client_with_service(stub)
     response = client.patch("/api/v1/vente-sous-traitance/machine-groups/CNC_UNKNOWN", json={"name": "Unknown"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Machine group not found"
+    app.dependency_overrides.clear()
+
+
+def test_delete_machine_group_not_found() -> None:
+    stub = MagicMock()
+    stub.delete_machine_group.return_value = False
+    client = _client_with_service(stub)
+    response = client.delete("/api/v1/vente-sous-traitance/machine-groups/CNC_UNKNOWN")
     assert response.status_code == 404
     assert response.json()["detail"] == "Machine group not found"
     app.dependency_overrides.clear()
@@ -323,6 +344,17 @@ def test_update_machine_not_found() -> None:
     stub.update_machine.return_value = None
     client = _client_with_service(stub)
     response = client.patch(f"/api/v1/vente-sous-traitance/machines/{machine_id}", json={"default_runtime_min": "55"})
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Machine not found"
+    app.dependency_overrides.clear()
+
+
+def test_delete_machine_not_found() -> None:
+    stub = MagicMock()
+    machine_id = uuid4()
+    stub.delete_machine.return_value = False
+    client = _client_with_service(stub)
+    response = client.delete(f"/api/v1/vente-sous-traitance/machines/{machine_id}")
     assert response.status_code == 404
     assert response.json()["detail"] == "Machine not found"
     app.dependency_overrides.clear()

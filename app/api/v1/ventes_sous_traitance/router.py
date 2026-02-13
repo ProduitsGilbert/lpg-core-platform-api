@@ -141,6 +141,17 @@ async def update_customer(
     return customer
 
 
+@router.delete("/customers/{customer_id}", response_model=dict[str, bool])
+async def delete_customer(
+    customer_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> dict[str, bool]:
+    deleted = service.delete_customer(customer_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+    return {"deleted": True}
+
+
 @router.get("/machine-groups", response_model=list[MachineGroupSummary])
 async def list_machine_groups(
     search: Optional[str] = Query(default=None, alias="q"),
@@ -168,6 +179,17 @@ async def update_machine_group(
     if not machine_group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine group not found")
     return machine_group
+
+
+@router.delete("/machine-groups/{machine_group_id}", response_model=dict[str, bool])
+async def delete_machine_group(
+    machine_group_id: str,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> dict[str, bool]:
+    deleted = service.delete_machine_group(machine_group_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine group not found")
+    return {"deleted": True}
 
 
 @router.get("/machine-capabilities/options", response_model=list[MachineCapabilityOption])
@@ -258,6 +280,17 @@ async def update_machine(
     if not machine:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found")
     return machine
+
+
+@router.delete("/machines/{machine_id}", response_model=dict[str, bool])
+async def delete_machine(
+    machine_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> dict[str, bool]:
+    deleted = service.delete_machine(machine_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Machine not found")
+    return {"deleted": True}
 
 
 @router.get("/quotes", response_model=list[QuoteSummary])

@@ -58,6 +58,11 @@ def _is_missing_table_error(exc: Exception) -> bool:
     return "invalid object name" in text_value or "42s02" in text_value
 
 
+def _is_fk_conflict_error(exc: Exception) -> bool:
+    text_value = str(exc).lower()
+    return "reference constraint" in text_value or "foreign key constraint" in text_value or "(547)" in text_value
+
+
 ALLOWED_PART_SHAPES = {"round", "sheet", "prismatic", "weldment", "assembly", "unknown"}
 
 
@@ -187,6 +192,25 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to update customer", exc_info=exc)
             raise DatabaseError("Unable to update customer") from exc
 
+    def delete_customer(self, customer_id: UUID) -> bool:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            DELETE FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
+            WHERE [customer_id] = :customer_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, {"customer_id": str(customer_id)})
+                return bool(result.rowcount)
+        except SQLAlchemyError as exc:
+            if _is_fk_conflict_error(exc):
+                raise DatabaseError("Unable to delete customer because it is referenced by existing quotes.") from exc
+            logger.error("Failed to delete customer", exc_info=exc)
+            raise DatabaseError("Unable to delete customer") from exc
+
     def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
@@ -279,6 +303,26 @@ class CeduleVentesSousTraitanceRepository:
         except SQLAlchemyError as exc:
             logger.error("Failed to update machine group", exc_info=exc)
             raise DatabaseError("Unable to update machine group") from exc
+
+    def delete_machine_group(self, machine_group_id: str) -> bool:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        normalized = self._normalize_machine_group_id(machine_group_id)
+        stmt = text(
+            """
+            DELETE FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_groups]
+            WHERE [machine_group_id] = :machine_group_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, {"machine_group_id": normalized})
+                return bool(result.rowcount)
+        except SQLAlchemyError as exc:
+            if _is_fk_conflict_error(exc):
+                raise DatabaseError("Unable to delete machine group because it is referenced by existing machines or routings.") from exc
+            logger.error("Failed to delete machine group", exc_info=exc)
+            raise DatabaseError("Unable to delete machine group") from exc
 
     def list_machine_capability_options(
         self, *, search: Optional[str], capability_code: Optional[str], limit: int = 200
@@ -691,6 +735,27 @@ class CeduleVentesSousTraitanceRepository:
                 raise DatabaseError("Machine config tables are missing. Run docs/ventes_sous_traitance_machine_config_schema.sql first.") from exc
             logger.error("Failed to update machine", exc_info=exc)
             raise DatabaseError("Unable to update machine") from exc
+
+    def delete_machine(self, machine_id: UUID) -> bool:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            DELETE FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machines]
+            WHERE [machine_id] = :machine_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, {"machine_id": str(machine_id)})
+                return bool(result.rowcount)
+        except SQLAlchemyError as exc:
+            if _is_fk_conflict_error(exc):
+                raise DatabaseError("Unable to delete machine because it is referenced by existing routing steps.") from exc
+            if _is_missing_table_error(exc):
+                raise DatabaseError("Machine config tables are missing. Run docs/ventes_sous_traitance_machine_config_schema.sql first.") from exc
+            logger.error("Failed to delete machine", exc_info=exc)
+            raise DatabaseError("Unable to delete machine") from exc
 
     def _get_customer(self, customer_id: UUID) -> Optional[CustomerSummary]:
         stmt = text(

@@ -64,6 +64,9 @@ class VentesSousTraitanceService:
     def update_customer(self, customer_id: UUID, payload: CustomerUpdateRequest) -> Optional[CustomerSummary]:
         return self._repository.update_customer(customer_id, payload)
 
+    def delete_customer(self, customer_id: UUID) -> bool:
+        return self._repository.delete_customer(customer_id)
+
     def list_machine_groups(self, *, search: Optional[str], limit: int = 200) -> list[MachineGroupSummary]:
         return self._repository.list_machine_groups(search=search, limit=limit)
 
@@ -72,6 +75,9 @@ class VentesSousTraitanceService:
 
     def update_machine_group(self, machine_group_id: str, payload: MachineGroupUpdateRequest) -> Optional[MachineGroupSummary]:
         return self._repository.update_machine_group(machine_group_id, payload)
+
+    def delete_machine_group(self, machine_group_id: str) -> bool:
+        return self._repository.delete_machine_group(machine_group_id)
 
     def list_machine_capability_options(
         self, *, search: Optional[str], capability_code: Optional[str], limit: int = 200
@@ -120,6 +126,9 @@ class VentesSousTraitanceService:
 
     def update_machine(self, machine_id: UUID, payload: MachineUpdateRequest) -> Optional[MachineResponse]:
         return self._repository.update_machine(machine_id, payload)
+
+    def delete_machine(self, machine_id: UUID) -> bool:
+        return self._repository.delete_machine(machine_id)
 
     def list_quotes(self, *, status: Optional[str], customer_id: Optional[UUID]) -> list[QuoteSummary]:
         return self._repository.list_quotes(status=status, customer_id=customer_id)
