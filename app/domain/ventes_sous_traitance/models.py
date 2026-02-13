@@ -90,6 +90,13 @@ class MachineCapabilityResponse(BaseModel):
     updated_at: datetime
 
 
+class MachineCapabilityOption(BaseModel):
+    capability_code: str
+    capability_value: Optional[str] = None
+    unit: Optional[str] = None
+    usage_count: int = 0
+
+
 class MachineCreateRequest(BaseModel):
     machine_code: str = Field(min_length=1, max_length=100)
     machine_name: str = Field(min_length=1, max_length=200)

@@ -100,6 +100,30 @@ def test_list_machine_groups_endpoint() -> None:
     app.dependency_overrides.clear()
 
 
+def test_list_machine_capability_options_endpoint() -> None:
+    stub = MagicMock()
+    stub.list_machine_capability_options.return_value = [
+        {
+            "capability_code": "PROCESS_FAMILY",
+            "capability_value": "milling",
+            "unit": None,
+            "usage_count": 8,
+        }
+    ]
+    client = _client_with_service(stub)
+    response = client.get("/api/v1/machine-capabilities/options?q=mill&capability_code=PROCESS_FAMILY&limit=30")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["capability_code"] == "PROCESS_FAMILY"
+    assert payload[0]["capability_value"] == "milling"
+    stub.list_machine_capability_options.assert_called_once_with(
+        search="mill",
+        capability_code="PROCESS_FAMILY",
+        limit=30,
+    )
+    app.dependency_overrides.clear()
+
+
 def test_list_machines_endpoint() -> None:
     stub = MagicMock()
     now = datetime.now(timezone.utc)

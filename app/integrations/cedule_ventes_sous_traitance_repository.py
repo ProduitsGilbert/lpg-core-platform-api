@@ -15,6 +15,7 @@ from app.domain.ventes_sous_traitance.models import (
     CustomerSummary,
     JobStatusResponse,
     MachineCapabilityInput,
+    MachineCapabilityOption,
     MachineCapabilityResponse,
     MachineCreateRequest,
     MachineGroupSummary,
@@ -140,6 +141,54 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to list machine groups", exc_info=exc)
             raise DatabaseError("Unable to list machine groups") from exc
         return [self._to_machine_group(row) for row in rows]
+
+    def list_machine_capability_options(
+        self, *, search: Optional[str], capability_code: Optional[str], limit: int = 200
+    ) -> list[MachineCapabilityOption]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters: list[str] = []
+        params: dict[str, Any] = {"limit": safe_limit}
+        if capability_code:
+            filters.append("[capability_code] = :capability_code")
+            params["capability_code"] = capability_code.strip().upper()
+        if search:
+            filters.append("([capability_code] LIKE :search OR [capability_value] LIKE :search OR [unit] LIKE :search)")
+            params["search"] = f"%{search.strip()}%"
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [capability_code],
+                [capability_value],
+                [unit],
+                COUNT(1) AS [usage_count]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_machine_capabilities]
+            {where_clause}
+            GROUP BY [capability_code], [capability_value], [unit]
+            ORDER BY [capability_code] ASC, [usage_count] DESC, [capability_value] ASC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).mappings().all()
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                return []
+            logger.error("Failed to list machine capability options", exc_info=exc)
+            raise DatabaseError("Unable to list machine capability options") from exc
+
+        return [
+            MachineCapabilityOption(
+                capability_code=str(row.get("capability_code") or ""),
+                capability_value=row.get("capability_value"),
+                unit=row.get("unit"),
+                usage_count=_safe_int(row.get("usage_count"), 0),
+            )
+            for row in rows
+            if row.get("capability_code")
+        ]
 
     def list_machines(
         self,
