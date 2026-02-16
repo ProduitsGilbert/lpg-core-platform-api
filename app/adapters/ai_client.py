@@ -230,7 +230,8 @@ Identify any compliance issues and required actions."""
         self,
         text: str,
         schema: Dict[str, Any],
-        context: Optional[str] = None
+        context: Optional[str] = None,
+        image_inputs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Extract structured data from unstructured text using AI.
@@ -269,13 +270,13 @@ Return only valid JSON matching the schema."""
             
             if self.xai_client:
                 try:
-                    return self._analyze_with_xai(prompt, "extraction")
+                    return self._analyze_with_xai(prompt, "extraction", image_inputs=image_inputs)
                 except Exception as e:
                     logger.warning("xAI structured extraction failed, trying OpenAI/local fallback: %s", e)
 
             if self.openai_client:
                 try:
-                    return self._analyze_with_openai(prompt, "extraction")
+                    return self._analyze_with_openai(prompt, "extraction", image_inputs=image_inputs)
                 except Exception as e:
                     logger.warning("OpenAI extraction failed: %s", e)
             
@@ -359,7 +360,8 @@ Provide specific corrections for each field with explanations."""
     def _analyze_with_openai(
         self,
         prompt: str,
-        task_type: str
+        task_type: str,
+        image_inputs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Perform analysis using OpenAI API.
@@ -378,6 +380,13 @@ Provide specific corrections for each field with explanations."""
             raise ExternalServiceException(detail="OpenAI client not configured", service="AI")
         
         try:
+            user_content: Union[str, List[Dict[str, Any]]] = prompt
+            if image_inputs:
+                user_content = [{"type": "text", "text": prompt}]
+                for data_url in image_inputs[:8]:
+                    if isinstance(data_url, str) and data_url.startswith("data:image/"):
+                        user_content.append({"type": "image_url", "image_url": {"url": data_url}})
+
             response = self.openai_client.post(
                 "/chat/completions",
                 json={
@@ -389,7 +398,7 @@ Provide specific corrections for each field with explanations."""
                         },
                         {
                             "role": "user",
-                            "content": prompt
+                            "content": user_content
                         }
                     ],
                     "temperature": 0.3,
@@ -430,6 +439,7 @@ Provide specific corrections for each field with explanations."""
         self,
         prompt: str,
         task_type: str,
+        image_inputs: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Perform analysis using xAI Grok chat completions.
@@ -438,6 +448,13 @@ Provide specific corrections for each field with explanations."""
             raise ExternalServiceException(detail="xAI client not configured", service="AI")
 
         try:
+            user_content: Union[str, List[Dict[str, Any]]] = prompt
+            if image_inputs:
+                user_content = [{"type": "text", "text": prompt}]
+                for data_url in image_inputs[:8]:
+                    if isinstance(data_url, str) and data_url.startswith("data:image/"):
+                        user_content.append({"type": "image_url", "image_url": {"url": data_url}})
+
             payload: Dict[str, Any] = {
                 "model": self.xai_model,
                 "messages": [
@@ -450,12 +467,12 @@ Provide specific corrections for each field with explanations."""
                     },
                     {
                         "role": "user",
-                        "content": prompt,
+                        "content": user_content,
                     },
                 ],
                 "temperature": 0.1,
             }
-            if self.xai_reasoning_effort:
+            if self.xai_reasoning_effort and self._xai_supports_reasoning_effort(self.xai_model):
                 payload["reasoning_effort"] = self.xai_reasoning_effort
             if task_type in {"extraction", "corrections"}:
                 payload["response_format"] = {"type": "json_object"}
@@ -474,7 +491,7 @@ Provide specific corrections for each field with explanations."""
                 if (
                     payload.get("reasoning_effort")
                     and first_err.response.status_code == 400
-                    and "does not support parameter reasoningeffort" in body_lower
+                    and ("does not support parameter reasoningeffort" in body_lower or "reasoning_effort" in body_lower)
                 ):
                     logger.warning(
                         "xAI model %s rejected reasoning_effort; retrying without reasoning_effort",
@@ -517,7 +534,7 @@ Provide specific corrections for each field with explanations."""
             logger.error("xAI API error body: %s", response_text)
             if task_type in {"extraction", "corrections"} and self.openai_client:
                 logger.warning("Retrying extraction with OpenAI fallback after xAI 4xx/5xx")
-                return self._analyze_with_openai(prompt, task_type)
+                return self._analyze_with_openai(prompt, task_type, image_inputs=image_inputs)
             raise ExternalServiceException(
                 detail=f"xAI API error: {e.response.status_code}",
                 service="AI",
@@ -525,14 +542,22 @@ Provide specific corrections for each field with explanations."""
         except httpx.TimeoutException:
             if task_type in {"extraction", "corrections"} and self.openai_client:
                 logger.warning("xAI timeout, retrying extraction with OpenAI fallback")
-                return self._analyze_with_openai(prompt, task_type)
+                return self._analyze_with_openai(prompt, task_type, image_inputs=image_inputs)
             raise ExternalServiceException(detail="xAI API timeout", service="AI")
         except Exception as e:
             logfire.error(f"xAI analysis error: {str(e)}")
             if task_type in {"extraction", "corrections"} and self.openai_client:
                 logger.warning("xAI generic error, retrying extraction with OpenAI fallback: %s", e)
-                return self._analyze_with_openai(prompt, task_type)
+                return self._analyze_with_openai(prompt, task_type, image_inputs=image_inputs)
             raise ExternalServiceException(detail=f"xAI error: {str(e)}", service="AI")
+
+    @staticmethod
+    def _xai_supports_reasoning_effort(model_name: str) -> bool:
+        """
+        reasoning_effort is currently supported only by grok-3-mini.
+        """
+        normalized = (model_name or "").strip().lower()
+        return normalized.startswith("grok-3-mini")
     
     def _analyze_with_local_agent(
         self,

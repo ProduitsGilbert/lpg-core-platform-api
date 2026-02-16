@@ -18,15 +18,17 @@ class VentesSousTraitanceAnalysisPipeline:
     def __init__(self, ai_client: AIClient | None = None) -> None:
         self._ai = ai_client or AIClient()
 
-    def run(self, *, source_text: str) -> dict[str, Any]:
-        step1 = self._step1_extract_metadata(source_text)
-        step2 = self._step2_classify(source_text)
+    def run(self, *, source_text: str, page_image_data_urls: list[str] | None = None) -> dict[str, Any]:
+        images = page_image_data_urls or []
+        step1 = self._step1_extract_metadata(source_text, images)
+        step2 = self._step2_classify(source_text, images)
         step3 = self._step3_complexity(step2=step2, tolerance_note=str(step1.get("general_tolerances_note") or ""))
         step4 = self._step4_extract_feature_details(
             step1=step1,
             step2=step2,
             step3=step3,
             source_text=source_text,
+            page_image_data_urls=images,
         )
         step5 = self._step5_generate_routings(
             step1=step1,
@@ -44,7 +46,7 @@ class VentesSousTraitanceAnalysisPipeline:
             "step4_routings": step5,
         }
 
-    def _step1_extract_metadata(self, source_text: str) -> dict[str, Any]:
+    def _step1_extract_metadata(self, source_text: str, page_image_data_urls: list[str]) -> dict[str, Any]:
         schema = {
             "customer_name": None,
             "customer_address": None,
@@ -69,16 +71,18 @@ class VentesSousTraitanceAnalysisPipeline:
             schema,
             context=(
                 "Step 1 metadata extraction for manufacturing drawing. "
+                "Use the drawing visuals as primary source of truth and extracted text as secondary support. "
                 "Capture customer/company info from title block or legal notes. "
-                "Return only factual values found in text; keep missing fields null."
+                "Return only factual values; keep missing fields null."
             ),
+            image_inputs=page_image_data_urls,
         )
         # Keep strictly LLM-first when AI assistance is enabled.
         if self._ai.enabled:
             return result if isinstance(result, dict) else schema
         return self._enrich_step1_from_text(source_text, result if isinstance(result, dict) else schema)
 
-    def _step2_classify(self, source_text: str) -> dict[str, Any]:
+    def _step2_classify(self, source_text: str, page_image_data_urls: list[str]) -> dict[str, Any]:
         schema = {
             "shape_class": "unknown",
             "overall_envelope_mm": {"x": None, "y": None, "z": None},
@@ -97,9 +101,11 @@ class VentesSousTraitanceAnalysisPipeline:
             source_text,
             schema,
             context=(
-                "Step 2 part classification. Infer envelope and rough feature counts. "
+                "Step 2 part classification. Use full-page drawing visuals first, then extracted text for confirmation. "
+                "Infer envelope and rough feature counts. "
                 "If uncertain, keep unknown/null and lower confidence."
             ),
+            image_inputs=page_image_data_urls,
         )
 
     def _step3_complexity(self, *, step2: dict[str, Any], tolerance_note: str) -> dict[str, Any]:
@@ -129,6 +135,7 @@ class VentesSousTraitanceAnalysisPipeline:
         step2: dict[str, Any],
         step3: dict[str, Any],
         source_text: str,
+        page_image_data_urls: list[str],
     ) -> dict[str, Any]:
         schema = {
             "part_summary": {
@@ -210,11 +217,13 @@ class VentesSousTraitanceAnalysisPipeline:
             schema,
             context=(
                 "Step 4 detailed machining feature extraction for CNC steel parts. "
+                "Use drawing visuals as primary evidence and treat extracted text as supplementary. "
                 "Identify and quantify features using the provided taxonomy. "
                 "Estimate drilled holes, threaded holes, high precision features "
                 "(very tight tolerance or 3-digit precision), and number of machined faces. "
                 "Use valid JSON only; keep unknown values null."
             ),
+            image_inputs=page_image_data_urls,
         )
 
     def _step5_generate_routings(

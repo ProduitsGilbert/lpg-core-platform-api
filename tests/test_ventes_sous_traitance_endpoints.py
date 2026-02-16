@@ -434,7 +434,10 @@ def test_analyze_quote_upload_endpoint() -> None:
     stub.start_analysis_from_text.return_value = run_id
     client = _client_with_service(stub)
 
-    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
+    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"), patch(
+        "app.api.v1.ventes_sous_traitance.router._extract_pdf_image_data_urls",
+        return_value=["data:image/png;base64,AAA"],
+    ):
         response = client.post(
             f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/analyze-upload",
             files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
@@ -461,7 +464,10 @@ def test_analyze_quote_upload_rejects_invalid_part_cues_json() -> None:
     stub.get_quote.return_value = quote
     client = _client_with_service(stub)
 
-    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"):
+    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value="PDF text"), patch(
+        "app.api.v1.ventes_sous_traitance.router._extract_pdf_image_data_urls",
+        return_value=["data:image/png;base64,AAA"],
+    ):
         response = client.post(
             f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/analyze-upload",
             files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
@@ -470,4 +476,31 @@ def test_analyze_quote_upload_rejects_invalid_part_cues_json() -> None:
 
     assert response.status_code == 400
     assert "part_cues_json must be a JSON array" in response.json()["detail"]
+    app.dependency_overrides.clear()
+
+
+def test_analyze_quote_upload_accepts_image_only_pdf() -> None:
+    stub = MagicMock()
+    quote = _sample_quote()
+    run_id = uuid4()
+    stub.get_quote.return_value = quote
+    stub.start_analysis_from_text.return_value = run_id
+    client = _client_with_service(stub)
+
+    with patch("app.api.v1.ventes_sous_traitance.router._extract_pdf_text_from_bytes", return_value=""), patch(
+        "app.api.v1.ventes_sous_traitance.router._extract_pdf_image_data_urls",
+        return_value=["data:image/png;base64,AAA"],
+    ):
+        response = client.post(
+            f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/analyze-upload",
+            files={"file": ("drawing.pdf", b"%PDF-1.4 dummy", "application/pdf")},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_id"] == str(run_id)
+    stub.start_analysis_from_text.assert_called_once()
+    called = stub.start_analysis_from_text.call_args
+    assert called.kwargs["source_text"] == ""
+    assert called.kwargs["page_image_data_urls"] == ["data:image/png;base64,AAA"]
     app.dependency_overrides.clear()

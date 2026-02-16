@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import io
 import json
+import base64
 from functools import lru_cache
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+import fitz
 from pypdf import PdfReader
 
 from app.domain.ventes_sous_traitance.models import (
@@ -42,6 +44,8 @@ from app.errors import DatabaseError
 
 router = APIRouter(tags=["Ventes - Sous-Traitance"])
 MAX_ANALYZE_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_ANALYZE_IMAGE_PAGES = 6
+MAX_ANALYZE_IMAGE_DATA_URLS = 7  # includes 1 title-block crop from first page
 
 
 @lru_cache(maxsize=1)
@@ -82,6 +86,37 @@ def _extract_pdf_text_from_bytes(file_content: bytes) -> str:
         if text.strip():
             chunks.append(f"[Page {idx + 1}]\n{text.strip()}")
     return "\n\n".join(chunks).strip()
+
+
+def _extract_pdf_image_data_urls(file_content: bytes) -> list[str]:
+    """
+    Render PDF pages to image data URLs for multimodal LLM extraction.
+    Includes first page title-block crop to improve metadata extraction.
+    """
+    urls: list[str] = []
+    try:
+        doc = fitz.open(stream=file_content, filetype="pdf")
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid PDF: {exc}") from exc
+
+    try:
+        for idx, page in enumerate(doc):
+            if idx >= MAX_ANALYZE_IMAGE_PAGES:
+                break
+            pix = page.get_pixmap(matrix=fitz.Matrix(1.6, 1.6), alpha=False)
+            png_bytes = pix.tobytes("png")
+            urls.append(f"data:image/png;base64,{base64.b64encode(png_bytes).decode('ascii')}")
+
+            if idx == 0 and len(urls) < MAX_ANALYZE_IMAGE_DATA_URLS:
+                rect = page.rect
+                clip = fitz.Rect(rect.width * 0.55, rect.height * 0.55, rect.width, rect.height)
+                crop_pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), clip=clip, alpha=False)
+                crop_png = crop_pix.tobytes("png")
+                urls.append(f"data:image/png;base64,{base64.b64encode(crop_png).decode('ascii')}")
+    finally:
+        doc.close()
+
+    return urls[:MAX_ANALYZE_IMAGE_DATA_URLS]
 
 
 def _parse_part_cues_json(part_cues_json: Optional[str]) -> list[dict]:
@@ -375,10 +410,12 @@ async def analyze_quote_upload(
 
     file_content = await _read_and_validate_pdf_upload(file)
     extracted_text = _extract_pdf_text_from_bytes(file_content)
-    if not extracted_text and not (user_cue and user_cue.strip()):
+    image_data_urls = _extract_pdf_image_data_urls(file_content)
+    has_user_cue = bool(user_cue and user_cue.strip())
+    if not extracted_text and not image_data_urls and not has_user_cue:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No text could be extracted from PDF. Provide user_cue or upload a text-based PDF.",
+            detail="No text or visual content could be extracted from PDF. Provide user_cue or upload a valid PDF.",
         )
     part_cues = _parse_part_cues_json(part_cues_json)
     job_id = service.start_analysis_from_text(
@@ -386,6 +423,7 @@ async def analyze_quote_upload(
         source_text=extracted_text,
         user_cue=user_cue,
         part_cues=part_cues,
+        page_image_data_urls=image_data_urls,
     )
     return QuoteAnalysisStartResponse(job_id=job_id, quote_id=quote_id, status="scheduled")
 

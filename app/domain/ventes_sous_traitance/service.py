@@ -186,6 +186,7 @@ class VentesSousTraitanceService:
         source_text: str,
         user_cue: Optional[str] = None,
         part_cues: Optional[list[dict[str, Any]]] = None,
+        page_image_data_urls: Optional[list[str]] = None,
     ) -> UUID:
         run_id = self._repository.create_analysis_run(
             quote_id,
@@ -198,7 +199,10 @@ class VentesSousTraitanceService:
                 user_cue=user_cue,
                 part_cues=part_cues,
             )
-            result = self._analysis_pipeline.run(source_text=analysis_text)
+            result = self._analysis_pipeline.run(
+                source_text=analysis_text,
+                page_image_data_urls=page_image_data_urls or [],
+            )
             metadata = result.get("step1_metadata", {})
             classification = result.get("step2_classification", {})
             complexity = result.get("step3_complexity", {})

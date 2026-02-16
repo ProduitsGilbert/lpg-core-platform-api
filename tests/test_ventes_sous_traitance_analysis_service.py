@@ -33,7 +33,7 @@ def test_start_analysis_runs_multistep_pipeline_and_persists_outputs() -> None:
 
     assert returned_run_id == run_id
     repository.create_analysis_run.assert_called_once()
-    pipeline.run.assert_called_once_with(source_text="drawing notes")
+    pipeline.run.assert_called_once_with(source_text="drawing notes", page_image_data_urls=[])
     repository.complete_analysis_run.assert_called_once()
     repository.fail_analysis_run.assert_not_called()
 
@@ -86,7 +86,9 @@ def test_start_analysis_from_text_includes_user_guidance() -> None:
     assert returned_run_id == run_id
     pipeline.run.assert_called_once()
     called_text = pipeline.run.call_args.kwargs["source_text"]
+    called_images = pipeline.run.call_args.kwargs["page_image_data_urls"]
     assert "DOC TEXT" in called_text
     assert "[Estimator Cue]" in called_text
     assert "Prefer no welding" in called_text
     assert "[Part Cues JSON]" in called_text
+    assert called_images == []

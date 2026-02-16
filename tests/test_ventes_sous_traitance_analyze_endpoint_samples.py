@@ -109,7 +109,13 @@ class _InMemoryAnalyzeRepo:
 class _StubAIClient:
     enabled = True
 
-    def extract_structured_data(self, text: str, schema: dict, context: str | None = None) -> dict:
+    def extract_structured_data(
+        self,
+        text: str,
+        schema: dict,
+        context: str | None = None,
+        image_inputs: list[str] | None = None,
+    ) -> dict:
         payload = dict(schema)
         if "customer_name" in payload:
             payload["customer_name"] = "Inotech Fabrication Inc" if "inotech" in text.lower() else "Unknown"
