@@ -27,6 +27,11 @@ from app.domain.ventes_sous_traitance.models import (
     MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
+    PartFeatureCreateRequest,
+    PartFeatureResponse,
+    PartFeatureSetResponse,
+    PartFeatureSetUpsertRequest,
+    PartFeatureUpdateRequest,
     QuoteAnalysisStartResponse,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
@@ -437,6 +442,44 @@ async def get_job_status(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
+
+
+@router.get("/parts/{part_id}/features", response_model=PartFeatureSetResponse)
+async def get_part_features(
+    part_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> PartFeatureSetResponse:
+    return service.get_part_feature_set(part_id)
+
+
+@router.put("/parts/{part_id}/features", response_model=PartFeatureSetResponse)
+async def replace_part_features(
+    part_id: UUID,
+    payload: PartFeatureSetUpsertRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> PartFeatureSetResponse:
+    return service.replace_part_feature_set(part_id, payload)
+
+
+@router.post("/parts/{part_id}/features", response_model=PartFeatureResponse, status_code=status.HTTP_201_CREATED)
+async def create_part_feature(
+    part_id: UUID,
+    payload: PartFeatureCreateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> PartFeatureResponse:
+    return service.create_part_feature(part_id, payload)
+
+
+@router.patch("/part-features/{feature_id}", response_model=PartFeatureResponse)
+async def update_part_feature(
+    feature_id: UUID,
+    payload: PartFeatureUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> PartFeatureResponse:
+    updated = service.update_part_feature(feature_id, payload)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part feature not found")
+    return updated
 
 
 @router.post("/parts/{part_id}/generate-routings", response_model=list[RoutingResponse])

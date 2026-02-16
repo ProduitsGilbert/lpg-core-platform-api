@@ -21,6 +21,11 @@ from app.domain.ventes_sous_traitance.models import (
     MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
+    PartFeatureCreateRequest,
+    PartFeatureResponse,
+    PartFeatureSetResponse,
+    PartFeatureSetUpsertRequest,
+    PartFeatureUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -175,6 +180,18 @@ class VentesSousTraitanceService:
     def delete_routing_step(self, step_id: UUID) -> bool:
         return self._repository.delete_routing_step(step_id)
 
+    def get_part_feature_set(self, part_id: UUID) -> PartFeatureSetResponse:
+        return self._repository.get_part_feature_set(part_id)
+
+    def replace_part_feature_set(self, part_id: UUID, payload: PartFeatureSetUpsertRequest) -> PartFeatureSetResponse:
+        return self._repository.replace_part_feature_set(part_id, payload)
+
+    def create_part_feature(self, part_id: UUID, payload: PartFeatureCreateRequest) -> PartFeatureResponse:
+        return self._repository.create_part_feature(part_id, payload)
+
+    def update_part_feature(self, feature_id: UUID, payload: PartFeatureUpdateRequest) -> Optional[PartFeatureResponse]:
+        return self._repository.update_part_feature(feature_id, payload)
+
     def start_analysis(self, quote_id: UUID) -> UUID:
         source_text = self._repository.get_quote_source_text(quote_id)
         return self.start_analysis_from_text(quote_id, source_text=source_text)
@@ -244,10 +261,16 @@ class VentesSousTraitanceService:
                 payload=feature_details if isinstance(feature_details, dict) else {},
                 confidence=(feature_details.get("confidence") if isinstance(feature_details, dict) else None),
             )
+            self._repository.save_part_feature_set_from_llm(
+                part_id=part_id,
+                run_id=run_id,
+                payload=feature_details if isinstance(feature_details, dict) else {},
+            )
 
             created_routings = self._repository.save_generated_routings(
                 part_id=part_id,
                 scenarios_payload=routings if isinstance(routings, dict) else {},
+                run_id=run_id,
             )
             result["analysis_input"] = {
                 "user_cue": user_cue,

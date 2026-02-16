@@ -29,6 +29,11 @@ from app.domain.ventes_sous_traitance.models import (
     MachineGroupUpdateRequest,
     MachineResponse,
     MachineUpdateRequest,
+    PartFeatureCreateRequest,
+    PartFeatureResponse,
+    PartFeatureSetResponse,
+    PartFeatureSetUpsertRequest,
+    PartFeatureUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -61,6 +66,11 @@ def _is_missing_table_error(exc: Exception) -> bool:
 def _is_fk_conflict_error(exc: Exception) -> bool:
     text_value = str(exc).lower()
     return "reference constraint" in text_value or "foreign key constraint" in text_value or "(547)" in text_value
+
+
+def _is_missing_column_error(exc: Exception) -> bool:
+    text_value = str(exc).lower()
+    return "invalid column name" in text_value
 
 
 ALLOWED_PART_SHAPES = {"round", "sheet", "prismatic", "weldment", "assembly", "unknown"}
@@ -1346,6 +1356,433 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to delete routing step", exc_info=exc)
             raise DatabaseError("Unable to delete routing step") from exc
 
+    def get_part_feature_set(self, part_id: UUID) -> PartFeatureSetResponse:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        summary_stmt = text(
+            """
+            SELECT
+                [feature_set_id],
+                [part_id],
+                [source],
+                [source_run_id],
+                [feature_confidence],
+                [part_summary_json],
+                [additional_operations_json],
+                [general_notes_json],
+                [created_at],
+                [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_feature_sets]
+            WHERE [part_id] = :part_id
+            """
+        )
+        features_stmt = text(
+            """
+            SELECT
+                [feature_id],
+                [part_id],
+                [source],
+                [source_run_id],
+                [feature_ref],
+                [feature_type],
+                [description],
+                [quantity],
+                [width_mm],
+                [length_mm],
+                [depth_mm],
+                [diameter_mm],
+                [thread_spec],
+                [tolerance_note],
+                [surface_finish_ra_um],
+                [location_note],
+                [complexity_factors_json],
+                [estimated_operation_time_min],
+                [is_user_override],
+                [created_at],
+                [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            WHERE [part_id] = :part_id
+            ORDER BY [created_at], [feature_id]
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                summary_row = conn.execute(summary_stmt, {"part_id": str(part_id)}).mappings().first()
+                feature_rows = conn.execute(features_stmt, {"part_id": str(part_id)}).mappings().all()
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to load part feature set", exc_info=exc)
+            raise DatabaseError("Unable to load part feature set") from exc
+
+        features = [self._to_part_feature(row) for row in feature_rows]
+        if not summary_row:
+            return PartFeatureSetResponse(part_id=part_id, features=features)
+
+        return PartFeatureSetResponse(
+            feature_set_id=UUID(str(summary_row.get("feature_set_id"))),
+            part_id=UUID(str(summary_row.get("part_id"))),
+            source=summary_row.get("source"),
+            source_run_id=UUID(str(summary_row.get("source_run_id"))) if summary_row.get("source_run_id") else None,
+            feature_confidence=(
+                Decimal(str(summary_row["feature_confidence"]))
+                if summary_row.get("feature_confidence") is not None
+                else None
+            ),
+            part_summary=self._json_load_object(summary_row.get("part_summary_json")),
+            additional_operations=self._json_load_string_list(summary_row.get("additional_operations_json")),
+            general_notes=self._json_load_string_list(summary_row.get("general_notes_json")),
+            features=features,
+            created_at=summary_row.get("created_at"),
+            updated_at=summary_row.get("updated_at"),
+        )
+
+    def replace_part_feature_set(self, part_id: UUID, payload: PartFeatureSetUpsertRequest) -> PartFeatureSetResponse:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        upsert_stmt = text(
+            """
+            MERGE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_feature_sets] AS target
+            USING (SELECT :part_id AS [part_id]) AS source
+            ON target.[part_id] = source.[part_id]
+            WHEN MATCHED THEN
+                UPDATE SET
+                    [source] = :source,
+                    [source_run_id] = :source_run_id,
+                    [feature_confidence] = :feature_confidence,
+                    [part_summary_json] = :part_summary_json,
+                    [additional_operations_json] = :additional_operations_json,
+                    [general_notes_json] = :general_notes_json,
+                    [updated_at] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (
+                    [feature_set_id],
+                    [part_id],
+                    [source],
+                    [source_run_id],
+                    [feature_confidence],
+                    [part_summary_json],
+                    [additional_operations_json],
+                    [general_notes_json]
+                )
+                VALUES (
+                    :feature_set_id,
+                    :part_id,
+                    :source,
+                    :source_run_id,
+                    :feature_confidence,
+                    :part_summary_json,
+                    :additional_operations_json,
+                    :general_notes_json
+                );
+            """
+        )
+        delete_stmt = text(
+            """
+            DELETE FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            WHERE [part_id] = :part_id
+            """
+        )
+        insert_stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            (
+                [feature_id],
+                [part_id],
+                [source],
+                [source_run_id],
+                [feature_ref],
+                [feature_type],
+                [description],
+                [quantity],
+                [width_mm],
+                [length_mm],
+                [depth_mm],
+                [diameter_mm],
+                [thread_spec],
+                [tolerance_note],
+                [surface_finish_ra_um],
+                [location_note],
+                [complexity_factors_json],
+                [estimated_operation_time_min],
+                [is_user_override]
+            )
+            VALUES
+            (
+                :feature_id,
+                :part_id,
+                :source,
+                :source_run_id,
+                :feature_ref,
+                :feature_type,
+                :description,
+                :quantity,
+                :width_mm,
+                :length_mm,
+                :depth_mm,
+                :diameter_mm,
+                :thread_spec,
+                :tolerance_note,
+                :surface_finish_ra_um,
+                :location_note,
+                :complexity_factors_json,
+                :estimated_operation_time_min,
+                :is_user_override
+            )
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    upsert_stmt,
+                    {
+                        "feature_set_id": str(uuid4()),
+                        "part_id": str(part_id),
+                        "source": payload.source,
+                        "source_run_id": str(payload.source_run_id) if payload.source_run_id else None,
+                        "feature_confidence": payload.feature_confidence,
+                        "part_summary_json": json.dumps(payload.part_summary, ensure_ascii=True) if payload.part_summary is not None else None,
+                        "additional_operations_json": json.dumps(payload.additional_operations, ensure_ascii=True),
+                        "general_notes_json": json.dumps(payload.general_notes, ensure_ascii=True),
+                    },
+                )
+                conn.execute(delete_stmt, {"part_id": str(part_id)})
+                for feature in payload.features:
+                    conn.execute(
+                        insert_stmt,
+                        {
+                            "feature_id": str(uuid4()),
+                            "part_id": str(part_id),
+                            "source": feature.source,
+                            "source_run_id": str(feature.source_run_id) if feature.source_run_id else None,
+                            "feature_ref": feature.feature_ref,
+                            "feature_type": feature.feature_type,
+                            "description": feature.description,
+                            "quantity": feature.quantity,
+                            "width_mm": feature.width_mm,
+                            "length_mm": feature.length_mm,
+                            "depth_mm": feature.depth_mm,
+                            "diameter_mm": feature.diameter_mm,
+                            "thread_spec": feature.thread_spec,
+                            "tolerance_note": feature.tolerance_note,
+                            "surface_finish_ra_um": feature.surface_finish_ra_um,
+                            "location_note": feature.location_note,
+                            "complexity_factors_json": json.dumps(feature.complexity_factors, ensure_ascii=True),
+                            "estimated_operation_time_min": feature.estimated_operation_time_min,
+                            "is_user_override": feature.is_user_override,
+                        },
+                    )
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to replace part feature set", exc_info=exc)
+            raise DatabaseError("Unable to replace part feature set") from exc
+        return self.get_part_feature_set(part_id)
+
+    def create_part_feature(self, part_id: UUID, payload: PartFeatureCreateRequest) -> PartFeatureResponse:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        self._upsert_part_feature_set_header(
+            part_id=part_id,
+            source=payload.source,
+            source_run_id=payload.source_run_id,
+            feature_confidence=None,
+            part_summary=None,
+            additional_operations=None,
+            general_notes=None,
+        )
+        feature_id = uuid4()
+        stmt = text(
+            """
+            INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            (
+                [feature_id],
+                [part_id],
+                [source],
+                [source_run_id],
+                [feature_ref],
+                [feature_type],
+                [description],
+                [quantity],
+                [width_mm],
+                [length_mm],
+                [depth_mm],
+                [diameter_mm],
+                [thread_spec],
+                [tolerance_note],
+                [surface_finish_ra_um],
+                [location_note],
+                [complexity_factors_json],
+                [estimated_operation_time_min],
+                [is_user_override]
+            )
+            VALUES
+            (
+                :feature_id,
+                :part_id,
+                :source,
+                :source_run_id,
+                :feature_ref,
+                :feature_type,
+                :description,
+                :quantity,
+                :width_mm,
+                :length_mm,
+                :depth_mm,
+                :diameter_mm,
+                :thread_spec,
+                :tolerance_note,
+                :surface_finish_ra_um,
+                :location_note,
+                :complexity_factors_json,
+                :estimated_operation_time_min,
+                :is_user_override
+            )
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "feature_id": str(feature_id),
+                        "part_id": str(part_id),
+                        "source": payload.source,
+                        "source_run_id": str(payload.source_run_id) if payload.source_run_id else None,
+                        "feature_ref": payload.feature_ref,
+                        "feature_type": payload.feature_type,
+                        "description": payload.description,
+                        "quantity": payload.quantity,
+                        "width_mm": payload.width_mm,
+                        "length_mm": payload.length_mm,
+                        "depth_mm": payload.depth_mm,
+                        "diameter_mm": payload.diameter_mm,
+                        "thread_spec": payload.thread_spec,
+                        "tolerance_note": payload.tolerance_note,
+                        "surface_finish_ra_um": payload.surface_finish_ra_um,
+                        "location_note": payload.location_note,
+                        "complexity_factors_json": json.dumps(payload.complexity_factors, ensure_ascii=True),
+                        "estimated_operation_time_min": payload.estimated_operation_time_min,
+                        "is_user_override": payload.is_user_override,
+                    },
+                )
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to create part feature", exc_info=exc)
+            raise DatabaseError("Unable to create part feature") from exc
+        created = self._get_part_feature(feature_id)
+        if not created:
+            raise DatabaseError("Part feature created but not found afterwards")
+        return created
+
+    def update_part_feature(self, feature_id: UUID, payload: PartFeatureUpdateRequest) -> Optional[PartFeatureResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        updates: list[str] = []
+        params: dict[str, Any] = {"feature_id": str(feature_id)}
+        for field in (
+            "source",
+            "source_run_id",
+            "feature_ref",
+            "feature_type",
+            "description",
+            "quantity",
+            "width_mm",
+            "length_mm",
+            "depth_mm",
+            "diameter_mm",
+            "thread_spec",
+            "tolerance_note",
+            "surface_finish_ra_um",
+            "location_note",
+            "estimated_operation_time_min",
+            "is_user_override",
+        ):
+            value = getattr(payload, field)
+            if value is not None:
+                updates.append(f"[{field}] = :{field}")
+                params[field] = str(value) if field == "source_run_id" and value is not None else value
+        if payload.complexity_factors is not None:
+            updates.append("[complexity_factors_json] = :complexity_factors_json")
+            params["complexity_factors_json"] = json.dumps(payload.complexity_factors, ensure_ascii=True)
+        if not updates:
+            return self._get_part_feature(feature_id)
+
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            SET {', '.join(updates)}, [updated_at] = SYSUTCDATETIME()
+            WHERE [feature_id] = :feature_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to update part feature", exc_info=exc)
+            raise DatabaseError("Unable to update part feature") from exc
+        return self._get_part_feature(feature_id)
+
+    def save_part_feature_set_from_llm(self, *, part_id: UUID, run_id: UUID, payload: dict[str, Any]) -> None:
+        if not payload:
+            return
+        features_input: list[PartFeatureCreateRequest] = []
+        raw_features = payload.get("machining_features")
+        if isinstance(raw_features, list):
+            for item in raw_features:
+                if not isinstance(item, dict):
+                    continue
+                dims = item.get("dimensions") if isinstance(item.get("dimensions"), dict) else {}
+                try:
+                    features_input.append(
+                        PartFeatureCreateRequest(
+                            source="llm",
+                            source_run_id=run_id,
+                            feature_ref=(str(item.get("feature_id"))[:50] if item.get("feature_id") is not None else None),
+                            feature_type=str(item.get("type") or "unknown")[:100] or "unknown",
+                            description=item.get("description"),
+                            quantity=max(1, _safe_int(item.get("quantity"), default=1)),
+                            width_mm=dims.get("width_mm"),
+                            length_mm=dims.get("length_mm"),
+                            depth_mm=dims.get("depth_mm"),
+                            diameter_mm=dims.get("diameter_mm"),
+                            thread_spec=dims.get("thread_spec"),
+                            tolerance_note=item.get("tolerance"),
+                            surface_finish_ra_um=item.get("surface_finish_ra"),
+                            location_note=item.get("location"),
+                            complexity_factors=[
+                                str(v) for v in (item.get("complexity_factors") or []) if isinstance(v, (str, int, float, bool))
+                            ],
+                            estimated_operation_time_min=item.get("estimated_operation_time_min"),
+                            is_user_override=False,
+                        )
+                    )
+                except Exception:
+                    continue
+        upsert = PartFeatureSetUpsertRequest(
+            source="llm",
+            source_run_id=run_id,
+            feature_confidence=payload.get("confidence"),
+            part_summary=payload.get("part_summary") if isinstance(payload.get("part_summary"), dict) else None,
+            additional_operations=[str(v) for v in (payload.get("additional_operations") or []) if v is not None],
+            general_notes=[str(v) for v in (payload.get("general_notes") or []) if v is not None],
+            features=features_input,
+        )
+        self.replace_part_feature_set(part_id, upsert)
+
     def get_quote_source_text(self, quote_id: UUID) -> str:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
@@ -1709,7 +2146,13 @@ class CeduleVentesSousTraitanceRepository:
             grouped.setdefault(machine_id, []).append(self._to_machine_capability(row))
         return grouped
 
-    def save_generated_routings(self, part_id: UUID, scenarios_payload: dict[str, Any]) -> list[RoutingResponse]:
+    def save_generated_routings(
+        self,
+        part_id: UUID,
+        scenarios_payload: dict[str, Any],
+        *,
+        run_id: UUID | None = None,
+    ) -> list[RoutingResponse]:
         scenarios = scenarios_payload.get("scenarios") if isinstance(scenarios_payload, dict) else None
         if not isinstance(scenarios, list):
             return []
@@ -1726,6 +2169,11 @@ class CeduleVentesSousTraitanceRepository:
                     selected=index == 0,
                     rationale=str(scenario.get("rationale") or "")[:4000] or None,
                 ),
+            )
+            self._save_routing_llm_metadata(
+                routing_id=routing.routing_id,
+                run_id=run_id,
+                scenario=scenario,
             )
             steps = scenario.get("steps") or []
             if not isinstance(steps, list):
@@ -1754,6 +2202,43 @@ class CeduleVentesSousTraitanceRepository:
                 )
             created.append(routing)
         return created
+
+    def _save_routing_llm_metadata(self, *, routing_id: UUID, run_id: UUID | None, scenario: dict[str, Any]) -> None:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        assumptions = scenario.get("assumptions")
+        unknowns = scenario.get("unknowns")
+        stmt = text(
+            """
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_routings]
+            SET
+                [confidence_score] = :confidence_score,
+                [assumptions_json] = :assumptions_json,
+                [unknowns_json] = :unknowns_json,
+                [source_run_id] = :source_run_id
+            WHERE [routing_id] = :routing_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "routing_id": str(routing_id),
+                        "confidence_score": scenario.get("confidence_score"),
+                        "assumptions_json": json.dumps(assumptions, ensure_ascii=True) if isinstance(assumptions, list) else None,
+                        "unknowns_json": json.dumps(unknowns, ensure_ascii=True) if isinstance(unknowns, list) else None,
+                        "source_run_id": str(run_id) if run_id else None,
+                    },
+                )
+        except SQLAlchemyError as exc:
+            if _is_missing_column_error(exc) or _is_missing_table_error(exc):
+                logger.warning(
+                    "Routing metadata columns are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql to enable scenario metadata."
+                )
+                return
+            logger.error("Failed to save routing scenario metadata", exc_info=exc)
+            raise DatabaseError("Unable to save routing scenario metadata") from exc
 
     def start_analysis(self, quote_id: UUID) -> UUID:
         if not self._engine:
@@ -1793,6 +2278,153 @@ class CeduleVentesSousTraitanceRepository:
             error_text=row.get("error_text"),
             output_json=row.get("output_json"),
         )
+
+    def _upsert_part_feature_set_header(
+        self,
+        *,
+        part_id: UUID,
+        source: str,
+        source_run_id: UUID | None,
+        feature_confidence: Decimal | None,
+        part_summary: dict[str, Any] | None,
+        additional_operations: list[str] | None,
+        general_notes: list[str] | None,
+    ) -> None:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            MERGE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_feature_sets] AS target
+            USING (SELECT :part_id AS [part_id]) AS source
+            ON target.[part_id] = source.[part_id]
+            WHEN MATCHED THEN
+                UPDATE SET
+                    [source] = COALESCE(:source, target.[source]),
+                    [source_run_id] = COALESCE(:source_run_id, target.[source_run_id]),
+                    [feature_confidence] = COALESCE(:feature_confidence, target.[feature_confidence]),
+                    [part_summary_json] = COALESCE(:part_summary_json, target.[part_summary_json]),
+                    [additional_operations_json] = COALESCE(:additional_operations_json, target.[additional_operations_json]),
+                    [general_notes_json] = COALESCE(:general_notes_json, target.[general_notes_json]),
+                    [updated_at] = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN
+                INSERT (
+                    [feature_set_id],
+                    [part_id],
+                    [source],
+                    [source_run_id],
+                    [feature_confidence],
+                    [part_summary_json],
+                    [additional_operations_json],
+                    [general_notes_json]
+                )
+                VALUES (
+                    :feature_set_id,
+                    :part_id,
+                    :source,
+                    :source_run_id,
+                    :feature_confidence,
+                    :part_summary_json,
+                    :additional_operations_json,
+                    :general_notes_json
+                );
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    stmt,
+                    {
+                        "feature_set_id": str(uuid4()),
+                        "part_id": str(part_id),
+                        "source": source,
+                        "source_run_id": str(source_run_id) if source_run_id else None,
+                        "feature_confidence": feature_confidence,
+                        "part_summary_json": json.dumps(part_summary, ensure_ascii=True) if part_summary is not None else None,
+                        "additional_operations_json": json.dumps(additional_operations, ensure_ascii=True)
+                        if additional_operations is not None
+                        else None,
+                        "general_notes_json": json.dumps(general_notes, ensure_ascii=True) if general_notes is not None else None,
+                    },
+                )
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to upsert part feature set header", exc_info=exc)
+            raise DatabaseError("Unable to upsert part feature set header") from exc
+
+    def _get_part_feature(self, feature_id: UUID) -> Optional[PartFeatureResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            SELECT
+                [feature_id],
+                [part_id],
+                [source],
+                [source_run_id],
+                [feature_ref],
+                [feature_type],
+                [description],
+                [quantity],
+                [width_mm],
+                [length_mm],
+                [depth_mm],
+                [diameter_mm],
+                [thread_spec],
+                [tolerance_note],
+                [surface_finish_ra_um],
+                [location_note],
+                [complexity_factors_json],
+                [estimated_operation_time_min],
+                [is_user_override],
+                [created_at],
+                [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_features]
+            WHERE [feature_id] = :feature_id
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(stmt, {"feature_id": str(feature_id)}).mappings().first()
+        except SQLAlchemyError as exc:
+            if _is_missing_table_error(exc):
+                raise DatabaseError(
+                    "Part feature tables are missing. Run docs/ventes_sous_traitance_llm_feature_schema.sql first."
+                ) from exc
+            logger.error("Failed to fetch part feature", exc_info=exc)
+            raise DatabaseError("Unable to fetch part feature") from exc
+        return self._to_part_feature(row) if row else None
+
+    @staticmethod
+    def _json_load_object(value: Any) -> Optional[dict[str, Any]]:
+        if not value:
+            return None
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None
+        return None
+
+    @staticmethod
+    def _json_load_string_list(value: Any) -> list[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(v) for v in value if v is not None]
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(parsed, list):
+                return [str(v) for v in parsed if v is not None]
+        return []
 
     def _to_quote(self, row: dict[str, Any]) -> QuoteSummary:
         return QuoteSummary(
@@ -1872,6 +2504,38 @@ class CeduleVentesSousTraitanceRepository:
             created_at=row.get("created_at"),
             updated_at=row.get("updated_at"),
             capabilities=capabilities,
+        )
+
+    def _to_part_feature(self, row: dict[str, Any]) -> PartFeatureResponse:
+        source = str(row.get("source") or "llm").lower()
+        if source not in {"llm", "rules", "user"}:
+            source = "llm"
+        return PartFeatureResponse(
+            feature_id=UUID(str(row.get("feature_id"))),
+            part_id=UUID(str(row.get("part_id"))),
+            source=source,
+            source_run_id=UUID(str(row.get("source_run_id"))) if row.get("source_run_id") else None,
+            feature_ref=row.get("feature_ref"),
+            feature_type=str(row.get("feature_type") or "unknown"),
+            description=row.get("description"),
+            quantity=int(row.get("quantity") or 1),
+            width_mm=Decimal(str(row["width_mm"])) if row.get("width_mm") is not None else None,
+            length_mm=Decimal(str(row["length_mm"])) if row.get("length_mm") is not None else None,
+            depth_mm=Decimal(str(row["depth_mm"])) if row.get("depth_mm") is not None else None,
+            diameter_mm=Decimal(str(row["diameter_mm"])) if row.get("diameter_mm") is not None else None,
+            thread_spec=row.get("thread_spec"),
+            tolerance_note=row.get("tolerance_note"),
+            surface_finish_ra_um=Decimal(str(row["surface_finish_ra_um"])) if row.get("surface_finish_ra_um") is not None else None,
+            location_note=row.get("location_note"),
+            complexity_factors=self._json_load_string_list(row.get("complexity_factors_json")),
+            estimated_operation_time_min=(
+                Decimal(str(row["estimated_operation_time_min"]))
+                if row.get("estimated_operation_time_min") is not None
+                else None
+            ),
+            is_user_override=bool(row.get("is_user_override")),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
         )
 
     def _to_routing(self, row: dict[str, Any]) -> RoutingResponse:

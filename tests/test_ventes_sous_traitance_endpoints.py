@@ -504,3 +504,148 @@ def test_analyze_quote_upload_accepts_image_only_pdf() -> None:
     assert called.kwargs["source_text"] == ""
     assert called.kwargs["page_image_data_urls"] == ["data:image/png;base64,AAA"]
     app.dependency_overrides.clear()
+
+
+def test_get_part_features_endpoint() -> None:
+    stub = MagicMock()
+    part_id = uuid4()
+    feature_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.get_part_feature_set.return_value = {
+        "feature_set_id": uuid4(),
+        "part_id": part_id,
+        "source": "llm",
+        "source_run_id": uuid4(),
+        "feature_confidence": "0.84",
+        "part_summary": {"number_of_setups": 2},
+        "additional_operations": ["deburring_all_edges"],
+        "general_notes": ["tight tolerance on bore"],
+        "features": [
+            {
+                "feature_id": feature_id,
+                "part_id": part_id,
+                "source": "llm",
+                "source_run_id": None,
+                "feature_ref": "F001",
+                "feature_type": "threaded_hole",
+                "description": "M10x1.5 tapped hole",
+                "quantity": 4,
+                "width_mm": None,
+                "length_mm": None,
+                "depth_mm": "18",
+                "diameter_mm": "8.5",
+                "thread_spec": "M10x1.5",
+                "tolerance_note": None,
+                "surface_finish_ra_um": None,
+                "location_note": "Top face",
+                "complexity_factors": ["tight_tolerance"],
+                "estimated_operation_time_min": "3.5",
+                "is_user_override": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+        ],
+        "created_at": now,
+        "updated_at": now,
+    }
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/parts/{part_id}/features")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["part_id"] == str(part_id)
+    assert payload["features"][0]["feature_id"] == str(feature_id)
+    stub.get_part_feature_set.assert_called_once_with(part_id)
+    app.dependency_overrides.clear()
+
+
+def test_create_part_feature_endpoint() -> None:
+    stub = MagicMock()
+    part_id = uuid4()
+    feature_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.create_part_feature.return_value = {
+        "feature_id": feature_id,
+        "part_id": part_id,
+        "source": "user",
+        "source_run_id": None,
+        "feature_ref": "F900",
+        "feature_type": "flat_face",
+        "description": "Manual adjustment",
+        "quantity": 1,
+        "width_mm": "120",
+        "length_mm": "80",
+        "depth_mm": None,
+        "diameter_mm": None,
+        "thread_spec": None,
+        "tolerance_note": "±0.05",
+        "surface_finish_ra_um": "3.2",
+        "location_note": "Top",
+        "complexity_factors": [],
+        "estimated_operation_time_min": "4.0",
+        "is_user_override": True,
+        "created_at": now,
+        "updated_at": now,
+    }
+    client = _client_with_service(stub)
+    response = client.post(
+        f"/api/v1/vente-sous-traitance/parts/{part_id}/features",
+        json={
+            "source": "user",
+            "feature_ref": "F900",
+            "feature_type": "flat_face",
+            "quantity": 1,
+            "is_user_override": True,
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["feature_id"] == str(feature_id)
+    app.dependency_overrides.clear()
+
+
+def test_update_part_feature_not_found() -> None:
+    stub = MagicMock()
+    feature_id = uuid4()
+    stub.update_part_feature.return_value = None
+    client = _client_with_service(stub)
+    response = client.patch(
+        f"/api/v1/vente-sous-traitance/part-features/{feature_id}",
+        json={"description": "Updated"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Part feature not found"
+    app.dependency_overrides.clear()
+
+
+def test_replace_part_features_endpoint() -> None:
+    stub = MagicMock()
+    part_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.replace_part_feature_set.return_value = {
+        "feature_set_id": uuid4(),
+        "part_id": part_id,
+        "source": "user",
+        "source_run_id": None,
+        "feature_confidence": None,
+        "part_summary": {"number_of_setups": 1},
+        "additional_operations": ["deburring_all_edges"],
+        "general_notes": [],
+        "features": [],
+        "created_at": now,
+        "updated_at": now,
+    }
+    client = _client_with_service(stub)
+    response = client.put(
+        f"/api/v1/vente-sous-traitance/parts/{part_id}/features",
+        json={
+            "source": "user",
+            "part_summary": {"number_of_setups": 1},
+            "additional_operations": ["deburring_all_edges"],
+            "general_notes": [],
+            "features": [],
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["part_id"] == str(part_id)
+    assert payload["part_summary"]["number_of_setups"] == 1
+    app.dependency_overrides.clear()

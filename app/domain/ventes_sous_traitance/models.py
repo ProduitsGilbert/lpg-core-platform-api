@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -273,6 +273,94 @@ class RoutingStepResponse(BaseModel):
     estimator_note: Optional[str] = None
     time_confidence: Optional[Decimal] = None
     source: StepSource
+
+
+class PartFeatureCreateRequest(BaseModel):
+    source: Literal["llm", "rules", "user"] = "user"
+    source_run_id: Optional[UUID] = None
+    feature_ref: Optional[str] = Field(default=None, max_length=50)
+    feature_type: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = None
+    quantity: int = Field(default=1, ge=1)
+    width_mm: Optional[Decimal] = Field(default=None, ge=0)
+    length_mm: Optional[Decimal] = Field(default=None, ge=0)
+    depth_mm: Optional[Decimal] = Field(default=None, ge=0)
+    diameter_mm: Optional[Decimal] = Field(default=None, ge=0)
+    thread_spec: Optional[str] = Field(default=None, max_length=50)
+    tolerance_note: Optional[str] = Field(default=None, max_length=100)
+    surface_finish_ra_um: Optional[Decimal] = Field(default=None, ge=0)
+    location_note: Optional[str] = Field(default=None, max_length=200)
+    complexity_factors: list[str] = Field(default_factory=list)
+    estimated_operation_time_min: Optional[Decimal] = Field(default=None, ge=0)
+    is_user_override: bool = True
+
+
+class PartFeatureUpdateRequest(BaseModel):
+    source: Optional[Literal["llm", "rules", "user"]] = None
+    source_run_id: Optional[UUID] = None
+    feature_ref: Optional[str] = Field(default=None, max_length=50)
+    feature_type: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    quantity: Optional[int] = Field(default=None, ge=1)
+    width_mm: Optional[Decimal] = Field(default=None, ge=0)
+    length_mm: Optional[Decimal] = Field(default=None, ge=0)
+    depth_mm: Optional[Decimal] = Field(default=None, ge=0)
+    diameter_mm: Optional[Decimal] = Field(default=None, ge=0)
+    thread_spec: Optional[str] = Field(default=None, max_length=50)
+    tolerance_note: Optional[str] = Field(default=None, max_length=100)
+    surface_finish_ra_um: Optional[Decimal] = Field(default=None, ge=0)
+    location_note: Optional[str] = Field(default=None, max_length=200)
+    complexity_factors: Optional[list[str]] = None
+    estimated_operation_time_min: Optional[Decimal] = Field(default=None, ge=0)
+    is_user_override: Optional[bool] = None
+
+
+class PartFeatureResponse(BaseModel):
+    feature_id: UUID
+    part_id: UUID
+    source: Literal["llm", "rules", "user"]
+    source_run_id: Optional[UUID] = None
+    feature_ref: Optional[str] = None
+    feature_type: str
+    description: Optional[str] = None
+    quantity: int
+    width_mm: Optional[Decimal] = None
+    length_mm: Optional[Decimal] = None
+    depth_mm: Optional[Decimal] = None
+    diameter_mm: Optional[Decimal] = None
+    thread_spec: Optional[str] = None
+    tolerance_note: Optional[str] = None
+    surface_finish_ra_um: Optional[Decimal] = None
+    location_note: Optional[str] = None
+    complexity_factors: list[str] = Field(default_factory=list)
+    estimated_operation_time_min: Optional[Decimal] = None
+    is_user_override: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class PartFeatureSetUpsertRequest(BaseModel):
+    source: Literal["llm", "rules", "user"] = "user"
+    source_run_id: Optional[UUID] = None
+    feature_confidence: Optional[Decimal] = Field(default=None, ge=0, le=1)
+    part_summary: Optional[dict[str, Any]] = None
+    additional_operations: list[str] = Field(default_factory=list)
+    general_notes: list[str] = Field(default_factory=list)
+    features: list[PartFeatureCreateRequest] = Field(default_factory=list)
+
+
+class PartFeatureSetResponse(BaseModel):
+    feature_set_id: Optional[UUID] = None
+    part_id: UUID
+    source: Optional[Literal["llm", "rules", "user"]] = None
+    source_run_id: Optional[UUID] = None
+    feature_confidence: Optional[Decimal] = None
+    part_summary: Optional[dict[str, Any]] = None
+    additional_operations: list[str] = Field(default_factory=list)
+    general_notes: list[str] = Field(default_factory=list)
+    features: list[PartFeatureResponse] = Field(default_factory=list)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class QuoteAnalysisStartResponse(BaseModel):

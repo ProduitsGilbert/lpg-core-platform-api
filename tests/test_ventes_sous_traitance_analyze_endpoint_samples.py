@@ -75,7 +75,10 @@ class _InMemoryAnalyzeRepo:
     def save_part_extraction(self, part_id: UUID, *, model_name: str, prompt_version: str, payload: dict, confidence: float | None) -> None:
         return None
 
-    def save_generated_routings(self, part_id: UUID, scenarios_payload: dict) -> list:
+    def save_part_feature_set_from_llm(self, *, part_id: UUID, run_id: UUID, payload: dict) -> None:
+        return None
+
+    def save_generated_routings(self, part_id: UUID, scenarios_payload: dict, *, run_id: UUID | None = None) -> list:
         return []
 
     def complete_analysis_run(self, run_id: UUID, output: dict) -> None:
