@@ -202,7 +202,8 @@ class VentesSousTraitanceService:
             metadata = result.get("step1_metadata", {})
             classification = result.get("step2_classification", {})
             complexity = result.get("step3_complexity", {})
-            routings = result.get("step4_routings", {})
+            feature_details = result.get("step4_feature_details", {})
+            routings = result.get("step5_routings", result.get("step4_routings", {}))
 
             part_id = self._repository.upsert_part_from_analysis(
                 quote_id=quote_id,
@@ -231,6 +232,13 @@ class VentesSousTraitanceService:
                 prompt_version="step3_complexity_v1",
                 payload=complexity if isinstance(complexity, dict) else {},
                 confidence=(complexity.get("confidence") if isinstance(complexity, dict) else None),
+            )
+            self._repository.save_part_extraction(
+                part_id=part_id,
+                model_name=self._analysis_model_name(),
+                prompt_version="step4_feature_details_v1",
+                payload=feature_details if isinstance(feature_details, dict) else {},
+                confidence=(feature_details.get("confidence") if isinstance(feature_details, dict) else None),
             )
 
             created_routings = self._repository.save_generated_routings(

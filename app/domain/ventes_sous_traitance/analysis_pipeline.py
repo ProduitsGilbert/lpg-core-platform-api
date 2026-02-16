@@ -22,16 +22,26 @@ class VentesSousTraitanceAnalysisPipeline:
         step1 = self._step1_extract_metadata(source_text)
         step2 = self._step2_classify(source_text)
         step3 = self._step3_complexity(step2=step2, tolerance_note=str(step1.get("general_tolerances_note") or ""))
-        step4 = self._step4_generate_routings(
+        step4 = self._step4_extract_feature_details(
             step1=step1,
             step2=step2,
             step3=step3,
+            source_text=source_text,
+        )
+        step5 = self._step5_generate_routings(
+            step1=step1,
+            step2=step2,
+            step3=step3,
+            step4=step4,
         )
         return {
             "step1_metadata": step1,
             "step2_classification": step2,
             "step3_complexity": step3,
-            "step4_routings": step4,
+            "step4_feature_details": step4,
+            "step5_routings": step5,
+            # Backward compatibility for existing consumers.
+            "step4_routings": step5,
         }
 
     def _step1_extract_metadata(self, source_text: str) -> dict[str, Any]:
@@ -112,12 +122,108 @@ class VentesSousTraitanceAnalysisPipeline:
             ),
         )
 
-    def _step4_generate_routings(
+    def _step4_extract_feature_details(
         self,
         *,
         step1: dict[str, Any],
         step2: dict[str, Any],
         step3: dict[str, Any],
+        source_text: str,
+    ) -> dict[str, Any]:
+        schema = {
+            "part_summary": {
+                "material": None,
+                "customer_provides_material": None,
+                "overall_bounding_box_mm": {"L": None, "W": None, "H": None},
+                "estimated_raw_stock_size_mm": {"L": None, "W": None, "H": None},
+                "number_of_setups": None,
+                "requires_4th_or_5th_axis": None,
+                "drilled_holes_count": None,
+                "threaded_holes_count": None,
+                "high_precision_features_count": None,
+                "machined_faces_count": None,
+                "notes": None,
+            },
+            "machining_features": [
+                {
+                    "feature_id": "F001",
+                    "type": "flat_face",
+                    "description": "",
+                    "quantity": 1,
+                    "dimensions": {
+                        "width_mm": None,
+                        "length_mm": None,
+                        "depth_mm": None,
+                        "diameter_mm": None,
+                        "thread_spec": None,
+                    },
+                    "tolerance": None,
+                    "surface_finish_ra": None,
+                    "location": None,
+                    "complexity_factors": [],
+                    "estimated_operation_time_min": None,
+                }
+            ],
+            "additional_operations": [],
+            "general_notes": [],
+            "confidence": 0.0,
+        }
+        payload = {
+            "source_text": source_text,
+            "step1_metadata": step1,
+            "step2_classification": step2,
+            "step3_complexity": step3,
+            "feature_taxonomy": {
+                "milling_facing": [
+                    "flat_face",
+                    "external_contour",
+                    "pocket",
+                    "slot_channel_groove",
+                    "boss_protrusion_island",
+                    "step_shoulder",
+                ],
+                "hole_making": [
+                    "drilled_hole",
+                    "bored_or_reamed_hole",
+                    "threaded_hole",
+                    "counterbore_or_countersink",
+                ],
+                "special_finishing": [
+                    "chamfer_bevel_fillet",
+                    "keyway_spline",
+                    "oring_or_seal_groove",
+                    "engraving_marking",
+                ],
+            },
+            "complexity_risk_flags": [
+                "aspect_ratio_gt_5",
+                "tight_tolerance_lt_0.05mm_or_fit_class",
+                "thin_walls",
+                "multi_axis_or_multi_setup",
+                "high_material_removal",
+                "surface_finish_lt_ra_1.6",
+                "material_specific_risk",
+            ],
+        }
+        return self._ai.extract_structured_data(
+            str(payload),
+            schema,
+            context=(
+                "Step 4 detailed machining feature extraction for CNC steel parts. "
+                "Identify and quantify features using the provided taxonomy. "
+                "Estimate drilled holes, threaded holes, high precision features "
+                "(very tight tolerance or 3-digit precision), and number of machined faces. "
+                "Use valid JSON only; keep unknown values null."
+            ),
+        )
+
+    def _step5_generate_routings(
+        self,
+        *,
+        step1: dict[str, Any],
+        step2: dict[str, Any],
+        step3: dict[str, Any],
+        step4: dict[str, Any],
     ) -> dict[str, Any]:
         machine_config = load_machine_groups_config()
         machine_context = compact_machine_groups_context(machine_config)
@@ -148,13 +254,14 @@ class VentesSousTraitanceAnalysisPipeline:
             "step1_metadata": step1,
             "step2_classification": step2,
             "step3_complexity": step3,
+            "step4_feature_details": step4,
             "machine_groups": machine_context,
         }
         return self._ai.extract_structured_data(
             str(payload),
             schema,
             context=(
-                "Step 4 routing generation. Produce 1 to 3 realistic routing scenarios with "
+                "Step 5 routing generation. Produce 1 to 3 realistic routing scenarios with "
                 "ordered steps and setup/cycle/handling/inspection times in minutes."
             ),
         )
