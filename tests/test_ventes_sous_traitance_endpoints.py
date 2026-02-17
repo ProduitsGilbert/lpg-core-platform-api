@@ -66,6 +66,9 @@ def test_list_customers_endpoint() -> None:
         name="Produits Gilbert Inc.",
         email="sales@example.com",
         phone="555-111-2222",
+        ship_to_address="123 Rue Industrielle\\nTrois-Rivieres QC",
+        contact_name="Marc Gilbert",
+        global_quote_comment="Client asks for fast lead time when possible.",
         created_at=datetime.now(timezone.utc),
     )
     stub.list_customers.return_value = [customer]
@@ -76,6 +79,7 @@ def test_list_customers_endpoint() -> None:
     assert len(payload) == 1
     assert payload[0]["customer_id"] == str(customer.customer_id)
     assert payload[0]["name"] == customer.name
+    assert payload[0]["contact_name"] == customer.contact_name
     stub.list_customers.assert_called_once_with(search="gilbert", limit=50)
     app.dependency_overrides.clear()
 
@@ -89,15 +93,26 @@ def test_create_customer_endpoint() -> None:
         "name": "New Customer",
         "email": "new@example.com",
         "phone": "555-1234",
+        "ship_to_address": "99 Shipping Blvd\\nMontreal QC",
+        "contact_name": "Anne Tremblay",
+        "global_quote_comment": "Prioritize stainless jobs.",
         "created_at": now,
     }
     client = _client_with_service(stub)
     response = client.post(
         "/api/v1/vente-sous-traitance/customers",
-        json={"name": "New Customer", "email": "new@example.com", "phone": "555-1234"},
+        json={
+            "name": "New Customer",
+            "email": "new@example.com",
+            "phone": "555-1234",
+            "ship_to_address": "99 Shipping Blvd\\nMontreal QC",
+            "contact_name": "Anne Tremblay",
+            "global_quote_comment": "Prioritize stainless jobs.",
+        },
     )
     assert response.status_code == 201
     assert response.json()["customer_id"] == str(customer_id)
+    assert response.json()["contact_name"] == "Anne Tremblay"
     app.dependency_overrides.clear()
 
 

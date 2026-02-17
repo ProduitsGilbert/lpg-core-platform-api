@@ -57,6 +57,9 @@ class CustomerSummary(BaseModel):
     name: str
     email: Optional[str] = None
     phone: Optional[str] = None
+    ship_to_address: Optional[str] = None
+    contact_name: Optional[str] = None
+    global_quote_comment: Optional[str] = None
     created_at: datetime
 
 
@@ -64,12 +67,18 @@ class CustomerCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     email: Optional[str] = Field(default=None, max_length=200)
     phone: Optional[str] = Field(default=None, max_length=50)
+    ship_to_address: Optional[str] = None
+    contact_name: Optional[str] = Field(default=None, max_length=200)
+    global_quote_comment: Optional[str] = None
 
 
 class CustomerUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     email: Optional[str] = Field(default=None, max_length=200)
     phone: Optional[str] = Field(default=None, max_length=50)
+    ship_to_address: Optional[str] = None
+    contact_name: Optional[str] = Field(default=None, max_length=200)
+    global_quote_comment: Optional[str] = None
 
 
 class MachineGroupSummary(BaseModel):

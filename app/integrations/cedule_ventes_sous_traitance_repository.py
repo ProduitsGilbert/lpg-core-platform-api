@@ -117,14 +117,16 @@ class CeduleVentesSousTraitanceRepository:
         filters: list[str] = []
         params: dict[str, Any] = {"limit": safe_limit}
         if search:
-            filters.append("([name] LIKE :search OR [email] LIKE :search OR [phone] LIKE :search)")
+            filters.append(
+                "([name] LIKE :search OR [email] LIKE :search OR [phone] LIKE :search OR [contact_name] LIKE :search)"
+            )
             params["search"] = f"%{search.strip()}%"
         where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         stmt = text(
             f"""
             SELECT TOP (:limit)
-                [customer_id], [name], [email], [phone], [created_at]
+                [customer_id], [name], [email], [phone], [ship_to_address], [contact_name], [global_quote_comment], [created_at]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
             {where_clause}
             ORDER BY [name] ASC, [created_at] DESC
@@ -145,9 +147,9 @@ class CeduleVentesSousTraitanceRepository:
         stmt = text(
             """
             INSERT INTO [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
-            ([customer_id], [name], [email], [phone])
+            ([customer_id], [name], [email], [phone], [ship_to_address], [contact_name], [global_quote_comment])
             VALUES
-            (:customer_id, :name, :email, :phone)
+            (:customer_id, :name, :email, :phone, :ship_to_address, :contact_name, :global_quote_comment)
             """
         )
         try:
@@ -159,6 +161,11 @@ class CeduleVentesSousTraitanceRepository:
                         "name": payload.name.strip()[:200],
                         "email": payload.email.strip()[:200] if payload.email else None,
                         "phone": payload.phone.strip()[:50] if payload.phone else None,
+                        "ship_to_address": payload.ship_to_address.strip() if payload.ship_to_address else None,
+                        "contact_name": payload.contact_name.strip()[:200] if payload.contact_name else None,
+                        "global_quote_comment": payload.global_quote_comment.strip()
+                        if payload.global_quote_comment
+                        else None,
                     },
                 )
             created = self._get_customer(customer_id)
@@ -183,6 +190,15 @@ class CeduleVentesSousTraitanceRepository:
         if payload.phone is not None:
             updates.append("[phone] = :phone")
             params["phone"] = payload.phone.strip()[:50] if payload.phone else None
+        if payload.ship_to_address is not None:
+            updates.append("[ship_to_address] = :ship_to_address")
+            params["ship_to_address"] = payload.ship_to_address.strip() if payload.ship_to_address else None
+        if payload.contact_name is not None:
+            updates.append("[contact_name] = :contact_name")
+            params["contact_name"] = payload.contact_name.strip()[:200] if payload.contact_name else None
+        if payload.global_quote_comment is not None:
+            updates.append("[global_quote_comment] = :global_quote_comment")
+            params["global_quote_comment"] = payload.global_quote_comment.strip() if payload.global_quote_comment else None
         if not updates:
             return self._get_customer(customer_id)
         stmt = text(
@@ -770,7 +786,7 @@ class CeduleVentesSousTraitanceRepository:
     def _get_customer(self, customer_id: UUID) -> Optional[CustomerSummary]:
         stmt = text(
             """
-            SELECT [customer_id], [name], [email], [phone], [created_at]
+            SELECT [customer_id], [name], [email], [phone], [ship_to_address], [contact_name], [global_quote_comment], [created_at]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_customers]
             WHERE [customer_id] = :customer_id
             """
@@ -2449,6 +2465,9 @@ class CeduleVentesSousTraitanceRepository:
             name=str(row.get("name") or ""),
             email=row.get("email"),
             phone=row.get("phone"),
+            ship_to_address=row.get("ship_to_address"),
+            contact_name=row.get("contact_name"),
+            global_quote_comment=row.get("global_quote_comment"),
             created_at=row.get("created_at"),
         )
 
