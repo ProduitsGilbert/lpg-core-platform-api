@@ -13,6 +13,8 @@ from app.domain.erp.models import (
     ItemAttributeCatalogEntry,
     ItemAttributeCatalogResponse,
     ItemAttributeCatalogValue,
+    ItemAttributeItemLookupResponse,
+    ItemAttributeSelection,
     ItemAttributeValueEntry,
     ItemAttributesResponse,
 )
@@ -147,6 +149,44 @@ class ItemAttributeService:
 
             attributes.sort(key=lambda item: (item.attribute_name, item.attribute_id))
             return ItemAttributeCatalogResponse(attributes=attributes)
+
+    async def get_items_by_attributes(
+        self, selections: List[ItemAttributeSelection]
+    ) -> ItemAttributeItemLookupResponse:
+        """Return item numbers matching all selected attribute-value pairs."""
+        if not selections:
+            raise ValueError("At least one attribute selection must be provided")
+
+        with logfire.span("item_attributes.reverse_lookup", selection_count=len(selections)):
+            tasks = [
+                self._odata_service.fetch_collection(
+                    "ItemAttributeValueMapping",
+                    filter_field="ItemAttributeValueID",
+                    filter_value=selection.value_id,
+                )
+                for selection in selections
+            ]
+            results = await asyncio.gather(*tasks)
+
+            matching_sets: List[set[str]] = []
+            for selection, mappings in zip(selections, results):
+                item_ids = {
+                    str(mapping["ItemNo"]).strip()
+                    for mapping in mappings
+                    if mapping.get("TableID") == _ITEMS_TABLE_ID
+                    and mapping.get("ItemNo")
+                    and mapping.get("ItemAttributeID") == selection.attribute_id
+                }
+                matching_sets.append(item_ids)
+
+            if not matching_sets:
+                return ItemAttributeItemLookupResponse(selections=selections, item_ids=[])
+
+            matched_items = set.intersection(*matching_sets) if matching_sets else set()
+            return ItemAttributeItemLookupResponse(
+                selections=selections,
+                item_ids=sorted(matched_items),
+            )
 
     async def _load_attributes(self, attribute_ids: Iterable[int]) -> Dict[int, Dict[str, object]]:
         if not attribute_ids:

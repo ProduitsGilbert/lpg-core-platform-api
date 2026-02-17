@@ -1,6 +1,7 @@
 import pytest
 
 from app.domain.erp.item_attribute_service import ItemAttributeService
+from app.domain.erp.models import ItemAttributeSelection
 
 
 class StubODataService:
@@ -14,6 +15,18 @@ class StubODataService:
 
     async def fetch_collection(self, resource, *, filter_field=None, filter_value=None, top=None):
         if resource == "ItemAttributeValueMapping":
+            if filter_field == "ItemAttributeValueID":
+                if filter_value == 372:
+                    return [
+                        {"TableID": 27, "ItemNo": "0410604", "ItemAttributeID": 2, "ItemAttributeValueID": 372},
+                        {"TableID": 27, "ItemNo": "0410605", "ItemAttributeID": 2, "ItemAttributeValueID": 372},
+                    ]
+                if filter_value == 90:
+                    return [
+                        {"TableID": 27, "ItemNo": "0410604", "ItemAttributeID": 5, "ItemAttributeValueID": 90},
+                        {"TableID": 27, "ItemNo": "0410606", "ItemAttributeID": 5, "ItemAttributeValueID": 90},
+                    ]
+                return []
             return [
                 {"TableID": 27, "ItemNo": "0410604", "ItemAttributeID": 2, "ItemAttributeValueID": 372},
                 {"TableID": 27, "ItemNo": "0410604", "ItemAttributeID": 5, "ItemAttributeValueID": 90},
@@ -83,3 +96,24 @@ async def test_item_attribute_service_attribute_catalog_returns_all_values():
     assert result.attributes[1].attribute_name == "Matériel"
     assert result.attributes[1].values[0].value == "D2"
     assert result.attributes[1].values[1].value == "HARDOX-450"
+
+
+@pytest.mark.asyncio
+async def test_item_attribute_service_reverse_lookup_intersects_items():
+    service = ItemAttributeService(odata_service=StubODataService())
+
+    result = await service.get_items_by_attributes(
+        [
+            ItemAttributeSelection(attribute_id=2, value_id=372),
+            ItemAttributeSelection(attribute_id=5, value_id=90),
+        ]
+    )
+
+    assert result.item_ids == ["0410604"]
+
+
+@pytest.mark.asyncio
+async def test_item_attribute_service_reverse_lookup_requires_selections():
+    service = ItemAttributeService(odata_service=StubODataService())
+    with pytest.raises(ValueError):
+        await service.get_items_by_attributes([])
