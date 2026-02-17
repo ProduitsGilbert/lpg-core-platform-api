@@ -32,6 +32,8 @@ from app.domain.ventes_sous_traitance.models import (
     PartFeatureSetResponse,
     PartFeatureSetUpsertRequest,
     PartFeatureUpdateRequest,
+    QuotePartSummary,
+    QuotePartUpdateRequest,
     QuoteAnalysisStartResponse,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
@@ -365,6 +367,16 @@ async def update_quote(
     return quote
 
 
+@router.get("/quotes/{quote_id}/parts", response_model=list[QuotePartSummary])
+async def list_quote_parts(
+    quote_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[QuotePartSummary]:
+    if not service.get_quote(quote_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
+    return service.list_quote_parts(quote_id)
+
+
 @router.delete("/quotes/{quote_id}", response_model=dict[str, bool])
 async def delete_quote(
     quote_id: UUID,
@@ -442,6 +454,29 @@ async def get_job_status(
     if not job:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
+
+
+@router.get("/parts/{part_id}", response_model=QuotePartSummary)
+async def get_part(
+    part_id: UUID,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> QuotePartSummary:
+    part = service.get_quote_part(part_id)
+    if not part:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found")
+    return part
+
+
+@router.patch("/parts/{part_id}", response_model=QuotePartSummary)
+async def update_part(
+    part_id: UUID,
+    payload: QuotePartUpdateRequest,
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> QuotePartSummary:
+    part = service.update_quote_part(part_id, payload)
+    if not part:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Part not found")
+    return part
 
 
 @router.get("/parts/{part_id}/features", response_model=PartFeatureSetResponse)

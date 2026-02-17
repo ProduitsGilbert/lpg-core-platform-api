@@ -408,6 +408,142 @@ def test_create_quote_endpoint() -> None:
     app.dependency_overrides.clear()
 
 
+def test_list_quote_parts_endpoint() -> None:
+    stub = MagicMock()
+    quote = _sample_quote()
+    part_id = uuid4()
+    stub.get_quote.return_value = quote
+    stub.list_quote_parts.return_value = [
+        {
+            "part_id": part_id,
+            "quote_id": quote.quote_id,
+            "customer_part_number": "803100-5543",
+            "internal_part_number": "P-001",
+            "quantity": 2,
+            "material": "Steel",
+            "thickness_mm": "12.5",
+            "weight_kg": "8.0",
+            "envelope_x_mm": "350",
+            "envelope_y_mm": "120",
+            "envelope_z_mm": "40",
+            "shape": "prismatic",
+            "complexity_score": 3,
+            "created_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(timezone.utc),
+        }
+    ]
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/parts")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["part_id"] == str(part_id)
+    assert payload[0]["customer_part_number"] == "803100-5543"
+    stub.list_quote_parts.assert_called_once_with(quote.quote_id)
+    app.dependency_overrides.clear()
+
+
+def test_get_quote_part_endpoint_not_found() -> None:
+    stub = MagicMock()
+    part_id = uuid4()
+    stub.get_quote_part.return_value = None
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/parts/{part_id}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Part not found"
+    app.dependency_overrides.clear()
+
+
+def test_update_quote_part_endpoint() -> None:
+    stub = MagicMock()
+    part_id = uuid4()
+    quote_id = uuid4()
+    stub.update_quote_part.return_value = {
+        "part_id": part_id,
+        "quote_id": quote_id,
+        "customer_part_number": "803100-4451",
+        "internal_part_number": "P-4451",
+        "quantity": 4,
+        "material": "Aluminum",
+        "thickness_mm": "6.0",
+        "weight_kg": "2.4",
+        "envelope_x_mm": "220",
+        "envelope_y_mm": "110",
+        "envelope_z_mm": "18",
+        "shape": "sheet",
+        "complexity_score": 2,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+    }
+    client = _client_with_service(stub)
+    response = client.patch(
+        f"/api/v1/vente-sous-traitance/parts/{part_id}",
+        json={"quantity": 4, "material": "Aluminum"},
+    )
+    assert response.status_code == 200
+    assert response.json()["part_id"] == str(part_id)
+    assert response.json()["quantity"] == 4
+    app.dependency_overrides.clear()
+
+
+def test_get_job_status_structured_fields() -> None:
+    stub = MagicMock()
+    job_id = uuid4()
+    part_id = uuid4()
+    routing_id = uuid4()
+    feature_set_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.get_job.return_value = {
+        "job_id": job_id,
+        "status": "ok",
+        "stage": "routing",
+        "progress": 1.0,
+        "started_at": now,
+        "ended_at": now,
+        "error_text": None,
+        "output_json": '{"created_part_id":"x"}',
+        "created_part_id": part_id,
+        "created_routing_ids": [routing_id],
+        "created_feature_set_id": feature_set_id,
+    }
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/jobs/{job_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["created_part_id"] == str(part_id)
+    assert payload["created_routing_ids"] == [str(routing_id)]
+    assert payload["created_feature_set_id"] == str(feature_set_id)
+    app.dependency_overrides.clear()
+
+
+def test_get_routing_endpoint_includes_llm_metadata() -> None:
+    stub = MagicMock()
+    routing_id = uuid4()
+    part_id = uuid4()
+    source_run_id = uuid4()
+    stub.get_routing.return_value = {
+        "routing_id": routing_id,
+        "part_id": part_id,
+        "scenario_name": "Scenario 1",
+        "created_by": "llm",
+        "selected": True,
+        "rationale": "Best cost/lead time tradeoff",
+        "confidence_score": "0.82",
+        "assumptions_json": ["material available", "2 setups"],
+        "unknowns_json": ["heat treatment requirement"],
+        "source_run_id": source_run_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/routings/{routing_id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["confidence_score"] == "0.82"
+    assert payload["assumptions_json"] == ["material available", "2 setups"]
+    assert payload["unknowns_json"] == ["heat treatment requirement"]
+    assert payload["source_run_id"] == str(source_run_id)
+    app.dependency_overrides.clear()
+
+
 def test_patch_routing_step_endpoint() -> None:
     stub = MagicMock()
     step_id = uuid4()

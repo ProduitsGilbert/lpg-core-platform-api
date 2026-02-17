@@ -213,6 +213,38 @@ class MachineResponse(BaseModel):
     capabilities: list[MachineCapabilityResponse] = Field(default_factory=list)
 
 
+class QuotePartSummary(BaseModel):
+    part_id: UUID
+    quote_id: UUID
+    customer_part_number: Optional[str] = None
+    internal_part_number: Optional[str] = None
+    quantity: int = 1
+    material: Optional[str] = None
+    thickness_mm: Optional[Decimal] = None
+    weight_kg: Optional[Decimal] = None
+    envelope_x_mm: Optional[Decimal] = None
+    envelope_y_mm: Optional[Decimal] = None
+    envelope_z_mm: Optional[Decimal] = None
+    shape: Optional[str] = None
+    complexity_score: Optional[int] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class QuotePartUpdateRequest(BaseModel):
+    customer_part_number: Optional[str] = Field(default=None, max_length=100)
+    internal_part_number: Optional[str] = Field(default=None, max_length=100)
+    quantity: Optional[int] = Field(default=None, ge=1)
+    material: Optional[str] = None
+    thickness_mm: Optional[Decimal] = Field(default=None, ge=0)
+    weight_kg: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_x_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_y_mm: Optional[Decimal] = Field(default=None, ge=0)
+    envelope_z_mm: Optional[Decimal] = Field(default=None, ge=0)
+    shape: Optional[str] = Field(default=None, max_length=50)
+    complexity_score: Optional[int] = Field(default=None, ge=1, le=5)
+
+
 class RoutingCreateRequest(BaseModel):
     scenario_name: str = Field(min_length=1, max_length=200)
     created_by: Optional[str] = Field(default=None, max_length=200)
@@ -234,6 +266,10 @@ class RoutingResponse(BaseModel):
     created_by: Optional[str] = None
     selected: bool
     rationale: Optional[str] = None
+    confidence_score: Optional[Decimal] = None
+    assumptions_json: Optional[Any] = None
+    unknowns_json: Optional[Any] = None
+    source_run_id: Optional[UUID] = None
     created_at: datetime
 
 
@@ -387,3 +423,6 @@ class JobStatusResponse(BaseModel):
     ended_at: Optional[datetime] = None
     error_text: Optional[str] = None
     output_json: Optional[str] = None
+    created_part_id: Optional[UUID] = None
+    created_routing_ids: list[UUID] = Field(default_factory=list)
+    created_feature_set_id: Optional[UUID] = None

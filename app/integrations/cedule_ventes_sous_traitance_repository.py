@@ -34,6 +34,8 @@ from app.domain.ventes_sous_traitance.models import (
     PartFeatureSetResponse,
     PartFeatureSetUpsertRequest,
     PartFeatureUpdateRequest,
+    QuotePartSummary,
+    QuotePartUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -56,6 +58,37 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _safe_float(value: Any, default: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clean_json_string(value: str) -> str:
+    # Keep common whitespace controls; escape other control chars as literal unicode escapes.
+    chars: list[str] = []
+    for ch in value:
+        code = ord(ch)
+        if code < 32 and ch not in ("\n", "\r", "\t"):
+            chars.append(f"\\u{code:04x}")
+        else:
+            chars.append(ch)
+    return "".join(chars)
+
+
+def _sanitize_json_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _sanitize_json_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_json_value(v) for v in value]
+    if isinstance(value, str):
+        return _clean_json_string(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _clean_json_string(str(value))
 
 
 def _is_missing_table_error(exc: Exception) -> bool:
@@ -1055,12 +1088,149 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to delete quote", exc_info=exc)
             raise DatabaseError("Unable to delete quote") from exc
 
+    def list_quote_parts(self, quote_id: UUID) -> list[QuotePartSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            SELECT
+                [part_id],
+                [quote_id],
+                [customer_part_number],
+                [internal_part_number],
+                [quantity],
+                [material],
+                [thickness_mm],
+                [weight_kg],
+                [envelope_x_mm],
+                [envelope_y_mm],
+                [envelope_z_mm],
+                [shape],
+                [complexity_score],
+                [created_at],
+                [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            WHERE [quote_id] = :quote_id
+            ORDER BY [created_at] ASC
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, {"quote_id": str(quote_id)}).mappings().all()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to list quote parts", exc_info=exc)
+            raise DatabaseError("Unable to list quote parts") from exc
+        return [self._to_quote_part(row) for row in rows]
+
+    def get_quote_part(self, part_id: UUID) -> Optional[QuotePartSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        stmt = text(
+            """
+            SELECT
+                [part_id],
+                [quote_id],
+                [customer_part_number],
+                [internal_part_number],
+                [quantity],
+                [material],
+                [thickness_mm],
+                [weight_kg],
+                [envelope_x_mm],
+                [envelope_y_mm],
+                [envelope_z_mm],
+                [shape],
+                [complexity_score],
+                [created_at],
+                [updated_at]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            WHERE [part_id] = :part_id
+            """
+        )
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(stmt, {"part_id": str(part_id)}).mappings().first()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to fetch quote part", exc_info=exc)
+            raise DatabaseError("Unable to fetch quote part") from exc
+        return self._to_quote_part(row) if row else None
+
+    def update_quote_part(self, part_id: UUID, payload: QuotePartUpdateRequest) -> Optional[QuotePartSummary]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        updates: list[str] = []
+        params: dict[str, Any] = {"part_id": str(part_id)}
+        if payload.customer_part_number is not None:
+            updates.append("[customer_part_number] = :customer_part_number")
+            params["customer_part_number"] = payload.customer_part_number.strip()[:100] if payload.customer_part_number else None
+        if payload.internal_part_number is not None:
+            updates.append("[internal_part_number] = :internal_part_number")
+            params["internal_part_number"] = payload.internal_part_number.strip()[:100] if payload.internal_part_number else None
+        if payload.quantity is not None:
+            updates.append("[quantity] = :quantity")
+            params["quantity"] = payload.quantity
+        if payload.material is not None:
+            updates.append("[material] = :material")
+            params["material"] = payload.material
+        if payload.thickness_mm is not None:
+            updates.append("[thickness_mm] = :thickness_mm")
+            params["thickness_mm"] = payload.thickness_mm
+        if payload.weight_kg is not None:
+            updates.append("[weight_kg] = :weight_kg")
+            params["weight_kg"] = payload.weight_kg
+        if payload.envelope_x_mm is not None:
+            updates.append("[envelope_x_mm] = :envelope_x_mm")
+            params["envelope_x_mm"] = payload.envelope_x_mm
+        if payload.envelope_y_mm is not None:
+            updates.append("[envelope_y_mm] = :envelope_y_mm")
+            params["envelope_y_mm"] = payload.envelope_y_mm
+        if payload.envelope_z_mm is not None:
+            updates.append("[envelope_z_mm] = :envelope_z_mm")
+            params["envelope_z_mm"] = payload.envelope_z_mm
+        if payload.shape is not None:
+            updates.append("[shape] = :shape")
+            params["shape"] = _normalize_shape(payload.shape)
+        if payload.complexity_score is not None:
+            updates.append("[complexity_score] = :complexity_score")
+            params["complexity_score"] = payload.complexity_score
+
+        if not updates:
+            return self.get_quote_part(part_id)
+
+        stmt = text(
+            f"""
+            UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            SET {', '.join(updates)}, [updated_at] = SYSUTCDATETIME()
+            WHERE [part_id] = :part_id
+            """
+        )
+        try:
+            with self._engine.begin() as conn:
+                result = conn.execute(stmt, params)
+                if result.rowcount == 0:
+                    return None
+        except SQLAlchemyError as exc:
+            logger.error("Failed to update quote part", exc_info=exc)
+            raise DatabaseError("Unable to update quote part") from exc
+        return self.get_quote_part(part_id)
+
     def list_routings(self, part_id: UUID) -> list[RoutingResponse]:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
         stmt = text(
             """
-            SELECT [routing_id], [part_id], [scenario_name], [created_by], [selected], [rationale], [created_at]
+            SELECT
+                [routing_id],
+                [part_id],
+                [scenario_name],
+                [created_by],
+                [selected],
+                [rationale],
+                [confidence_score],
+                [assumptions_json],
+                [unknowns_json],
+                [source_run_id],
+                [created_at]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_routings]
             WHERE [part_id] = :part_id
             ORDER BY [created_at] DESC
@@ -1079,7 +1249,18 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Cedule database not configured")
         stmt = text(
             """
-            SELECT [routing_id], [part_id], [scenario_name], [created_by], [selected], [rationale], [created_at]
+            SELECT
+                [routing_id],
+                [part_id],
+                [scenario_name],
+                [created_by],
+                [selected],
+                [rationale],
+                [confidence_score],
+                [assumptions_json],
+                [unknowns_json],
+                [source_run_id],
+                [created_at]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_routings]
             WHERE [routing_id] = :routing_id
             """
@@ -1752,9 +1933,9 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Unable to update part feature") from exc
         return self._get_part_feature(feature_id)
 
-    def save_part_feature_set_from_llm(self, *, part_id: UUID, run_id: UUID, payload: dict[str, Any]) -> None:
+    def save_part_feature_set_from_llm(self, *, part_id: UUID, run_id: UUID, payload: dict[str, Any]) -> UUID | None:
         if not payload:
-            return
+            return None
         features_input: list[PartFeatureCreateRequest] = []
         raw_features = payload.get("machining_features")
         if isinstance(raw_features, list):
@@ -1797,7 +1978,8 @@ class CeduleVentesSousTraitanceRepository:
             general_notes=[str(v) for v in (payload.get("general_notes") or []) if v is not None],
             features=features_input,
         )
-        self.replace_part_feature_set(part_id, upsert)
+        saved = self.replace_part_feature_set(part_id, upsert)
+        return saved.feature_set_id
 
     def get_quote_source_text(self, quote_id: UUID) -> str:
         if not self._engine:
@@ -1872,6 +2054,7 @@ class CeduleVentesSousTraitanceRepository:
     def complete_analysis_run(self, run_id: UUID, output: dict[str, Any]) -> None:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
+        sanitized_output = _sanitize_json_value(output)
         stmt = text(
             """
             UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_llm_runs]
@@ -1881,7 +2064,13 @@ class CeduleVentesSousTraitanceRepository:
         )
         try:
             with self._engine.begin() as conn:
-                conn.execute(stmt, {"run_id": str(run_id), "output_json": json.dumps(output, ensure_ascii=True)})
+                conn.execute(
+                    stmt,
+                    {
+                        "run_id": str(run_id),
+                        "output_json": json.dumps(sanitized_output, ensure_ascii=True, default=str),
+                    },
+                )
         except SQLAlchemyError as exc:
             logger.error("Failed to complete analysis run", exc_info=exc)
             raise DatabaseError("Unable to complete analysis run") from exc
@@ -1903,14 +2092,39 @@ class CeduleVentesSousTraitanceRepository:
             logger.error("Failed to mark analysis run as failed", exc_info=exc)
             raise DatabaseError("Unable to update failed analysis run") from exc
 
-    def upsert_part_from_analysis(self, quote_id: UUID, metadata: dict[str, Any], classification: dict[str, Any], complexity: dict[str, Any]) -> UUID:
+    def upsert_part_from_analysis(
+        self,
+        quote_id: UUID,
+        metadata: dict[str, Any],
+        classification: dict[str, Any],
+        complexity: dict[str, Any],
+        *,
+        target_part_ref: str | None = None,
+    ) -> UUID:
         if not self._engine:
             raise DatabaseError("Cedule database not configured")
-        find_stmt = text(
+        find_by_ref_stmt = text(
             """
             SELECT TOP 1 [part_id]
             FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
             WHERE [quote_id] = :quote_id
+              AND (
+                [customer_part_number] = :part_ref
+                OR [internal_part_number] = :part_ref
+              )
+            ORDER BY [created_at]
+            """
+        )
+        find_by_metadata_stmt = text(
+            """
+            SELECT TOP 1 [part_id]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_quote_parts]
+            WHERE [quote_id] = :quote_id
+              AND (
+                (:customer_part_number IS NOT NULL AND [customer_part_number] = :customer_part_number)
+                OR
+                (:internal_part_number IS NOT NULL AND [internal_part_number] = :internal_part_number)
+              )
             ORDER BY [created_at]
             """
         )
@@ -1949,11 +2163,20 @@ class CeduleVentesSousTraitanceRepository:
         )
 
         envelope = classification.get("overall_envelope_mm") or {}
+        normalized_part_ref = str(target_part_ref).strip()[:100] if target_part_ref else None
+        customer_part_number = metadata.get("customer_part_number")
+        internal_part_number = metadata.get("internal_part_number")
+        if normalized_part_ref:
+            if not customer_part_number and not internal_part_number:
+                customer_part_number = normalized_part_ref
+            elif customer_part_number and customer_part_number != normalized_part_ref and not internal_part_number:
+                internal_part_number = normalized_part_ref
+
         params = {
             "quote_id": str(quote_id),
-            "customer_part_number": metadata.get("customer_part_number"),
-            "internal_part_number": metadata.get("internal_part_number"),
-            "quantity": _safe_int(metadata.get("quantity_requested"), default=1),
+            "customer_part_number": customer_part_number,
+            "internal_part_number": internal_part_number,
+            "quantity": max(1, _safe_int(metadata.get("quantity_requested"), default=1)),
             "material": metadata.get("material_spec"),
             "thickness_mm": metadata.get("thickness_mm"),
             "weight_kg": classification.get("weight_estimate_kg"),
@@ -1966,7 +2189,14 @@ class CeduleVentesSousTraitanceRepository:
 
         try:
             with self._engine.begin() as conn:
-                existing = conn.execute(find_stmt, {"quote_id": str(quote_id)}).scalar()
+                existing = None
+                if normalized_part_ref:
+                    existing = conn.execute(
+                        find_by_ref_stmt,
+                        {"quote_id": str(quote_id), "part_ref": normalized_part_ref},
+                    ).scalar()
+                if not existing and (params["customer_part_number"] or params["internal_part_number"]):
+                    existing = conn.execute(find_by_metadata_stmt, params).scalar()
                 if existing:
                     conn.execute(update_stmt, {"part_id": str(existing), **params})
                     return UUID(str(existing))
@@ -2224,6 +2454,13 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Cedule database not configured")
         assumptions = scenario.get("assumptions")
         unknowns = scenario.get("unknowns")
+        assumptions_payload = assumptions if isinstance(assumptions, (list, dict)) else None
+        unknowns_payload = unknowns if isinstance(unknowns, (list, dict)) else None
+        confidence_score = _safe_float(scenario.get("confidence_score"), default=None)
+        if confidence_score is not None:
+            if confidence_score > 1 and confidence_score <= 100:
+                confidence_score = confidence_score / 100.0
+            confidence_score = max(0.0, min(1.0, confidence_score))
         stmt = text(
             """
             UPDATE [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_part_routings]
@@ -2241,9 +2478,13 @@ class CeduleVentesSousTraitanceRepository:
                     stmt,
                     {
                         "routing_id": str(routing_id),
-                        "confidence_score": scenario.get("confidence_score"),
-                        "assumptions_json": json.dumps(assumptions, ensure_ascii=True) if isinstance(assumptions, list) else None,
-                        "unknowns_json": json.dumps(unknowns, ensure_ascii=True) if isinstance(unknowns, list) else None,
+                        "confidence_score": confidence_score,
+                        "assumptions_json": json.dumps(assumptions_payload, ensure_ascii=True)
+                        if assumptions_payload is not None
+                        else None,
+                        "unknowns_json": json.dumps(unknowns_payload, ensure_ascii=True)
+                        if unknowns_payload is not None
+                        else None,
                         "source_run_id": str(run_id) if run_id else None,
                     },
                 )
@@ -2284,6 +2525,50 @@ class CeduleVentesSousTraitanceRepository:
         progress = 1.0 if row.get("ended_at") else 0.5
         if status == "error":
             progress = 1.0
+        output_json = row.get("output_json")
+        output_json_text: str | None
+        if output_json is None:
+            output_json_text = None
+        elif isinstance(output_json, str):
+            output_json_text = output_json
+        else:
+            output_json_text = json.dumps(_sanitize_json_value(output_json), ensure_ascii=True, default=str)
+        parsed_output: dict[str, Any] = {}
+        if isinstance(output_json, dict):
+            parsed_output = output_json
+        elif isinstance(output_json, str):
+            try:
+                parsed = json.loads(output_json)
+                if isinstance(parsed, dict):
+                    parsed_output = parsed
+            except json.JSONDecodeError:
+                parsed_output = {}
+
+        created_part_id = None
+        raw_created_part_id = parsed_output.get("created_part_id")
+        if raw_created_part_id:
+            try:
+                created_part_id = UUID(str(raw_created_part_id))
+            except (TypeError, ValueError):
+                created_part_id = None
+
+        created_feature_set_id = None
+        raw_feature_set_id = parsed_output.get("created_feature_set_id")
+        if raw_feature_set_id:
+            try:
+                created_feature_set_id = UUID(str(raw_feature_set_id))
+            except (TypeError, ValueError):
+                created_feature_set_id = None
+
+        created_routing_ids: list[UUID] = []
+        raw_routing_ids = parsed_output.get("created_routing_ids")
+        if isinstance(raw_routing_ids, list):
+            for raw_routing_id in raw_routing_ids:
+                try:
+                    created_routing_ids.append(UUID(str(raw_routing_id)))
+                except (TypeError, ValueError):
+                    continue
+
         return JobStatusResponse(
             job_id=UUID(str(row.get("run_id"))),
             status=status,
@@ -2292,7 +2577,10 @@ class CeduleVentesSousTraitanceRepository:
             started_at=row.get("started_at"),
             ended_at=row.get("ended_at"),
             error_text=row.get("error_text"),
-            output_json=row.get("output_json"),
+            output_json=output_json_text,
+            created_part_id=created_part_id,
+            created_routing_ids=created_routing_ids,
+            created_feature_set_id=created_feature_set_id,
         )
 
     def _upsert_part_feature_set_header(
@@ -2442,6 +2730,19 @@ class CeduleVentesSousTraitanceRepository:
                 return [str(v) for v in parsed if v is not None]
         return []
 
+    @staticmethod
+    def _json_load_any(value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return value
+        return value
+
     def _to_quote(self, row: dict[str, Any]) -> QuoteSummary:
         return QuoteSummary(
             quote_id=UUID(str(row.get("quote_id"))),
@@ -2525,6 +2826,25 @@ class CeduleVentesSousTraitanceRepository:
             capabilities=capabilities,
         )
 
+    def _to_quote_part(self, row: dict[str, Any]) -> QuotePartSummary:
+        return QuotePartSummary(
+            part_id=UUID(str(row.get("part_id"))),
+            quote_id=UUID(str(row.get("quote_id"))),
+            customer_part_number=row.get("customer_part_number"),
+            internal_part_number=row.get("internal_part_number"),
+            quantity=_safe_int(row.get("quantity"), default=1),
+            material=row.get("material"),
+            thickness_mm=Decimal(str(row["thickness_mm"])) if row.get("thickness_mm") is not None else None,
+            weight_kg=Decimal(str(row["weight_kg"])) if row.get("weight_kg") is not None else None,
+            envelope_x_mm=Decimal(str(row["envelope_x_mm"])) if row.get("envelope_x_mm") is not None else None,
+            envelope_y_mm=Decimal(str(row["envelope_y_mm"])) if row.get("envelope_y_mm") is not None else None,
+            envelope_z_mm=Decimal(str(row["envelope_z_mm"])) if row.get("envelope_z_mm") is not None else None,
+            shape=row.get("shape"),
+            complexity_score=_safe_int(row.get("complexity_score"), default=0) or None,
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
+        )
+
     def _to_part_feature(self, row: dict[str, Any]) -> PartFeatureResponse:
         source = str(row.get("source") or "llm").lower()
         if source not in {"llm", "rules", "user"}:
@@ -2565,6 +2885,10 @@ class CeduleVentesSousTraitanceRepository:
             created_by=row.get("created_by"),
             selected=bool(row.get("selected")),
             rationale=row.get("rationale"),
+            confidence_score=Decimal(str(row["confidence_score"])) if row.get("confidence_score") is not None else None,
+            assumptions_json=self._json_load_any(row.get("assumptions_json")),
+            unknowns_json=self._json_load_any(row.get("unknowns_json")),
+            source_run_id=UUID(str(row.get("source_run_id"))) if row.get("source_run_id") else None,
             created_at=row.get("created_at"),
         )
 

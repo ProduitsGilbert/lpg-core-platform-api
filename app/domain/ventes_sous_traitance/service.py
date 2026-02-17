@@ -26,6 +26,8 @@ from app.domain.ventes_sous_traitance.models import (
     PartFeatureSetResponse,
     PartFeatureSetUpsertRequest,
     PartFeatureUpdateRequest,
+    QuotePartSummary,
+    QuotePartUpdateRequest,
     QuoteCreateRequest,
     QuoteStatusUpdateRequest,
     QuoteSummary,
@@ -153,6 +155,15 @@ class VentesSousTraitanceService:
     def delete_quote(self, quote_id: UUID) -> bool:
         return self._repository.delete_quote(quote_id)
 
+    def list_quote_parts(self, quote_id: UUID) -> list[QuotePartSummary]:
+        return self._repository.list_quote_parts(quote_id)
+
+    def get_quote_part(self, part_id: UUID) -> Optional[QuotePartSummary]:
+        return self._repository.get_quote_part(part_id)
+
+    def update_quote_part(self, part_id: UUID, payload: QuotePartUpdateRequest) -> Optional[QuotePartSummary]:
+        return self._repository.update_quote_part(part_id, payload)
+
     def list_routings(self, part_id: UUID) -> list[RoutingResponse]:
         return self._repository.list_routings(part_id)
 
@@ -225,12 +236,17 @@ class VentesSousTraitanceService:
             complexity = result.get("step3_complexity", {})
             feature_details = result.get("step4_feature_details", {})
             routings = result.get("step5_routings", result.get("step4_routings", {}))
+            part_ref = self._resolve_target_part_ref(
+                part_cues=part_cues,
+                metadata=metadata if isinstance(metadata, dict) else {},
+            )
 
             part_id = self._repository.upsert_part_from_analysis(
                 quote_id=quote_id,
                 metadata=metadata if isinstance(metadata, dict) else {},
                 classification=classification if isinstance(classification, dict) else {},
                 complexity=complexity if isinstance(complexity, dict) else {},
+                target_part_ref=part_ref,
             )
 
             self._repository.save_part_extraction(
@@ -261,7 +277,7 @@ class VentesSousTraitanceService:
                 payload=feature_details if isinstance(feature_details, dict) else {},
                 confidence=(feature_details.get("confidence") if isinstance(feature_details, dict) else None),
             )
-            self._repository.save_part_feature_set_from_llm(
+            feature_set_id = self._repository.save_part_feature_set_from_llm(
                 part_id=part_id,
                 run_id=run_id,
                 payload=feature_details if isinstance(feature_details, dict) else {},
@@ -275,9 +291,12 @@ class VentesSousTraitanceService:
             result["analysis_input"] = {
                 "user_cue": user_cue,
                 "part_cues": part_cues or [],
+                "target_part_ref": part_ref,
             }
             result["created_part_id"] = str(part_id)
             result["created_routing_ids"] = [str(r.routing_id) for r in created_routings]
+            if feature_set_id:
+                result["created_feature_set_id"] = str(feature_set_id)
             self._repository.complete_analysis_run(run_id, output=result)
         except Exception as exc:
             self._repository.fail_analysis_run(run_id, str(exc))
@@ -298,6 +317,31 @@ class VentesSousTraitanceService:
         if part_cues:
             sections.append("[Part Cues JSON]\n" + json.dumps(part_cues, ensure_ascii=True))
         return "\n\n".join(sections).strip()
+
+    @staticmethod
+    def _resolve_target_part_ref(
+        *,
+        part_cues: Optional[list[dict[str, Any]]],
+        metadata: dict[str, Any],
+    ) -> Optional[str]:
+        if part_cues:
+            for cue in part_cues:
+                if not isinstance(cue, dict):
+                    continue
+                raw_ref = cue.get("part_ref")
+                if raw_ref is None:
+                    continue
+                part_ref = str(raw_ref).strip()
+                if part_ref:
+                    return part_ref[:100]
+        for key in ("customer_part_number", "internal_part_number"):
+            raw_value = metadata.get(key)
+            if raw_value is None:
+                continue
+            value = str(raw_value).strip()
+            if value:
+                return value[:100]
+        return None
 
     def get_job(self, job_id: UUID) -> Optional[JobStatusResponse]:
         return self._repository.get_job(job_id)
