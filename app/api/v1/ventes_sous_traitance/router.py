@@ -433,7 +433,7 @@ async def analyze_quote_upload(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="No text or visual content could be extracted from PDF. Provide user_cue or upload a valid PDF.",
-        )
+    )
     part_cues = _parse_part_cues_json(part_cues_json)
     job_id = service.start_analysis_from_text(
         quote_id,
@@ -443,6 +443,18 @@ async def analyze_quote_upload(
         page_image_data_urls=image_data_urls,
     )
     return QuoteAnalysisStartResponse(job_id=job_id, quote_id=quote_id, status="scheduled")
+
+
+@router.get("/quotes/{quote_id}/jobs", response_model=list[JobStatusResponse])
+async def list_quote_jobs(
+    quote_id: UUID,
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    service: VentesSousTraitanceService = Depends(get_service),
+) -> list[JobStatusResponse]:
+    if not service.get_quote(quote_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
+    return service.list_quote_jobs(quote_id, status=status_filter, limit=limit)
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)

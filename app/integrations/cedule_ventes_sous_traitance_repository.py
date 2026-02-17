@@ -2521,67 +2521,34 @@ class CeduleVentesSousTraitanceRepository:
             raise DatabaseError("Unable to fetch job status") from exc
         if not row:
             return None
-        status = str(row.get("status") or "ok")
-        progress = 1.0 if row.get("ended_at") else 0.5
-        if status == "error":
-            progress = 1.0
-        output_json = row.get("output_json")
-        output_json_text: str | None
-        if output_json is None:
-            output_json_text = None
-        elif isinstance(output_json, str):
-            output_json_text = output_json
-        else:
-            output_json_text = json.dumps(_sanitize_json_value(output_json), ensure_ascii=True, default=str)
-        parsed_output: dict[str, Any] = {}
-        if isinstance(output_json, dict):
-            parsed_output = output_json
-        elif isinstance(output_json, str):
-            try:
-                parsed = json.loads(output_json)
-                if isinstance(parsed, dict):
-                    parsed_output = parsed
-            except json.JSONDecodeError:
-                parsed_output = {}
+        return self._to_job_status(row)
 
-        created_part_id = None
-        raw_created_part_id = parsed_output.get("created_part_id")
-        if raw_created_part_id:
-            try:
-                created_part_id = UUID(str(raw_created_part_id))
-            except (TypeError, ValueError):
-                created_part_id = None
-
-        created_feature_set_id = None
-        raw_feature_set_id = parsed_output.get("created_feature_set_id")
-        if raw_feature_set_id:
-            try:
-                created_feature_set_id = UUID(str(raw_feature_set_id))
-            except (TypeError, ValueError):
-                created_feature_set_id = None
-
-        created_routing_ids: list[UUID] = []
-        raw_routing_ids = parsed_output.get("created_routing_ids")
-        if isinstance(raw_routing_ids, list):
-            for raw_routing_id in raw_routing_ids:
-                try:
-                    created_routing_ids.append(UUID(str(raw_routing_id)))
-                except (TypeError, ValueError):
-                    continue
-
-        return JobStatusResponse(
-            job_id=UUID(str(row.get("run_id"))),
-            status=status,
-            stage=str(row.get("stage") or "routing"),
-            progress=progress,
-            started_at=row.get("started_at"),
-            ended_at=row.get("ended_at"),
-            error_text=row.get("error_text"),
-            output_json=output_json_text,
-            created_part_id=created_part_id,
-            created_routing_ids=created_routing_ids,
-            created_feature_set_id=created_feature_set_id,
+    def list_quote_jobs(self, quote_id: UUID, *, status: Optional[str], limit: int = 200) -> list[JobStatusResponse]:
+        if not self._engine:
+            raise DatabaseError("Cedule database not configured")
+        safe_limit = max(1, min(limit, 1000))
+        filters = ["[quote_id] = :quote_id"]
+        params: dict[str, Any] = {"quote_id": str(quote_id), "limit": safe_limit}
+        if status:
+            filters.append("[status] = :status")
+            params["status"] = status
+        where_clause = " AND ".join(filters)
+        stmt = text(
+            f"""
+            SELECT TOP (:limit)
+                [run_id], [stage], [status], [started_at], [ended_at], [error_text], [output_json]
+            FROM [Cedule].[dbo].[40_VENTES_SOUSTRAITANCE_llm_runs]
+            WHERE {where_clause}
+            ORDER BY [started_at] DESC
+            """
         )
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(stmt, params).mappings().all()
+        except SQLAlchemyError as exc:
+            logger.error("Failed to list analysis jobs", exc_info=exc)
+            raise DatabaseError("Unable to list job statuses") from exc
+        return [self._to_job_status(row) for row in rows]
 
     def _upsert_part_feature_set_header(
         self,
@@ -2909,4 +2876,69 @@ class CeduleVentesSousTraitanceRepository:
             estimator_note=row.get("estimator_note"),
             time_confidence=Decimal(str(row["time_confidence"])) if row.get("time_confidence") is not None else None,
             source=row.get("source") or "llm",
+        )
+
+    def _to_job_status(self, row: dict[str, Any]) -> JobStatusResponse:
+        status = str(row.get("status") or "ok")
+        progress = 1.0 if row.get("ended_at") else 0.5
+        if status == "error":
+            progress = 1.0
+
+        output_json = row.get("output_json")
+        output_json_text: str | None
+        if output_json is None:
+            output_json_text = None
+        elif isinstance(output_json, str):
+            output_json_text = output_json
+        else:
+            output_json_text = json.dumps(_sanitize_json_value(output_json), ensure_ascii=True, default=str)
+
+        parsed_output: dict[str, Any] = {}
+        if isinstance(output_json, dict):
+            parsed_output = output_json
+        elif isinstance(output_json, str):
+            try:
+                parsed = json.loads(output_json)
+                if isinstance(parsed, dict):
+                    parsed_output = parsed
+            except json.JSONDecodeError:
+                parsed_output = {}
+
+        created_part_id = None
+        raw_created_part_id = parsed_output.get("created_part_id")
+        if raw_created_part_id:
+            try:
+                created_part_id = UUID(str(raw_created_part_id))
+            except (TypeError, ValueError):
+                created_part_id = None
+
+        created_feature_set_id = None
+        raw_feature_set_id = parsed_output.get("created_feature_set_id")
+        if raw_feature_set_id:
+            try:
+                created_feature_set_id = UUID(str(raw_feature_set_id))
+            except (TypeError, ValueError):
+                created_feature_set_id = None
+
+        created_routing_ids: list[UUID] = []
+        raw_routing_ids = parsed_output.get("created_routing_ids")
+        if isinstance(raw_routing_ids, list):
+            for raw_routing_id in raw_routing_ids:
+                try:
+                    created_routing_ids.append(UUID(str(raw_routing_id)))
+                except (TypeError, ValueError):
+                    continue
+
+        return JobStatusResponse(
+            job_id=UUID(str(row.get("run_id"))),
+            status=status,
+            stage=str(row.get("stage") or "routing"),
+            progress=progress,
+            started_at=row.get("started_at"),
+            ended_at=row.get("ended_at"),
+            error_text=row.get("error_text"),
+            output_json=output_json_text,
+            created_part_id=created_part_id,
+            created_routing_ids=created_routing_ids,
+            created_feature_set_id=created_feature_set_id,
         )

@@ -657,6 +657,52 @@ def test_analyze_quote_upload_accepts_image_only_pdf() -> None:
     app.dependency_overrides.clear()
 
 
+def test_list_quote_jobs_endpoint() -> None:
+    stub = MagicMock()
+    quote = _sample_quote()
+    job_id = uuid4()
+    part_id = uuid4()
+    routing_id = uuid4()
+    now = datetime.now(timezone.utc)
+    stub.get_quote.return_value = quote
+    stub.list_quote_jobs.return_value = [
+        {
+            "job_id": job_id,
+            "status": "ok",
+            "stage": "routing",
+            "progress": 1.0,
+            "started_at": now,
+            "ended_at": now,
+            "error_text": None,
+            "output_json": '{"ok":true}',
+            "created_part_id": part_id,
+            "created_routing_ids": [routing_id],
+            "created_feature_set_id": None,
+        }
+    ]
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/quotes/{quote.quote_id}/jobs?status=ok&limit=50")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["job_id"] == str(job_id)
+    assert payload[0]["created_part_id"] == str(part_id)
+    assert payload[0]["created_routing_ids"] == [str(routing_id)]
+    stub.list_quote_jobs.assert_called_once_with(quote.quote_id, status="ok", limit=50)
+    app.dependency_overrides.clear()
+
+
+def test_list_quote_jobs_quote_not_found() -> None:
+    stub = MagicMock()
+    quote_id = uuid4()
+    stub.get_quote.return_value = None
+    client = _client_with_service(stub)
+    response = client.get(f"/api/v1/vente-sous-traitance/quotes/{quote_id}/jobs")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Quote not found"
+    app.dependency_overrides.clear()
+
+
 def test_get_part_features_endpoint() -> None:
     stub = MagicMock()
     part_id = uuid4()

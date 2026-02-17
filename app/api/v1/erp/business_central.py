@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import httpx
 import logfire
@@ -191,6 +192,91 @@ def _ship_to_name(record: Dict[str, Any]) -> Optional[str]:
 
 def _has_address_fields(address: str) -> bool:
     return bool(address and address.strip())
+
+
+def _dimension_code(record: Dict[str, Any]) -> str:
+    for key in ("Dimension_Code", "DimensionCode"):
+        value = record.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+def _dimension_value(record: Dict[str, Any]) -> Optional[str]:
+    for key in ("Dimension_Value_Code", "DimensionValueCode", "Dimension_Value", "DimensionValue"):
+        value = record.get(key)
+        if value:
+            return str(value).strip()
+    return None
+
+
+def _dimension_parent_type(record: Dict[str, Any]) -> str:
+    for key in ("Parent_Type", "ParentType"):
+        value = record.get(key)
+        if value:
+            return str(value).strip()
+    return ""
+
+
+async def _fetch_customer_division_map(
+    customer_nos: set[str],
+    service: BusinessCentralODataService,
+) -> Dict[str, str]:
+    """Fetch customer division values from DefaultDimensions."""
+    if not customer_nos:
+        return {}
+
+    filter_candidates = (
+        "Parent_Type eq 'Customer' and Dimension_Code eq 'Division'",
+        "Parent_Type eq 'Customer' and Dimension_Code eq 'DIVISION'",
+        "ParentType eq 'Customer' and Dimension_Code eq 'Division'",
+        "ParentType eq 'Customer' and Dimension_Code eq 'DIVISION'",
+        "Parent_Type eq 'Customer'",
+        "ParentType eq 'Customer'",
+    )
+
+    for filter_expr in filter_candidates:
+        encoded_filter = quote(filter_expr, safe="'")
+        resource = f"DefaultDimensions?%24filter={encoded_filter}"
+        try:
+            rows = await service.fetch_collection_paged(resource)
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else None
+            if status_code in {400, 404}:
+                continue
+            logger.warning(
+                "DefaultDimensions lookup failed",
+                extra={"status_code": status_code, "resource": resource},
+            )
+            return {}
+        except httpx.RequestError as exc:
+            logger.warning(
+                "DefaultDimensions lookup unavailable",
+                extra={"error": str(exc)},
+            )
+            return {}
+
+        division_map: Dict[str, str] = {}
+        for row in rows:
+            customer_no = row.get("No")
+            if not customer_no:
+                continue
+            customer_no = str(customer_no)
+            if customer_no not in customer_nos:
+                continue
+            if _dimension_parent_type(row).lower() != "customer":
+                continue
+            if _dimension_code(row).lower() != "division":
+                continue
+            division_value = _dimension_value(row)
+            if not division_value:
+                continue
+            division_map.setdefault(customer_no, division_value)
+
+        if division_map or "Dimension_Code" not in filter_expr:
+            return division_map
+
+    return {}
 
 
 @router.get(
@@ -452,6 +538,8 @@ async def list_customers(
         refresh_tasks: List[asyncio.Task] = []
         blocking_pairs: List[tuple[Any, asyncio.Task]] = []
         ship_to_map: Dict[str, List[Dict[str, Any]]] = {}
+        division_map: Dict[str, str] = {}
+        customer_nos: set[str] = set()
 
         if records:
             customer_nos = {
@@ -459,6 +547,7 @@ async def list_customers(
                 for record in records
                 if record.get("No") is not None
             }
+            division_map = await _fetch_customer_division_map(customer_nos, service)
             if no:
                 ship_to_semaphore = asyncio.Semaphore(settings.google_geocode_max_concurrency)
                 ship_to_map = {}
@@ -484,6 +573,7 @@ async def list_customers(
                 CustomerSummaryResponse(
                     customer_no=customer_no,
                     name=str(record.get("Name") or ""),
+                    division=division_map.get(customer_no),
                     city=record.get("City"),
                     postal_code=record.get("Post_Code") or record.get("PostCode"),
                     address_1=record.get("Address"),

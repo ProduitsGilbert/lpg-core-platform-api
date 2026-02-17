@@ -219,6 +219,7 @@ class CustomerSummaryResponse(BaseModel):
 
     customer_no: str = Field("", description="Customer number (No)")
     name: str = Field("", description="Customer name")
+    division: Optional[str] = Field(None, description="Customer division from DefaultDimensions")
     city: Optional[str] = Field(None, description="City")
     postal_code: Optional[str] = Field(None, description="Postal code")
     address_1: Optional[str] = Field(None, description="Address line 1")

@@ -345,3 +345,6 @@ class VentesSousTraitanceService:
 
     def get_job(self, job_id: UUID) -> Optional[JobStatusResponse]:
         return self._repository.get_job(job_id)
+
+    def list_quote_jobs(self, quote_id: UUID, *, status: Optional[str], limit: int = 200) -> list[JobStatusResponse]:
+        return self._repository.list_quote_jobs(quote_id, status=status, limit=limit)
