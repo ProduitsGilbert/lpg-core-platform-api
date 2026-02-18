@@ -1,0 +1,2702 @@
+{
+  "summary": {
+    "total_files": 7,
+    "ok": 7,
+    "job_error": 0,
+    "other_failures": 0
+  },
+  "results": [
+    {
+      "file": "1SI0574AM122revA.pdf",
+      "quote_id": "ab3cb8ee-9acd-4600-ba4b-b5d15cb510ea",
+      "job_id": "17d85dfc-f890-4f15-8a96-b8cd62ad6927",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 45.0,
+        "step2": 82.4,
+        "step3": 91.7,
+        "step4": 53.9,
+        "step5": 98.9
+      },
+      "step1": {
+        "customer_name": null,
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": null,
+        "customer_part_number": "1SI0574AM122",
+        "internal_part_number": null,
+        "revision": "I.S",
+        "units": "IMPERIAL",
+        "material_spec": "ACIER 1045",
+        "thickness_mm": null,
+        "quantity_requested": null,
+        "general_tolerances_note": "NON SPECIFIEES DIM. LINEAIRE X./FRACT.= ±1/16 .X = ±.040 .XX = ±.020 .XXX = ±.010 DIM. ANGULAIRE X./FRACT.= ±1° .X = ±.5° .XX = ±.25°",
+        "surface_finish_requirements": "l O 0.010 A B C; l O 0.002 A B C; l O .020 A B C",
+        "welding_requirements_note": null,
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "unknown",
+        "overall_envelope_mm": {
+          "x": 2820,
+          "y": 1651,
+          "z": 1342
+        },
+        "overall_envelope_confidence": {
+          "x": 0.3,
+          "y": 0.3,
+          "z": 0.3
+        },
+        "feature_counts": {
+          "holes": 82,
+          "threaded_holes": 23,
+          "machined_faces": null,
+          "bores": 62,
+          "pockets_slots": null
+        },
+        "weight_estimate_kg": 815.1,
+        "confidence": 0.5,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 4,
+        "drivers": [
+          "High feature count (82 holes, 62 bores, 23 threaded holes)",
+          "Large envelope (2820x1651x1342 mm)",
+          "Heavy weight (815 kg)"
+        ],
+        "risk_flags": [
+          "Unknown shape class",
+          "Low envelope confidence (0.3)",
+          "High feature density risking positioning errors",
+          "Fixturing challenges from size/weight"
+        ],
+        "confidence": 0.85,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "1045 Steel",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 2820,
+            "W": 1651,
+            "H": 1342
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 2900,
+            "W": 1700,
+            "H": 1400
+          },
+          "number_of_setups": 5,
+          "requires_4th_or_5th_axis": true,
+          "drilled_holes_count": 59,
+          "threaded_holes_count": 23,
+          "high_precision_features_count": 53,
+          "machined_faces_count": null,
+          "notes": "Large heavy part ~815 kg (1796.88 lbm). Engraving '1SI0574AM122'. Break sharp edges. Multi-sheet drawing (3/3). Likely cylindrical/turned with milled hole patterns. Zones A,B,C,D."
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "engraving_marking",
+            "description": "GRAVER 1SI0574AM122",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 17.8,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": null,
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F002",
+            "type": "drilled_hole",
+            "description": "Type A thru holes",
+            "quantity": 16,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 17.0,
+              "thread_spec": null
+            },
+            "tolerance": "±0.127 mm",
+            "surface_finish_ra": 0.25,
+            "location": "Zone A",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F003",
+            "type": "threaded_hole",
+            "description": "1/2-13 UNC",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 20.6,
+              "diameter_mm": 12.7,
+              "thread_spec": "1/2-13 UNC"
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": null,
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F004",
+            "type": "threaded_hole",
+            "description": "3/8-18 NPT",
+            "quantity": 19,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 13.5,
+              "diameter_mm": 14.3,
+              "thread_spec": "3/8-18 NPT"
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": null,
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F005",
+            "type": "counterbore_or_countersink",
+            "description": "CSK at B locations Ø0.563 x 82 deg",
+            "quantity": 37,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 14.3,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": 0.25,
+            "location": "Zones A B C",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F006",
+            "type": "drilled_hole",
+            "description": "Pilot holes at B Ø0.505 x 0.5 in",
+            "quantity": 37,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 12.7,
+              "diameter_mm": 12.8,
+              "thread_spec": null
+            },
+            "tolerance": "+0.127 / -0.000 mm",
+            "surface_finish_ra": 0.25,
+            "location": "Zones A B C",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F007",
+            "type": "drilled_hole",
+            "description": "Type C holes (size unspecified)",
+            "quantity": 9,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "Zone C",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F008",
+            "type": "drilled_hole",
+            "description": "Ø1.000 min depth for complete thread",
+            "quantity": 20,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 25.4,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": null,
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F009",
+            "type": "chamfer_bevel_fillet",
+            "description": "Break sharp edges (ENLEVER ARETES COUPANTES); also 44°/52° in section A-A",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 40.8,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "All edges",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F010",
+            "type": "bored_or_reamed_hole",
+            "description": "Precision bores with surface callouts",
+            "quantity": 62,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": 0.05,
+            "location": "Zones A B C",
+            "complexity_factors": [
+              "surface_finish_lt_ra_1.6"
+            ],
+            "estimated_operation_time_min": null
+          }
+        ],
+        "additional_operations": [],
+        "general_notes": [
+          "General tolerances (in): Linear X./FRACT. ±1/16, .X ±.040, .XX ±.020, .XXX ±.010; Angular X./FRACT. ±1°, .X ±.5°, .XX ±.25°",
+          "GD&T ASME Y14.5-2018",
+          "Surface finish: Ra 0.010, 0.002, 0.020 (microinches → ~0.25μm, 0.05μm, 0.5μm) in zones A B C",
+          "Material: Acier 1045 (1045 steel)",
+          "Revision: I.S / VER. a, Released for production 2025-11-19"
+        ],
+        "confidence": 0.8,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline CNC Machining",
+            "rationale": "Large heavy part with high feature density (holes, bores, threads) machined from billet stock on 4-axis CNC boring mill matching size/weight capabilities and part summary (5 setups, 4th axis required). All features handled in sequenced setups: roughing, boring, drilling, tapping, finishing.",
+            "confidence_score": 0.85,
+            "assumptions": [
+              "1045 steel billet provided near net shape",
+              "Part bounding box fits machine envelope (2500x1500x1200 mm) via optimal orientation/fixturing",
+              "No pre-machined stock or casting",
+              "Cycle times estimated from feature counts and machine defaults (setup 120 min, runtime scaled by complexity)"
+            ],
+            "unknowns": [
+              "Exact fixturing design for 815 kg part",
+              "Precise toolpath lengths and feedrates",
+              "Location of zones A/B/C/D relative to setups"
+            ],
+            "steps": [
+              {
+                "operation_code": "ROUGH_MILL",
+                "description": "Rough facing, contouring, and initial pockets on primary face",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 480,
+                "handling_time_min": 20,
+                "inspection_time_min": 30,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "BORING",
+                "description": "Precision boring of 62 bores with Ra 0.05 finish in zones A/B/C",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 420,
+                "handling_time_min": 20,
+                "inspection_time_min": 45,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "DRILL",
+                "description": "Drill 59 thru/pilot holes (Type A/C, Ø17/12.8/25.4 mm) with tight tolerances",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 240,
+                "handling_time_min": 20,
+                "inspection_time_min": 30,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "TAPPING",
+                "description": "Tap 23 threaded holes (4x 1/2-13 UNC, 19x 3/8-18 NPT) to depth",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 180,
+                "handling_time_min": 20,
+                "inspection_time_min": 30,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "FINISH",
+                "description": "CSK 37 countersinks, chamfer all edges, engraving '1SI0574AM122'",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 120,
+                "handling_time_min": 20,
+                "inspection_time_min": 45,
+                "time_confidence": 0.85
+              }
+            ]
+          },
+          {
+            "scenario_name": "Hybrid Plasma + CNC",
+            "rationale": "Rough plasma cut from 1045 plate stock (avg ~25 mm thick inferred from weight/vol) for profile/hole blanks, followed by CNC for precision bores/threads/finishes. Suits large envelope, reduces CNC roughing time/load; welding skipped as none specified.",
+            "confidence_score": 0.7,
+            "assumptions": [
+              "Part is prismatic/plate-like with thin walls allowing plasma (max 50 mm)",
+              "Plasma roughs large contours/holes >8 mm dia",
+              "Post-plasma distortion corrected in CNC",
+              "Multiple plasma sheets if needed for size"
+            ],
+            "unknowns": [
+              "Plate thickness uniformity",
+              "Weld-free assembly feasibility",
+              "Distortion from plasma heat"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA_CUT",
+                "description": "Rough cut profile, large holes (Ø17+, pilots, type C), breakouts for bores",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 240,
+                "handling_time_min": 15,
+                "inspection_time_min": 20,
+                "time_confidence": 0.65
+              },
+              {
+                "operation_code": "MILL_PREP",
+                "description": "Face plasma blank, stress relieve, rough pockets for bores access",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 300,
+                "handling_time_min": 20,
+                "inspection_time_min": 30,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "BORING_DRILL",
+                "description": "Precision bores (62), drill remaining holes, CSK",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 360,
+                "handling_time_min": 20,
+                "inspection_time_min": 40,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "TAPPING_FINISH",
+                "description": "Tap 23 threads, chamfer edges, engraving",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 150,
+                "handling_time_min": 20,
+                "inspection_time_min": 30,
+                "time_confidence": 0.8
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "803100-1343_ok.pdf",
+      "quote_id": "3a1c9dd0-f1e0-49aa-86d7-3ae495c45a2a",
+      "job_id": "f58eaf28-448d-423c-9169-52fc574627ea",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 65.0,
+        "step2": 94.1,
+        "step3": 92.3,
+        "step4": 61.5,
+        "step5": 97.2
+      },
+      "step1": {
+        "customer_name": "ROYOMARTIN",
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": "All information on this document areproperty of Inotech Fabrication Inc. All copyor reproduction without writtenauthorization of Inotech Fabrication Inc isprohibited. Toutes les informations qui se retrouvent surce dessin est la propriété de InotechFabrication Inc. Toute reproduction ou copiesans le consentement de Inotech FabricationInc est interdite.",
+        "customer_part_number": "803100",
+        "internal_part_number": "803100-1343",
+        "revision": "B",
+        "units": "inches",
+        "material_spec": "2- 1/2 PLAQUE CHT-100",
+        "thickness_mm": null,
+        "quantity_requested": 1,
+        "general_tolerances_note": "USINAGE : 1/X ...± 1/16\" .xx ....± .005\" .xxx ...± .002\" Angle ... ±0.5º TOLÉRANCES GÉNÉRALES SAUF CONTRE INDICATION a ±0.002'' xTOLÉRANCE GÉOMÉTRIQUE  : PRÉPARATION : 1/X ........ +0'' -1/16'' ASSEMBLAGE : 1/X ........±1/16'' Angle .... ±0.5º T = ÉPAISSEUR LA PLUS MINCE",
+        "surface_finish_requirements": "CHROMER 0.005\" À 0.010\"",
+        "welding_requirements_note": null,
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "plate",
+        "overall_envelope_mm": {
+          "x": 1009.65,
+          "y": 239.73,
+          "z": 63.5
+        },
+        "overall_envelope_confidence": {
+          "x": 1.0,
+          "y": 1.0,
+          "z": 0.95
+        },
+        "feature_counts": {
+          "holes": 6,
+          "threaded_holes": 2,
+          "machined_faces": 6,
+          "bores": 0,
+          "pockets_slots": 5
+        },
+        "weight_estimate_kg": 16.03,
+        "confidence": 0.85,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 4,
+        "drivers": [
+          "6 machined faces requiring multiple setups",
+          "5 pockets/slots",
+          "6 holes + 2 threaded holes",
+          "tight tolerances (±0.002\")"
+        ],
+        "risk_flags": [
+          "large size (1010x240x64mm)",
+          "multi-setup alignment risks",
+          "GD&T and angle tolerances (±0.5°)",
+          "weld prep tolerances"
+        ],
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "CHT-100 (2-1/2\" steel plate)",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 1009.65,
+            "W": 239.73,
+            "H": 63.5
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 1029.65,
+            "W": 259.73,
+            "H": 63.5
+          },
+          "number_of_setups": 6,
+          "requires_4th_or_5th_axis": false,
+          "drilled_holes_count": 8,
+          "threaded_holes_count": 2,
+          "high_precision_features_count": 10,
+          "machined_faces_count": 6,
+          "notes": "CHROMER 0.005\" to 0.010\". Bottom anvil smooth (USINAGE LISSE D'ENCLUME DU BAS). Weight 35.341 lbm. T = thinnest thickness."
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "flat_face",
+            "description": "Machined flat faces including bottom anvil smooth surface",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": 239.73,
+              "length_mm": 1009.65,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": null,
+            "location": "All 6 faces",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F002",
+            "type": "external_contour",
+            "description": "Perimeter profile with steps and large arc Ø26 5/16\"",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 668.14,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": null,
+            "location": "External edges",
+            "complexity_factors": [
+              "multi_axis_or_multi_setup",
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F003",
+            "type": "pocket",
+            "description": "Stepped pockets/slots per drawing dimensions (36.250\", 31.100\", etc.)",
+            "quantity": 5,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": null,
+            "location": "Main body",
+            "complexity_factors": [
+              "high_material_removal",
+              "multi_setup"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F004",
+            "type": "drilled_hole",
+            "description": "Ø13/32\" drilled holes",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 10.32,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "Pattern per drawing",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F005",
+            "type": "counterbore_or_countersink",
+            "description": "Ø5/8\" x 3/4\" deep on 13/32\" holes",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 19.05,
+              "diameter_mm": 15.88,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "On F004 holes",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F006",
+            "type": "drilled_hole",
+            "description": "Ø5/16\" x 9/16\" deep pilot holes",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 14.29,
+              "diameter_mm": 7.94,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "Per drawing",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F007",
+            "type": "threaded_hole",
+            "description": "3/8-16 UNC x 7/16\" deep",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 11.11,
+              "diameter_mm": 9.53,
+              "thread_spec": "3/8-16 UNC"
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "On F006 holes",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F008",
+            "type": "chamfer_bevel_fillet",
+            "description": "1/4\" x 50° chamfers and 110° angles per details",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": 6.35,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.5°",
+            "surface_finish_ra": null,
+            "location": "Edges and holes",
+            "complexity_factors": [
+              "angle_tolerance"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F009",
+            "type": "step_shoulder",
+            "description": "Stepped shoulders per section A-A (1.750\", 3.500\")",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": null,
+            "location": "Profile steps",
+            "complexity_factors": [
+              "multi_setup",
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          }
+        ],
+        "additional_operations": [
+          {
+            "type": "plating",
+            "description": "Chrome plating",
+            "spec": "0.005\" to 0.010\" thick"
+          }
+        ],
+        "general_notes": [
+          "General USINAGE tolerances: 1/X ±1/16\", .xx ±.005\", .xxx ±.002\", angles ±0.5°",
+          "TOLÉRANCE GÉOMÉTRIQUE",
+          "PRÉPARATION: 1/X +0/-1/16\"",
+          "ASSEMBLAGE: 1/X ±1/16\", angles ±0.5°",
+          "T = ÉPAISSEUR LA PLUS MINCE"
+        ],
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline",
+            "rationale": "Plasma rough cut for efficient material removal on thick steel plate, followed by multi-setup CNC boring mill for precision features (faces, contours, pockets, holes, threads, chamfers) matching machine envelope and capabilities, then chrome plating. Matches part size (1010x240x64mm, 16kg), 6 machined faces, tight tolerances.",
+            "confidence_score": 0.9,
+            "assumptions": [
+              "Shop provides CHT-100 steel plate stock",
+              "Plasma table can handle 63.5mm thickness (near limit, slow speeds assumed)",
+              "Standard fixturing for large part with 4th axis indexing if needed",
+              "Chrome plating outsourced or in-house with standard times"
+            ],
+            "unknowns": [
+              "Exact plasma cut speed for 63.5mm steel",
+              "Precise material removal volume for cycle times",
+              "Plating thickness uniformity on complex geometry"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA001",
+                "description": "Rough plasma cut perimeter contour, steps, and rough pockets/slots from stock plate (perimeter ~2.5m, thick material)",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 90,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "CNC001",
+                "description": "Setup 1: Fixture rough blank, face mill bottom anvil smooth and primary faces (1000x240mm area)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 150,
+                "cycle_time_min": 150,
+                "handling_time_min": 20,
+                "inspection_time_min": 20,
+                "time_confidence": 0.9
+              },
+              {
+                "operation_code": "CNC002",
+                "description": "Setup 2: Re-fixture/flip, machine 5 stepped pockets/slots (high volume removal, depths per drawing)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 420,
+                "handling_time_min": 20,
+                "inspection_time_min": 25,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "CNC003",
+                "description": "Setup 3: External contour profiling, steps/shoulders, large arc, chamfers/bevels (Ø668mm arc, ±0.002\", ±0.5° angles)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 300,
+                "handling_time_min": 20,
+                "inspection_time_min": 20,
+                "time_confidence": 0.9
+              },
+              {
+                "operation_code": "CNC004",
+                "description": "Setup 4: Drill 6x Ø13/32\" holes + counterbores, 2x pilot + 3/8-16 UNC threads (pattern alignment critical)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 120,
+                "handling_time_min": 15,
+                "inspection_time_min": 30,
+                "time_confidence": 0.95
+              },
+              {
+                "operation_code": "PLATE001",
+                "description": "Chrome plating 0.005\"-0.010\" thick (clean, plate, rinse, bake; full envelope immersion)",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 240,
+                "handling_time_min": 30,
+                "inspection_time_min": 20,
+                "time_confidence": 0.9
+              }
+            ]
+          },
+          {
+            "scenario_name": "Full CNC Machining",
+            "rationale": "Single machine group for all operations starting from stock plate, avoiding plasma thickness limit and cut distortions; extended roughing cycle due to ~100kg removal but higher precision control.",
+            "confidence_score": 0.8,
+            "assumptions": [
+              "CNC boring mill equipped for heavy roughing (high torque, large tools)",
+              "Stock plate fixtured securely for initial roughing",
+              "No need for plasma precision issues"
+            ],
+            "unknowns": [
+              "Roughing feed rates and tool life for massive removal",
+              "Total machine time availability"
+            ],
+            "steps": [
+              {
+                "operation_code": "CNC_ROUGH",
+                "description": "Rough mill contour, rough pockets/slots, step shoulders from stock plate (major material removal ~118kg)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 180,
+                "cycle_time_min": 720,
+                "handling_time_min": 25,
+                "inspection_time_min": 25,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "CNC001",
+                "description": "Finish face mill all 6 faces including bottom anvil smooth (±0.002\")",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 180,
+                "handling_time_min": 20,
+                "inspection_time_min": 20,
+                "time_confidence": 0.9
+              },
+              {
+                "operation_code": "CNC002",
+                "description": "Finish pockets/slots, external contour, arc, steps/chamfers (tight tolerances)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 480,
+                "handling_time_min": 20,
+                "inspection_time_min": 25,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "CNC003",
+                "description": "Drill/counterbore 6 holes, thread 2 holes (high precision)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 120,
+                "handling_time_min": 15,
+                "inspection_time_min": 30,
+                "time_confidence": 0.95
+              },
+              {
+                "operation_code": "PLATE001",
+                "description": "Chrome plating 0.005\"-0.010\" thick",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 240,
+                "handling_time_min": 30,
+                "inspection_time_min": 20,
+                "time_confidence": 0.9
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "803100-2401_OK.pdf",
+      "quote_id": "2606385f-ead0-4923-a20e-f7654516ea97",
+      "job_id": "068064cb-107e-4b3f-a6d6-4123b68b411e",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 65.0,
+        "step2": 94.1,
+        "step3": 90.0,
+        "step4": 79.4,
+        "step5": 95.8
+      },
+      "step1": {
+        "customer_name": null,
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": "All information on this document areproperty of Inotech Fabrication Inc. All copyor reproduction without writtenauthorization of Inotech Fabrication Inc isprohibited. Toutes les informations qui se retrouvent surce dessin est la propriété de InotechFabrication Inc. Toute reproduction ou copiesans le consentement de Inotech FabricationInc est interdite.",
+        "customer_part_number": "803100",
+        "internal_part_number": "803100-2401",
+        "revision": "B",
+        "units": "inches",
+        "material_spec": "PLAQUE CHT-100",
+        "thickness_mm": 25.4,
+        "quantity_requested": 2,
+        "general_tolerances_note": "USINAGE : 1/X ...± 1/16\" .xx ....± .005\" .xxx ...± .002\" Angle ... ±0.5º TOLÉRANCES GÉNÉRALES SAUF CONTRE INDICATION a ±0.002'' xTOLÉRANCE GÉOMÉTRIQUE : PRÉPARATION : 1/X ........ +0'' -1/16'' ASSEMBLAGE : 1/X ........±1/16'' Angle .... ±0.5º",
+        "surface_finish_requirements": "CHROMÉ (7) SURFACES 0.005\" À 0.010\"",
+        "welding_requirements_note": null,
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "plate",
+        "overall_envelope_mm": {
+          "x": 366,
+          "y": 323,
+          "z": 25
+        },
+        "overall_envelope_confidence": {
+          "x": 0.85,
+          "y": 0.8,
+          "z": 0.95
+        },
+        "feature_counts": {
+          "holes": 8,
+          "threaded_holes": 0,
+          "machined_faces": 7,
+          "bores": 0,
+          "pockets_slots": 0
+        },
+        "weight_estimate_kg": 6.09,
+        "confidence": 0.8,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 3,
+        "drivers": [
+          "7 machined faces",
+          "8 holes",
+          "Tight tolerances (±0.002\")"
+        ],
+        "risk_flags": [
+          "Distortion risk on large thin plate",
+          "Multi-face machining setups"
+        ],
+        "confidence": 0.85,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "CHT-100",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 366,
+            "W": 323,
+            "H": 25
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 380,
+            "W": 340,
+            "H": 30
+          },
+          "number_of_setups": 4,
+          "requires_4th_or_5th_axis": false,
+          "drilled_holes_count": 8,
+          "threaded_holes_count": 0,
+          "high_precision_features_count": 8,
+          "machined_faces_count": 7,
+          "notes": "Irregular plate shape with radiused corners; 7 surfaces chromed 0.005\"-0.010\"; Oxy-cut base with CNC finishing; Mirror variant required (qty 2 total)"
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "external_contour",
+            "description": "Oxy-cut and machined perimeter with radii R7.938\" (201.7mm), R8.562\" (217.4mm), angles 61°,65°",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": 323,
+              "length_mm": 366,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.005\" / ±0.127mm (xx), ±0.002\" / ±0.051mm (xxx)",
+            "surface_finish_ra": null,
+            "location": "Perimeter",
+            "complexity_factors": [
+              "Tight tolerance",
+              "Multi-angle"
+            ],
+            "estimated_operation_time_min": 15
+          },
+          {
+            "feature_id": "F002",
+            "type": "drilled_hole",
+            "description": "Drill Ø11/16\" (17.5mm) with countersink Ø1-1/4\" (31.75mm) x 82°",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 25.4,
+              "diameter_mm": 17.5,
+              "thread_spec": null
+            },
+            "tolerance": "±0.005\" positional",
+            "surface_finish_ra": null,
+            "location": "Positions at 2.343\",8.718\", etc.",
+            "complexity_factors": [
+              "Countersink",
+              "Multi-hole pattern"
+            ],
+            "estimated_operation_time_min": 3
+          },
+          {
+            "feature_id": "F003",
+            "type": "drilled_hole",
+            "description": "Drill Ø13/32\" (10.3mm) with chamfer Ø21/32\" (16.7mm) x 25/64\" (9.9mm) deep",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 25.4,
+              "diameter_mm": 10.3,
+              "thread_spec": null
+            },
+            "tolerance": "±0.005\" positional",
+            "surface_finish_ra": null,
+            "location": "Positions at 3.468\",7.593\", etc.",
+            "complexity_factors": [
+              "Chamfer",
+              "Multi-hole pattern"
+            ],
+            "estimated_operation_time_min": 3
+          },
+          {
+            "feature_id": "F004",
+            "type": "flat_face",
+            "description": "Machined and chromed faces",
+            "quantity": 7,
+            "dimensions": {
+              "width_mm": 323,
+              "length_mm": 366,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": "Chrome 0.005-0.010\"",
+            "location": "Top, bottom, and 5 sides",
+            "complexity_factors": [
+              "Multi-face",
+              "Chrome finish",
+              "Tight tolerance"
+            ],
+            "estimated_operation_time_min": 20
+          },
+          {
+            "feature_id": "F005",
+            "type": "chamfer_bevel_fillet",
+            "description": "Edge chamfers: 5/8\" x 45°, 3/16\" x 65°, etc.",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": 15.9,
+              "length_mm": null,
+              "depth_mm": 4.8,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.5°",
+            "surface_finish_ra": null,
+            "location": "Multiple edges, sections B-B, C-C, D, E",
+            "complexity_factors": [
+              "Multi-angle",
+              "Thin section"
+            ],
+            "estimated_operation_time_min": 8
+          }
+        ],
+        "additional_operations": [
+          "Chrome plating on 7 surfaces: 0.005\" to 0.010\" thick"
+        ],
+        "general_notes": [
+          "General tolerances: Dimensions xx ±0.005\", xxx ±0.002\", angles ±0.5°",
+          "Geometric tolerance: ±0.002\"",
+          "Weight: 13.437 lbm (6.09 kg)",
+          "Material thickness T = thinnest",
+          "Projection: unspecified",
+          "1 normal + 1 mirror part"
+        ],
+        "confidence": 0.85,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline",
+            "rationale": "Efficient routing starting with plasma cutting for rough irregular perimeter on large plate stock, followed by comprehensive CNC finishing on 4-axis boring mill (suitable for part envelope 366x323x25mm, weight 6kg, 4 setups for 7 faces/holes/chamfers), then chrome plating on 7 surfaces. Times aggregated from feature estimates (total CNC ~49min cycle) and machine defaults, shared setup for qty=2 (1 normal +1 mirror).",
+            "confidence_score": 0.9,
+            "assumptions": [
+              "Setups shared across qty=2 parts",
+              "CNC_BORING_LARGE_4AX can handle CHT-100 steel plate with tight tolerances (±0.002\")",
+              "Chrome plating is post-machining external process with standard lead time",
+              "4 CNC setups included in single machining step time totals",
+              "Oxy-cut approximated by plasma capabilities (25.4mm thickness within max 50mm)"
+            ],
+            "unknowns": [
+              "Exact fixturing design for 4 setups and thin plate distortion prevention",
+              "Precise chrome plating cycle time and thickness uniformity on chromed faces",
+              "Material-specific cutting speeds for CHT-100"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA_CUT",
+                "description": "Rough cut irregular perimeter (radii R201.7mm, R217.4mm, angles 61°/65°) from stock plate, including lead-in/out",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 15,
+                "handling_time_min": 5,
+                "inspection_time_min": 2,
+                "time_confidence": 0.9
+              },
+              {
+                "operation_code": "CNC_MACHINING",
+                "description": "4 setups: Face mill 7 surfaces, finish perimeter contour, drill 4x Ø17.5mm CSK holes + 4x Ø10.3mm chamfer holes, edge chamfers (e.g. 5/8x45°, 3/16x65°), tight tolerances ±0.002\"/±0.005\" positional",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 50,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "CHROME_PLATING",
+                "description": "Chrome plate 7 machined surfaces (top/bottom/5 sides) to 0.005\"-0.010\" thick",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 30,
+                "handling_time_min": 5,
+                "inspection_time_min": 5,
+                "time_confidence": 0.75
+              }
+            ]
+          },
+          {
+            "scenario_name": "CNC-Only Alternative",
+            "rationale": "No plasma/oxy-cut; full roughing and finishing of contour, faces, holes, chamfers in CNC to avoid cut-edge quality issues, using large 4-axis boring mill. Longer cycle due to roughing but potentially better precision. Suitable if plasma availability limited.",
+            "confidence_score": 0.8,
+            "assumptions": [
+              "CNC can efficiently rough large perimeter without burning/distortion on 25mm steel",
+              "Increased cycle accounts for roughing passes (~+30min)",
+              "Same chrome post-process",
+              "Qty=2 sharing setups",
+              "Material removal rates per machine capabilities (steel, tight tol multiplier 1.25)"
+            ],
+            "unknowns": [
+              "Roughing tool life and cycle extension for full contour rough/finish",
+              "Distortion risk without pre-cut blank (higher thin plate flex)"
+            ],
+            "steps": [
+              {
+                "operation_code": "CNC_ROUGH_FINISH",
+                "description": "Setup 1-2: Rough and finish perimeter contour, face mill primary faces, initial chamfers (4 setups total)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 70,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_HOLES_FACES",
+                "description": "Setup 3-4: Drill/counterbore/chamfer all 8 holes, finish remaining 7 chromable faces to ±0.002\"",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 30,
+                "handling_time_min": 5,
+                "inspection_time_min": 5,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CHROME_PLATING",
+                "description": "Chrome plate 7 machined surfaces (top/bottom/5 sides) to 0.005\"-0.010\" thick",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 30,
+                "handling_time_min": 5,
+                "inspection_time_min": 5,
+                "time_confidence": 0.75
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "803100-4353_OK.pdf",
+      "quote_id": "61c13c04-af81-4384-aaae-9fd5d3f7e50e",
+      "job_id": "703afb4b-9271-4245-bf19-fc4c579672ae",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 60.0,
+        "step2": 94.1,
+        "step3": 91.7,
+        "step4": 64.7,
+        "step5": 99.0
+      },
+      "step1": {
+        "customer_name": "ROYOMARTIN",
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": "All information on this document are property of Inotech Fabrication Inc. All copy or reproduction without written authorization of Inotech Fabrication Inc is prohibited. Toutes les informations qui se retrouvent sur ce dessin est la propriété de Inotech Fabrication Inc. Toute reproduction ou copie sans le consentement de Inotech Fabrication Inc est interdite.",
+        "customer_part_number": "803100",
+        "internal_part_number": "803100-4353",
+        "revision": "B",
+        "units": "inch",
+        "material_spec": "ACIER A CLÉ USINÉ",
+        "thickness_mm": null,
+        "quantity_requested": "1",
+        "general_tolerances_note": "USINAGE: 1/X ...± 1/16\" .xx ....± .005\" .xxx ...± .002\" Angle ... ±0.5º TOLÉRANCES GÉNÉRALES SAUF CONTRE INDICATION a ±0.002'' xTOLÉRANCE GÉOMÉTRIQUE : PRÉPARATION: 1/X ........ +0'' -1/16'' ASSEMBLAGE: 1/X ........±1/16'' Angle .... ±0.5º",
+        "surface_finish_requirements": null,
+        "welding_requirements_note": null,
+        "confidence": 0.92,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "prismatic",
+        "overall_envelope_mm": {
+          "x": 31.75,
+          "y": 285.75,
+          "z": 520.7
+        },
+        "overall_envelope_confidence": {
+          "x": 0.9,
+          "y": 0.85,
+          "z": 1.0
+        },
+        "feature_counts": {
+          "holes": 10,
+          "threaded_holes": 2,
+          "machined_faces": 6,
+          "bores": 2,
+          "pockets_slots": 1
+        },
+        "weight_estimate_kg": 1.91,
+        "confidence": 0.75,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 3,
+        "drivers": [
+          "high hole count (12 total incl. threaded/ bores)",
+          "tight tolerances (±0.002\" on 3-place dims)",
+          "6 machined faces",
+          "elongated envelope (520mm length, 32mm thick)"
+        ],
+        "risk_flags": [
+          "fixturing for thin long part",
+          "multi-axis setups for features",
+          "hole pattern positional accuracy"
+        ],
+        "confidence": 0.8,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "ACIER A CLÉ USINÉ",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 520.7,
+            "W": 285.75,
+            "H": 31.75
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 530,
+            "W": 295,
+            "H": 40
+          },
+          "number_of_setups": 6,
+          "requires_4th_or_5th_axis": false,
+          "drilled_holes_count": 10,
+          "threaded_holes_count": 2,
+          "high_precision_features_count": 12,
+          "machined_faces_count": 6,
+          "notes": "Elongated thin prismatic key steel part. Multiple holes along length. Tight general tolerances (±0.002\" on 3-place dims, geometric ±0.002\"). Fixturing risk for long part (L/H >15)."
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "external_contour",
+            "description": "Overall rectangular prismatic contour 1-1/4 x 11-1/4 x 20-1/2 inch key bar",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": 285.75,
+              "length_mm": 520.7,
+              "depth_mm": 31.75,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\" geometric",
+            "surface_finish_ra": null,
+            "location": "perimeter",
+            "complexity_factors": [
+              "elongated_shape"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F002",
+            "type": "flat_face",
+            "description": "Machined top/bottom/side faces",
+            "quantity": 6,
+            "dimensions": {
+              "width_mm": 285.75,
+              "length_mm": 520.7,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\" / ±0.005\"",
+            "surface_finish_ra": null,
+            "location": "all major faces",
+            "complexity_factors": [
+              "multi_face",
+              "tight_tolerance"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F003",
+            "type": "drilled_hole",
+            "description": "Ø9/32\" drilled holes",
+            "quantity": 10,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 7.14,
+              "thread_spec": null
+            },
+            "tolerance": "general ±0.005\"",
+            "surface_finish_ra": null,
+            "location": "along centerline spaced per dims (0.5\" to 18.625\")",
+            "complexity_factors": [
+              "high_count",
+              "pattern"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F004",
+            "type": "counterbore_or_countersink",
+            "description": "Ø19/32\" x 82° countersink",
+            "quantity": 8,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 15.08,
+              "thread_spec": null
+            },
+            "tolerance": "angle ±0.5°",
+            "surface_finish_ra": null,
+            "location": "on 8 drilled holes",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F005",
+            "type": "bored_or_reamed_hole",
+            "description": "Ø39/64\" x 2\" deep bore",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 50.8,
+              "diameter_mm": 15.48,
+              "thread_spec": null
+            },
+            "tolerance": "±0.002\"",
+            "surface_finish_ra": null,
+            "location": "specific positions",
+            "complexity_factors": [
+              "deep_hole"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F006",
+            "type": "threaded_hole",
+            "description": "3/8-18 NPT tap x 13/32\" deep",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 10.3,
+              "diameter_mm": 9.53,
+              "thread_spec": "3/8-18 NPT"
+            },
+            "tolerance": "general",
+            "surface_finish_ra": null,
+            "location": "in bored holes",
+            "complexity_factors": [
+              "NPT_thread"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F007",
+            "type": "chamfer_bevel_fillet",
+            "description": "1/8\" x 45° chamfer",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": 3.18,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "±0.5°",
+            "surface_finish_ra": null,
+            "location": "edges",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F008",
+            "type": "slot_channel_groove",
+            "description": "Chemin d'air air path groove/slot",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": 12.7,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "face",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          }
+        ],
+        "additional_operations": [],
+        "general_notes": [
+          "General USINAGE tolerances: 1/X ±1/16\", .xx ±0.005\", .xxx ±0.002\", Angle ±0.5°",
+          "Geometric tolerance ±0.002\"",
+          "T = thinnest thickness",
+          "Weight 4.216 lbm (1.91 kg)",
+          "Projection standard, page 1/1 REV B"
+        ],
+        "confidence": 0.82,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline Plasma Rough + Multi-Setup CNC Milling",
+            "rationale": "Elongated prismatic steel part with tight tolerances, multiple holes, bores, threads, and slot. Plasma for efficient rough blanking from plate stock, followed by 4 setups on large 4-axis CNC boring mill to handle fixturing challenges, machined faces, hole patterns, and precision features. Matches 6 machined faces with grouped operations.",
+            "confidence_score": 0.88,
+            "assumptions": [
+              "Customer provides plate stock thicker than 40mm",
+              "5mm machining allowance on plasma cut edges",
+              "Holes drilled from primary faces into thickness",
+              "Standard HSS or carbide tools for steel",
+              "No special fixturing beyond soft jaws/clamps",
+              "Quantity=1, no batch efficiencies"
+            ],
+            "unknowns": [
+              "Exact hole depths and positions requiring probing",
+              "Optimal fixturing to avoid vibration on thin long part",
+              "Surface finish requirements post-machining"
+            ],
+            "steps": [
+              {
+                "operation_code": "BLANK001",
+                "description": "Plasma cut rough rectangular blank (530x295x40mm + allowance) from steel plate",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 20,
+                "handling_time_min": 5,
+                "inspection_time_min": 10,
+                "time_confidence": 0.9
+              },
+              {
+                "operation_code": "MILL001",
+                "description": "Setup 1: Fixture on large face (520x286mm), face mill top, mill slot/groove (12.7mm wide), external contour roughing, chamfers",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 75,
+                "handling_time_min": 10,
+                "inspection_time_min": 20,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "MILL002",
+                "description": "Flip/reclamp: Face mill bottom face, finish contour",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 30,
+                "cycle_time_min": 50,
+                "handling_time_min": 10,
+                "inspection_time_min": 15,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "DRILL001",
+                "description": "Setup 2: Re-fixture for hole access, drill 10x Ø7.14mm holes + 8x countersinks, position per pattern",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 40,
+                "handling_time_min": 10,
+                "inspection_time_min": 20,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "BORE001",
+                "description": "Setup 3: Bore/ream 2x Ø15.48mm x50.8mm deep holes, tap 2x 3/8-18 NPT, final inspection/probing for tolerances",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 35,
+                "handling_time_min": 10,
+                "inspection_time_min": 25,
+                "time_confidence": 0.75
+              }
+            ]
+          },
+          {
+            "scenario_name": "Alternative Full CNC Milling from Oversized Stock",
+            "rationale": "No plasma; machine directly from larger customer-supplied stock (e.g., 600x300x50mm). Increased cycle times for roughing but avoids plasma heat affect zone. Still uses 4-axis CNC for efficiency on prismatic features.",
+            "confidence_score": 0.75,
+            "assumptions": [
+              "Larger raw stock provided (extra 50mm all sides)",
+              "Extended roughing cycles acceptable",
+              "Same fixturing as baseline",
+              "No distortion from plasma HAZ"
+            ],
+            "unknowns": [
+              "Stock availability in larger sizes",
+              "Additional roughing time impact on total lead time"
+            ],
+            "steps": [
+              {
+                "operation_code": "MILL001",
+                "description": "Setup 1: Fixture on large face, rough/face mill top, rough contour/sides, mill slot/chamfers",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 120,
+                "handling_time_min": 10,
+                "inspection_time_min": 20,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "MILL002",
+                "description": "Flip/reclamp: Rough/face bottom, finish contour",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 30,
+                "cycle_time_min": 70,
+                "handling_time_min": 10,
+                "inspection_time_min": 15,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "DRILL001",
+                "description": "Setup 2: Drill 10x holes + countersinks in pattern",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 40,
+                "handling_time_min": 10,
+                "inspection_time_min": 20,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "BORE001",
+                "description": "Setup 3: Bore 2x deep holes, NPT tapping, final GD&T check",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 35,
+                "handling_time_min": 10,
+                "inspection_time_min": 25,
+                "time_confidence": 0.75
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "ADM1108-05-11X17.pdf",
+      "quote_id": "823ff267-614b-4ecb-a55b-c925fb11878a",
+      "job_id": "916251f5-085b-428d-9890-742ad662fd29",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 20.0,
+        "step2": 47.1,
+        "step3": 90.9,
+        "step4": 18.2,
+        "step5": 98.4
+      },
+      "step1": {
+        "customer_name": null,
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": null,
+        "customer_part_number": null,
+        "internal_part_number": null,
+        "revision": null,
+        "units": "lbs",
+        "material_spec": null,
+        "thickness_mm": null,
+        "quantity_requested": null,
+        "general_tolerances_note": null,
+        "surface_finish_requirements": null,
+        "welding_requirements_note": null,
+        "confidence": 0.1,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "unknown",
+        "overall_envelope_mm": {
+          "x": null,
+          "y": null,
+          "z": null
+        },
+        "overall_envelope_confidence": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "feature_counts": {
+          "holes": null,
+          "threaded_holes": null,
+          "machined_faces": null,
+          "bores": null,
+          "pockets_slots": null
+        },
+        "weight_estimate_kg": 16.96,
+        "confidence": 0.4,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 1,
+        "drivers": [
+          "Unknown shape",
+          "No detected features",
+          "Large weight (17kg) suggests simple part"
+        ],
+        "risk_flags": [
+          "Low Step 2 confidence (0.4)",
+          "Undefined envelope",
+          "Undetected features possible"
+        ],
+        "confidence": 0.4,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": null,
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": null,
+            "W": null,
+            "H": null
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": null,
+            "W": null,
+            "H": null
+          },
+          "number_of_setups": null,
+          "requires_4th_or_5th_axis": null,
+          "drilled_holes_count": null,
+          "threaded_holes_count": null,
+          "high_precision_features_count": null,
+          "machined_faces_count": null,
+          "notes": "POIDS TOTAL: 37.39 lbs"
+        },
+        "machining_features": [],
+        "additional_operations": [],
+        "general_notes": [],
+        "confidence": 0.1,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline - Plasma Cut",
+            "rationale": "Large simple part with no detected features and significant weight (17kg) suggests a flat plate profile cut from stock material using plasma table, suitable for undefined envelope within 3000x1500mm.",
+            "confidence_score": 0.5,
+            "assumptions": [
+              "Part is flat steel plate under 50mm thick",
+              "Single operation for rough profile",
+              "Density ~7.8g/cm³ steel implied by weight"
+            ],
+            "unknowns": [
+              "Exact dimensions",
+              "Material grade",
+              "Thickness",
+              "Final finishing needs"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA_CUT",
+                "description": "Cut part profile from steel plate stock",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 20,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.6
+              }
+            ]
+          },
+          {
+            "scenario_name": "Welded Fabrication",
+            "rationale": "Heavy part (17kg) with unknown shape and low complexity indicates possible welded assembly from cut plates or bars, using standard fab bay for large envelope up to 8000kg.",
+            "confidence_score": 0.4,
+            "assumptions": [
+              "Part is welded from multiple simple pieces",
+              "Includes fitting, welding, grinding",
+              "Steel material"
+            ],
+            "unknowns": [
+              "Number of welds/joints",
+              "Joint lengths",
+              "Exact assembly details"
+            ],
+            "steps": [
+              {
+                "operation_code": "CUT_PREP",
+                "description": "Plasma or saw cut raw plates/bars",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 20,
+                "cycle_time_min": 15,
+                "handling_time_min": 5,
+                "inspection_time_min": 0,
+                "time_confidence": 0.5
+              },
+              {
+                "operation_code": "WELD_FAB",
+                "description": "Fit, weld, and grind assembly",
+                "machine_group_id": "WELD_FAB_STANDARD",
+                "setup_time_min": 60,
+                "cycle_time_min": 45,
+                "handling_time_min": 15,
+                "inspection_time_min": 10,
+                "time_confidence": 0.4
+              }
+            ]
+          },
+          {
+            "scenario_name": "Large CNC Boring/Milling",
+            "rationale": "Fallback for prismatic block with minimal features; large 4-axis CNC can handle 17kg part within 2500x1500x1200mm envelope, assuming rough facing or simple boring.",
+            "confidence_score": 0.3,
+            "assumptions": [
+              "Rectangular stock block",
+              "Minimal machining: facing and basic features",
+              "Steel or compatible material"
+            ],
+            "unknowns": [
+              "Stock size",
+              "Specific features (none detected)",
+              "Number of setups needed"
+            ],
+            "steps": [
+              {
+                "operation_code": "CNC_MILL",
+                "description": "Rough mill faces and basic profile on large 4-axis",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 60,
+                "handling_time_min": 20,
+                "inspection_time_min": 15,
+                "time_confidence": 0.3
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "L097E052revA.pdf",
+      "quote_id": "5bcad83b-f381-4544-a287-852f70f5865f",
+      "job_id": "8c221836-032f-4b43-8797-fea0364e496f",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 55.0,
+        "step2": 94.1,
+        "step3": 91.7,
+        "step4": 64.3,
+        "step5": 96.4
+      },
+      "step1": {
+        "customer_name": "SOUCY INTERNATIONAL INC.",
+        "customer_address": "5195 RUE RICHARD, C.P.548 DRUMMONDVILLE (QUEBEC) CANADA J2B 6W4",
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": "CE DOCUMENT CONTIENT DES INFORMATIONS QUI SONT LA PROPRIÉTÉ EXCLUSIVE DE SOUCY INTERNATIONAL INC. CE DOCUMENT AINSI QUE LES INFORMATIONS QUI Y SONT CONTENUES NE PEUVENT ÊTRE UTILISÉS EN TOUT OU EN PARTIE, REPRODUITS OU DISTRIBUÉS À UNE TIERCE PERSONNE SANS LA PRÉ-AUTORISATION ÉCRITE DE SOUCY INTERNATIONAL INC. CETTE INSCRIPTION NE PEUT ÊTRE ALTÉRÉE OU SUPPRIMÉE DE CE DOCUMENT.",
+        "customer_part_number": null,
+        "internal_part_number": "L097E052",
+        "revision": "B",
+        "units": "imperial",
+        "material_spec": "ACIER 44W OU EQUIV.",
+        "thickness_mm": null,
+        "quantity_requested": null,
+        "general_tolerances_note": "DIMENSIONS IMPERIAL TOLERANCES NON SPECIFIEES ENLEVER ARETES COUPANTES DIM. LINEAIRE X, FRACT.= ± 1/16 .X = ± .040 .XX = ± .020 .XXX = ± .010 DIM. ANGULAIRE X, FRACT.= ± 2° .X = ± .5° .XX = ± .25° .XXX = ± N/A",
+        "surface_finish_requirements": null,
+        "welding_requirements_note": null,
+        "confidence": 0.95,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "linear_rail",
+        "overall_envelope_mm": {
+          "x": 1425.0,
+          "y": 76.2,
+          "z": 45.2
+        },
+        "overall_envelope_confidence": {
+          "x": 0.7,
+          "y": 0.4,
+          "z": 0.6
+        },
+        "feature_counts": {
+          "holes": 35,
+          "threaded_holes": 10,
+          "machined_faces": 6,
+          "bores": 0,
+          "pockets_slots": 0
+        },
+        "weight_estimate_kg": 126.1,
+        "confidence": 0.6,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 3,
+        "drivers": [
+          "high hole count (35 holes, 10 threaded)",
+          "multiple machined faces (6)",
+          "long length (1425 mm)"
+        ],
+        "risk_flags": [
+          "hole alignment over length",
+          "threading precision",
+          "burr removal on many features",
+          "imperial tolerances on linear rail"
+        ],
+        "confidence": 0.75,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "ACIER 44W OU EQUIV.",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 1425.0,
+            "W": 76.2,
+            "H": 45.2
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 1450.0,
+            "W": 80.0,
+            "H": 50.0
+          },
+          "number_of_setups": 4,
+          "requires_4th_or_5th_axis": false,
+          "drilled_holes_count": 35,
+          "threaded_holes_count": 10,
+          "high_precision_features_count": 22,
+          "machined_faces_count": 6,
+          "notes": "Imperial units. Remove sharp edges/burrs. Weight 277.98 lbm. GD&T with datums A, B, C. ASME Y14.5M-2018. Long linear rail with holes aligned along length at ~105 mm spacing."
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "flat_face",
+            "description": "Precision top and bottom faces with stepped thicknesses",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": 76.2,
+              "length_mm": 1425.0,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "1.778 in +0.002/-0.000 (45.16 +0.051/-0.000 mm); 1.772 in +0.000/-0.002 (45.01 +0.000/-0.051 mm)",
+            "surface_finish_ra": null,
+            "location": "top/bottom",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F002",
+            "type": "flat_face",
+            "description": "Side and end faces",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": 45.2,
+              "length_mm": 76.2,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "sides/ends",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F003",
+            "type": "external_contour",
+            "description": "Stepped linear rail profile",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": 76.2,
+              "length_mm": 1425.0,
+              "depth_mm": 45.2,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "overall exterior",
+            "complexity_factors": [
+              "long_length",
+              "aspect_ratio_gt_5"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F004",
+            "type": "drilled_hole",
+            "description": "Large clearance holes",
+            "quantity": 25,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 14.0,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "along length, pos tol 0.01 in ABC (0.254 mm)",
+            "complexity_factors": [
+              "high_count",
+              "hole_alignment_over_length"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F005",
+            "type": "drilled_hole",
+            "description": "Small precision holes (detail A style)",
+            "quantity": 10,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 6.07,
+              "thread_spec": null
+            },
+            "tolerance": "+0.003/-0.000 in (+0.076/-0.000 mm); pos tol 0.01 in ABC",
+            "surface_finish_ra": null,
+            "location": "along length",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F006",
+            "type": "counterbore_or_countersink",
+            "description": "Counterbores on small holes",
+            "quantity": 10,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 20.0,
+              "diameter_mm": 14.5,
+              "thread_spec": null
+            },
+            "tolerance": "pos tol 0.01 in ABC",
+            "surface_finish_ra": null,
+            "location": "along length",
+            "complexity_factors": [],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F007",
+            "type": "threaded_hole",
+            "description": "1/2-13 UNC threaded holes",
+            "quantity": 10,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 25.4,
+              "diameter_mm": 12.7,
+              "thread_spec": "1/2-13 UNC"
+            },
+            "tolerance": "pos tol 0.002 in ABC (0.051 mm)",
+            "surface_finish_ra": null,
+            "location": "along length",
+            "complexity_factors": [
+              "tight_tolerance_lt_0.05mm_or_fit_class",
+              "threading_precision"
+            ],
+            "estimated_operation_time_min": null
+          },
+          {
+            "feature_id": "F008",
+            "type": "chamfer_bevel_fillet",
+            "description": "Deburr sharp edges",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "all edges",
+            "complexity_factors": [
+              "high_feature_count"
+            ],
+            "estimated_operation_time_min": null
+          }
+        ],
+        "additional_operations": [
+          "Painting: Mask threaded holes and machined surfaces. JC-JAUNE CATERPILLAR (5 GAL #4C6122 / 1 GAL #4C4200).",
+          "Apply removable anti-rust agent on unpainted surfaces."
+        ],
+        "general_notes": [
+          "General tolerances: Linear X/frac ±1/16 in, .X ±0.040, .XX ±0.020, .XXX ±0.010; Angular X/frac ±2°, .X ±0.5°, .XX ±0.25°.",
+          "Property of SOUCY INTERNATIONAL INC. Do not reproduce without permission.",
+          "Title: RENFORT RAIL LINEAIRE PRESSE A PLAT HWAYI 900T",
+          "Drawing: L097E052 Rev B"
+        ],
+        "confidence": 0.8,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline Plasma + CNC",
+            "rationale": "Plasma rough cut for efficient stepped profile from plate stock, followed by 4 CNC setups on large 4-axis boring mill for precision faces, hole drilling, counterbores, and threading. Matches part envelope (1425x76x45mm, 126kg), high hole count (35+10 threaded), tight tolerances, and imperial units. Post-ops for deburr, paint, and anti-rust per notes.",
+            "confidence_score": 0.88,
+            "assumptions": [
+              "Plate stock 1450x80x50mm steel 44W available",
+              "4 setups sufficient for all features with standard fixturing (e.g., modular clamps along length)",
+              "Holes primarily accessible from top/sides post-face milling",
+              "Per-part times; no qty specified",
+              "Painting excludes cure/bake time from cycle",
+              "Machines capable of imperial programming/tolerances"
+            ],
+            "unknowns": [
+              "Exact fixturing design and hole orientations/depths",
+              "Production quantity for batch optimization",
+              "Painting cure method and time",
+              "Potential distortion from plasma requiring extra stock"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA_CUT",
+                "description": "Rough cut stepped linear rail profile from 50mm steel plate stock including rough outline for large clearance hole positions",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 25,
+                "handling_time_min": 5,
+                "inspection_time_min": 5,
+                "time_confidence": 0.85
+              },
+              {
+                "operation_code": "CNC_MILL_FACES_1",
+                "description": "Setup 1: Fixture on rough face, mill precision top face to 1.778in (+0.002/-0.000) stepped thickness, partial contour cleanup",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 50,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_MILL_FACES_2",
+                "description": "Setup 2: Flip/reclamp, mill precision bottom face to 1.772in (+0.000/-0.002) stepped thickness",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 50,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_DRILL_LARGE",
+                "description": "Setup 3: Refixture for sides, mill side/end faces, drill 25 large 14mm clearance holes (pos tol 0.01in ABC)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 75,
+                "cycle_time_min": 100,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "CNC_DRILL_PRECISION",
+                "description": "Setup 4: Same/adjust fixture, drill 10 small 6.07mm holes w/ counterbores (14.5x20mm), tap 10x 1/2-13 UNC threads (pos tol 0.002in ABC)",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 110,
+                "handling_time_min": 15,
+                "inspection_time_min": 25,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "MANUAL_DEBURR",
+                "description": "Manual deburr/chamfer all edges, holes, threads per general note 'remove sharp edges'",
+                "machine_group_id": null,
+                "setup_time_min": 15,
+                "cycle_time_min": 75,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "PAINT_ANTIRUST",
+                "description": "Mask threads/machined surfaces, apply JC-JAUNE Caterpillar paint (5gal #4C6122 /1gal #4C4200), anti-rust on unpainted areas",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 60,
+                "handling_time_min": 20,
+                "inspection_time_min": 10,
+                "time_confidence": 0.65
+              }
+            ]
+          },
+          {
+            "scenario_name": "Full CNC No Plasma",
+            "rationale": "Rough and finish entirely on large 4-axis CNC from oversized plate stock (e.g., 1500x100x60mm). Avoids potential plasma HAZ/distortion but increases roughing time and tool wear for heavy steel removal. Suitable if plasma unavailable or precision roughing needed.",
+            "confidence_score": 0.75,
+            "assumptions": [
+              "Oversized plate stock available",
+              "Additional roughing cycle feasible within machine envelope/power",
+              "Same 4 finish setups post-roughing",
+              "No plasma-related cleanup needed",
+              "Per-part times"
+            ],
+            "unknowns": [
+              "Exact roughing toolpath length and material removal volume (~20-30kg)",
+              "Fixturing stability for roughing heavy cuts",
+              "Cycle time impact of conservative feeds on long part"
+            ],
+            "steps": [
+              {
+                "operation_code": "CNC_ROUGH",
+                "description": "Rough mill exterior stepped profile, faces, and pockets from oversized plate to near-net leaving 2-3mm stock",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 135,
+                "cycle_time_min": 180,
+                "handling_time_min": 20,
+                "inspection_time_min": 10,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "CNC_MILL_FACES_1",
+                "description": "Setup 1: Mill precision top face to 1.778in stepped",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 90,
+                "cycle_time_min": 40,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_MILL_FACES_2",
+                "description": "Setup 2: Flip, mill bottom face to 1.772in stepped",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 40,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_DRILL_LARGE",
+                "description": "Setup 3: Sides, mill faces, drill 25x14mm clearance holes",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 100,
+                "handling_time_min": 15,
+                "inspection_time_min": 15,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "CNC_DRILL_PRECISION",
+                "description": "Setup 4: Drill small holes, counterbores, tap threads",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 110,
+                "handling_time_min": 15,
+                "inspection_time_min": 25,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "MANUAL_DEBURR",
+                "description": "Manual deburr/chamfer all features",
+                "machine_group_id": null,
+                "setup_time_min": 15,
+                "cycle_time_min": 60,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "PAINT_ANTIRUST",
+                "description": "Mask, paint JC-JAUNE, apply anti-rust",
+                "machine_group_id": null,
+                "setup_time_min": 60,
+                "cycle_time_min": 60,
+                "handling_time_min": 20,
+                "inspection_time_min": 10,
+                "time_confidence": 0.65
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    },
+    {
+      "file": "SOG-25-009-0204B.pdf",
+      "quote_id": "50cdbb58-034f-4481-b556-217e97eaad02",
+      "job_id": "1375fa21-a506-41fb-9b62-076992b0e6cb",
+      "job_status": "ok",
+      "job_error_text": null,
+      "status": "ok",
+      "fill_pct": {
+        "step1": 45.0,
+        "step2": 82.4,
+        "step3": 90.9,
+        "step4": 70.2,
+        "step5": 96.5
+      },
+      "step1": {
+        "customer_name": null,
+        "customer_address": null,
+        "customer_phone": null,
+        "customer_email": null,
+        "customer_website": null,
+        "drawing_owner_note": "THESE DRAWINGS AND SPECIFICATIONS ARE THE PROPERTY OF ALLEVARD SOGEFI U.S.A., INC. AND ARE NOT TO BE REPRODUCED, COPIED OR USED AS THE BASIS OF MANUFACTURE OR SALE OF APPARATUS AND OR DEVICES WITHOUT PERMISSION.",
+        "customer_part_number": "SOG-25-009-0204B",
+        "internal_part_number": null,
+        "revision": null,
+        "units": "METRIC",
+        "material_spec": "6061-T6 (SS)",
+        "thickness_mm": null,
+        "quantity_requested": null,
+        "general_tolerances_note": "+/- TOLERANCES UNLESS OTHERWISE SPECIFIED X/X or X: 1 mm X.X: .50 mm X.XX: .13 mm X.XXX: .013 mm ANGLES: 1 CONCENTRICITY: .13 mm BREAK EDGES: .1 - .5 mm",
+        "surface_finish_requirements": "3.2 um",
+        "welding_requirements_note": null,
+        "confidence": 0.9,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step2": {
+        "shape_class": "plate",
+        "overall_envelope_mm": {
+          "x": 1400.0,
+          "y": 950.0,
+          "z": 6.35
+        },
+        "overall_envelope_confidence": {
+          "x": 0.6,
+          "y": 0.8,
+          "z": 1.0
+        },
+        "feature_counts": {
+          "holes": 68,
+          "threaded_holes": 0,
+          "machined_faces": null,
+          "bores": 12,
+          "pockets_slots": null
+        },
+        "weight_estimate_kg": 23.0,
+        "confidence": 0.6,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step3": {
+        "complexity_score": 3,
+        "drivers": [
+          "high hole count (68 holes + 12 bores)",
+          "large thin plate (1400x950x6.35mm)",
+          "tight tolerances (0.013mm)"
+        ],
+        "risk_flags": [
+          "warping/distortion risk",
+          "fixturing challenges for large size",
+          "hole pattern precision"
+        ],
+        "confidence": 0.7,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step4_feature_details": {
+        "part_summary": {
+          "material": "6061-T6",
+          "customer_provides_material": null,
+          "overall_bounding_box_mm": {
+            "L": 1400.0,
+            "W": 950.0,
+            "H": 6.35
+          },
+          "estimated_raw_stock_size_mm": {
+            "L": 1410.0,
+            "W": 960.0,
+            "H": 10.0
+          },
+          "number_of_setups": 2,
+          "requires_4th_or_5th_axis": false,
+          "drilled_holes_count": 54,
+          "threaded_holes_count": 0,
+          "high_precision_features_count": 12,
+          "machined_faces_count": 2,
+          "notes": "Weld Tool Bottom Plate; large thin plate with high hole density; thru holes; reamed bores"
+        },
+        "machining_features": [
+          {
+            "feature_id": "F001",
+            "type": "flat_face",
+            "description": "Primary plate surfaces (top and bottom)",
+            "quantity": 2,
+            "dimensions": {
+              "width_mm": 1400.0,
+              "length_mm": 950.0,
+              "depth_mm": 0.0,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": 3.2,
+            "location": "all over",
+            "complexity_factors": [
+              "large area"
+            ],
+            "estimated_operation_time_min": 45.0
+          },
+          {
+            "feature_id": "F002",
+            "type": "external_contour",
+            "description": "Plate perimeter with R12 typical",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": 3.2,
+            "location": "perimeter",
+            "complexity_factors": [
+              "radii"
+            ],
+            "estimated_operation_time_min": 20.0
+          },
+          {
+            "feature_id": "F003",
+            "type": "drilled_hole",
+            "description": "7.00mm thru holes",
+            "quantity": 42,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 6.35,
+              "diameter_mm": 7.0,
+              "thread_spec": null
+            },
+            "tolerance": "+/-0.13mm (general)",
+            "surface_finish_ra": null,
+            "location": "patterned grid",
+            "complexity_factors": [
+              "high quantity",
+              "thru all"
+            ],
+            "estimated_operation_time_min": 21.0
+          },
+          {
+            "feature_id": "F004",
+            "type": "drilled_hole",
+            "description": "9.00mm holes",
+            "quantity": 8,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 6.35,
+              "diameter_mm": 9.0,
+              "thread_spec": null
+            },
+            "tolerance": "+/-0.13mm (general)",
+            "surface_finish_ra": null,
+            "location": "patterned",
+            "complexity_factors": [],
+            "estimated_operation_time_min": 4.0
+          },
+          {
+            "feature_id": "F005",
+            "type": "drilled_hole",
+            "description": "12.0mm holes",
+            "quantity": 4,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 6.35,
+              "diameter_mm": 12.0,
+              "thread_spec": null
+            },
+            "tolerance": "+/-0.13mm (general)",
+            "surface_finish_ra": null,
+            "location": "specific locations",
+            "complexity_factors": [],
+            "estimated_operation_time_min": 2.0
+          },
+          {
+            "feature_id": "F006",
+            "type": "bored_or_reamed_hole",
+            "description": "16.00/16.05mm reamed bores",
+            "quantity": 12,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 6.35,
+              "diameter_mm": 16.0,
+              "thread_spec": null
+            },
+            "tolerance": "+/-0.013mm (high precision)",
+            "surface_finish_ra": null,
+            "location": "specific locations",
+            "complexity_factors": [
+              "precision ream",
+              "high precision"
+            ],
+            "estimated_operation_time_min": 24.0
+          },
+          {
+            "feature_id": "F007",
+            "type": "counterbore_or_countersink",
+            "description": "15.44mm x 90° CSK",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": null,
+              "diameter_mm": 15.44,
+              "thread_spec": null
+            },
+            "tolerance": null,
+            "surface_finish_ra": null,
+            "location": "section B-B",
+            "complexity_factors": [],
+            "estimated_operation_time_min": 2.0
+          },
+          {
+            "feature_id": "F008",
+            "type": "chamfer_bevel_fillet",
+            "description": "Break edges",
+            "quantity": 1,
+            "dimensions": {
+              "width_mm": null,
+              "length_mm": null,
+              "depth_mm": 0.1,
+              "diameter_mm": null,
+              "thread_spec": null
+            },
+            "tolerance": "0.1-0.5mm",
+            "surface_finish_ra": null,
+            "location": "all edges",
+            "complexity_factors": [],
+            "estimated_operation_time_min": 10.0
+          }
+        ],
+        "additional_operations": [
+          "CLEAR ANODISE"
+        ],
+        "general_notes": [
+          "General tolerances: X/X or X:1mm, X.X:0.50mm, X.XX:0.13mm, X.XXX:0.013mm",
+          "Angles:1°",
+          "Concentricity:0.13mm",
+          "Break edges:0.1-0.5mm",
+          "Surface finish:3.2um",
+          "Material:6061-T6",
+          "Proprietary: Allevard Sogefi USA"
+        ],
+        "confidence": 0.85,
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      },
+      "step5_routings": {
+        "scenarios": [
+          {
+            "scenario_name": "Baseline Plasma + CNC + Anodize",
+            "rationale": "Plasma rough cut for efficient blanking of large thin aluminum plate, followed by 2-setup CNC machining for high hole density and precision bores on suitable large boring machine, ending with anodize. Matches part size, features, and 2-setup estimate.",
+            "confidence_score": 0.85,
+            "assumptions": [
+              "Single prototype quantity",
+              "Material supplied as stock plate",
+              "Thru holes accessible from one side primarily",
+              "Anodize is clear type I/II rack process",
+              "No special fixturing needed beyond vacuum/clamps"
+            ],
+            "unknowns": [
+              "Exact quantity for batching anodize",
+              "Raw stock availability and sawing if no plasma",
+              "Final edge break integration"
+            ],
+            "steps": [
+              {
+                "operation_code": "PLASMA_CUT",
+                "description": "Rough plasma cut perimeter with R12 allowance from 1410x960x10 stock plate",
+                "machine_group_id": "PLASMA_TABLE_LARGE",
+                "setup_time_min": 30,
+                "cycle_time_min": 20,
+                "handling_time_min": 5,
+                "inspection_time_min": 5,
+                "time_confidence": 0.8
+              },
+              {
+                "operation_code": "CNC_FACE_DRILL",
+                "description": "Setup 1: Face top surface, finish contour perimeter, drill 54 holes (7mm,9mm,12mm), countersink",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 70,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "CNC_REAM_FACE2",
+                "description": "Setup 2: Flip part, face bottom surface, ream 12 high-precision bores, break all edges",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 60,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "ANODIZE",
+                "description": "Clear anodize full part to 3.2um equivalent finish",
+                "machine_group_id": null,
+                "setup_time_min": 30,
+                "cycle_time_min": 60,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.7
+              }
+            ]
+          },
+          {
+            "scenario_name": "All CNC Machining",
+            "rationale": "Fully machined on single large CNC boring machine without plasma; assumes pre-sawn stock blank. Higher cost but better edge quality and no heat distortion risk from plasma on thin Al plate.",
+            "confidence_score": 0.7,
+            "assumptions": [
+              "Stock plate pre-cut to ~1450x1000x10 via saw/shear",
+              "All features including rough contour done in CNC setups",
+              "Adequate fixturing for thin plate to prevent warp"
+            ],
+            "unknowns": [
+              "Stock preparation method/cost",
+              "Potential warping from larger stock milling"
+            ],
+            "steps": [
+              {
+                "operation_code": "CNC_ROUGH_CONTOUR",
+                "description": "Setup 1: Rough face top, rough contour to near net with material allowance",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 120,
+                "cycle_time_min": 50,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "CNC_FINISH_HOLES1",
+                "description": "Setup 2: Finish face top, drill all holes, countersink",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 45,
+                "cycle_time_min": 70,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.75
+              },
+              {
+                "operation_code": "CNC_REAM_BOTTOM",
+                "description": "Setup 3: Flip, face bottom, ream bores, finish contour and break edges",
+                "machine_group_id": "CNC_BORING_LARGE_4AX",
+                "setup_time_min": 60,
+                "cycle_time_min": 50,
+                "handling_time_min": 10,
+                "inspection_time_min": 10,
+                "time_confidence": 0.7
+              },
+              {
+                "operation_code": "ANODIZE",
+                "description": "Clear anodize full part",
+                "machine_group_id": null,
+                "setup_time_min": 30,
+                "cycle_time_min": 60,
+                "handling_time_min": 10,
+                "inspection_time_min": 5,
+                "time_confidence": 0.7
+              }
+            ]
+          }
+        ],
+        "provider": "xai",
+        "model": "grok-4-1-fast-reasoning",
+        "reasoning_effort": null
+      }
+    }
+  ]
+}

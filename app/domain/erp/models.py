@@ -587,3 +587,68 @@ class CustomerSalesStatsResponse(BaseModel):
         json_encoders = {
             Decimal: lambda v: float(v),
         }
+
+
+class ProductionCostingScanRequest(BaseModel):
+    """Request payload to trigger a production costing snapshot scan."""
+
+    full_refresh: bool = Field(
+        default=False,
+        description="When true, snapshot full RoutingLines and ProductionBOMLines tables.",
+    )
+
+
+class ProductionCostingScanResponse(BaseModel):
+    """Outcome of a production costing snapshot scan."""
+
+    scan_id: str = Field(..., description="Scan unique identifier")
+    scan_mode: str = Field(..., description="Scan mode: full|delta")
+    trigger_source: str = Field(..., description="Trigger source: manual|scheduler")
+    status: str = Field(..., description="Scan status")
+    scan_started_at: Optional[datetime] = Field(None, description="Scan start timestamp (UTC)")
+    scan_finished_at: Optional[datetime] = Field(None, description="Scan finish timestamp (UTC)")
+    since_modified_at: Optional[datetime] = Field(
+        None, description="Lower bound used for header Last Modified Date filtering (UTC)"
+    )
+    until_modified_at: Optional[datetime] = Field(
+        None, description="Maximum Last Modified Date observed in this scan (UTC)"
+    )
+    routing_headers_count: int = Field(default=0, ge=0)
+    bom_headers_count: int = Field(default=0, ge=0)
+    routing_lines_count: int = Field(default=0, ge=0)
+    bom_lines_count: int = Field(default=0, ge=0)
+    total_lines_count: int = Field(default=0, ge=0)
+    snapshot_created: bool = Field(
+        default=True,
+        description="True when a new snapshot scan was persisted; false when skipped due to no changes.",
+    )
+    error_message: Optional[str] = Field(None, description="Failure details when status=failed")
+
+
+class ProductionCostingSourceSnapshot(BaseModel):
+    """Grouped costing payload for one routing/BOM source number."""
+
+    source_type: str = Field(..., description="routing|bom")
+    source_no: str = Field(..., description="Routing No or Production BOM No")
+    base_item_no: str = Field(..., description="Base item number extracted from source_no")
+    revision: Optional[str] = Field(None, description="Suffix after '-' when present")
+    scan_id: str = Field(..., description="Scan identifier that produced the current source snapshot")
+    scan_started_at: Optional[datetime] = Field(None, description="Scan start timestamp (UTC)")
+    scan_finished_at: Optional[datetime] = Field(None, description="Scan finish timestamp (UTC)")
+    header_last_modified_at: Optional[datetime] = Field(
+        None, description="Last Modified Date from RoutingHeader/ProductionBOMHeader (UTC)"
+    )
+    line_count: int = Field(default=0, ge=0)
+    lines: List[Dict[str, Any]] = Field(default_factory=list, description="Raw ERP line payloads")
+
+
+class ProductionCostingGroupedItemResponse(BaseModel):
+    """Grouped production costing snapshots for a base item number."""
+
+    item_no: str = Field(..., description="Base item number, e.g. 0115105")
+    latest_only: bool = Field(default=True, description="Whether only latest source snapshots are returned")
+    include_lines: bool = Field(default=True, description="Whether raw line payloads are included")
+    total_versions: int = Field(default=0, ge=0, description="Total number of routing+bom source versions")
+    last_scan_at: Optional[datetime] = Field(None, description="Most recent scan timestamp among returned data")
+    routing_versions: List[ProductionCostingSourceSnapshot] = Field(default_factory=list)
+    bom_versions: List[ProductionCostingSourceSnapshot] = Field(default_factory=list)

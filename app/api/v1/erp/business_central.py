@@ -210,12 +210,16 @@ def _dimension_value(record: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _dimension_parent_type(record: Dict[str, Any]) -> str:
-    for key in ("Parent_Type", "ParentType"):
+def _dimension_table_id(record: Dict[str, Any]) -> Optional[int]:
+    for key in ("Table_ID", "TableID"):
         value = record.get(key)
-        if value:
-            return str(value).strip()
-    return ""
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 async def _fetch_customer_division_map(
@@ -227,17 +231,19 @@ async def _fetch_customer_division_map(
         return {}
 
     filter_candidates = (
-        "Parent_Type eq 'Customer' and Dimension_Code eq 'Division'",
-        "Parent_Type eq 'Customer' and Dimension_Code eq 'DIVISION'",
-        "ParentType eq 'Customer' and Dimension_Code eq 'Division'",
-        "ParentType eq 'Customer' and Dimension_Code eq 'DIVISION'",
-        "Parent_Type eq 'Customer'",
-        "ParentType eq 'Customer'",
+        "Table_ID eq 18 and Dimension_Code eq 'Division'",
+        "Table_ID eq 18 and Dimension_Code eq 'DIVISION'",
+        "Dimension_Code eq 'Division'",
+        "Dimension_Code eq 'DIVISION'",
+        "",
     )
 
     for filter_expr in filter_candidates:
-        encoded_filter = quote(filter_expr, safe="'")
-        resource = f"DefaultDimensions?%24filter={encoded_filter}"
+        if filter_expr:
+            encoded_filter = quote(filter_expr, safe="'")
+            resource = f"DefaultDimensions?%24filter={encoded_filter}"
+        else:
+            resource = "DefaultDimensions"
         try:
             rows = await service.fetch_collection_paged(resource)
         except httpx.HTTPStatusError as exc:
@@ -264,7 +270,8 @@ async def _fetch_customer_division_map(
             customer_no = str(customer_no)
             if customer_no not in customer_nos:
                 continue
-            if _dimension_parent_type(row).lower() != "customer":
+            table_id = _dimension_table_id(row)
+            if table_id is not None and table_id != 18:
                 continue
             if _dimension_code(row).lower() != "division":
                 continue
@@ -273,10 +280,46 @@ async def _fetch_customer_division_map(
                 continue
             division_map.setdefault(customer_no, division_value)
 
-        if division_map or "Dimension_Code" not in filter_expr:
+        if division_map or not filter_expr:
             return division_map
 
     return {}
+
+
+async def _seed_geocode_cache_without_lookup(
+    records: List[Dict[str, Any]],
+    ship_to_map: Dict[str, List[Dict[str, Any]]],
+) -> None:
+    """Seed geocode cache entries for customer/ship-to addresses without live geocoding."""
+    tasks: List[asyncio.Task] = []
+    for record in records:
+        customer_no = str(record.get("No") or "")
+        if not customer_no:
+            continue
+        customer_address = customer_geocode_cache.build_address(record)
+        if _has_address_fields(customer_address):
+            tasks.append(
+                asyncio.create_task(
+                    customer_geocode_cache.mark_cached_without_geocode(
+                        customer_no, customer_address
+                    )
+                )
+            )
+
+        for ship_to in ship_to_map.get(customer_no, []):
+            ship_to_address = customer_geocode_cache.build_address_from_ship_to(ship_to)
+            if not _has_address_fields(ship_to_address):
+                continue
+            tasks.append(
+                asyncio.create_task(
+                    customer_geocode_cache.mark_cached_without_geocode(
+                        customer_no, ship_to_address
+                    )
+                )
+            )
+
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 @router.get(
@@ -522,10 +565,22 @@ async def list_customers(
         le=500,
         description="Limit the number of records returned.",
     ),
+    regenerate_cache: bool = Query(
+        default=False,
+        description=(
+            "Seed geocode cache entries without calling Google geocoding. "
+            "Use to quickly rebuild cache keys after reset."
+        ),
+    ),
     service: BusinessCentralODataService = Depends(get_odata_service),
 ) -> List[CustomerSummaryResponse]:
     """Return customer summaries with ship-to address locations."""
-    with logfire.span("bc_api.list_customers", no=no, top=top):
+    with logfire.span(
+        "bc_api.list_customers",
+        no=no,
+        top=top,
+        regenerate_cache=regenerate_cache,
+    ):
         records = await _fetch_with_handling(
             resource="Customers",
             filter_field="No",
@@ -560,6 +615,9 @@ async def list_customers(
             else:
                 ship_to_map = await _fetch_ship_to_map(customer_nos, service)
 
+        if regenerate_cache and records:
+            await _seed_geocode_cache_without_lookup(records, ship_to_map)
+
         for record in records:
             customer_no = str(record.get("No") or "")
             if not customer_no:
@@ -589,7 +647,12 @@ async def list_customers(
                 )
             )
 
-            if customer_no and _has_address_fields(address) and geocode is None:
+            if (
+                not regenerate_cache
+                and customer_no
+                and _has_address_fields(address)
+                and geocode is None
+            ):
                 if settings.google_geocode_block_on_miss and geocode is None:
                     blocking_pairs.append(
                         (
@@ -637,7 +700,12 @@ async def list_customers(
                     )
                     summaries[-1].ship_to_addresses.append(ship_to_entry)
 
-                    if customer_no and _has_address_fields(ship_to_address) and ship_to_geocode is None:
+                    if (
+                        not regenerate_cache
+                        and customer_no
+                        and _has_address_fields(ship_to_address)
+                        and ship_to_geocode is None
+                    ):
                         if (
                             settings.google_geocode_block_on_miss
                             and ship_to_geocode is None

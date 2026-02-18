@@ -856,6 +856,34 @@ class Settings(BaseSettings):
         description="Minute (0-59) to refresh AR open invoices cache"
     )
 
+    production_costing_refresh_hour: int = Field(
+        default=6,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to run daily ERP production costing snapshot delta refresh",
+    )
+
+    production_costing_refresh_minute: int = Field(
+        default=15,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to run daily ERP production costing snapshot delta refresh",
+    )
+
+    production_costing_sync_max_concurrency: int = Field(
+        default=6,
+        ge=1,
+        le=30,
+        description="Maximum concurrent ERP calls when snapshotting changed routings/BOMs",
+    )
+
+    production_costing_insert_batch_size: int = Field(
+        default=500,
+        ge=50,
+        le=5000,
+        description="Batch size for Cedule inserts of production costing snapshot rows",
+    )
+
     ar_payment_stats_refresh_day: str = Field(
         default="mon-sun",
         description="Day of week for AR payment stats refresh (cron format)"

@@ -280,6 +280,207 @@ class ERPClient(ERPClientProtocol):
             if rows:
                 return rows[0]
         return None
+
+    async def _fetch_with_candidate_resources(
+        self,
+        *,
+        resource_candidates: List[str],
+        filter_clauses: Optional[List[Optional[str]]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Try resource/filter candidates until one succeeds.
+
+        This helps when BC exposes slightly different entity/field naming across tenants.
+        """
+        clauses = filter_clauses or [None]
+        last_error: Optional[ERPError] = None
+
+        for resource in resource_candidates:
+            for filter_clause in clauses:
+                resource_path = resource
+                if filter_clause:
+                    encoded_filter = quote(filter_clause, safe="'-_:TZ.()")
+                    resource_path = f"{resource}?%24filter={encoded_filter}"
+                try:
+                    return await self._fetch_odata_collection(resource_path, fail_on_404=True)
+                except ERPError as exc:
+                    last_error = exc
+                    continue
+
+        if last_error:
+            raise last_error
+        return []
+
+    @staticmethod
+    def _format_odata_datetime(value: datetime) -> str:
+        normalized = value
+        if normalized.tzinfo is None:
+            normalized = normalized.replace(tzinfo=UTC)
+        normalized = normalized.astimezone(UTC).replace(microsecond=0)
+        return normalized.isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _parse_datetime_value(value: Any) -> Optional[datetime]:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, date):
+            parsed = datetime.combine(value, datetime.min.time())
+        else:
+            cleaned = str(value).strip()
+            if not cleaned:
+                return None
+            cleaned = cleaned.replace("Z", "+00:00")
+            try:
+                parsed = datetime.fromisoformat(cleaned)
+            except ValueError:
+                return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+        return parsed
+
+    @classmethod
+    def _extract_last_modified(cls, row: Dict[str, Any]) -> Optional[datetime]:
+        for field in (
+            "Last_Modified_Date",
+            "Last_Date_Modified",
+            "LastModifiedDate",
+            "Last_Modified_Date_Time",
+            "Last Modified Date",
+            "SystemModifiedAt",
+            "Modified_At",
+        ):
+            parsed = cls._parse_datetime_value(row.get(field))
+            if parsed is not None:
+                return parsed
+        return None
+
+    async def get_routing_headers(
+        self,
+        *,
+        last_modified_after: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve RoutingHeader records, optionally filtered by Last Modified Date.
+        """
+        resources = ["RoutingHeader", "RoutingHeaders"]
+        if not last_modified_after:
+            return await self._fetch_with_candidate_resources(resource_candidates=resources)
+
+        cutoff = self._format_odata_datetime(last_modified_after)
+        cutoff_date = cutoff[:10]
+        clauses = [
+            f"Last_Date_Modified gt {cutoff_date}",
+            f"Last_Modified_Date gt {cutoff}",
+            f"LastModifiedDate gt {cutoff}",
+            f"SystemModifiedAt gt {cutoff}",
+        ]
+        try:
+            return await self._fetch_with_candidate_resources(
+                resource_candidates=resources,
+                filter_clauses=clauses,
+            )
+        except ERPError:
+            logger.warning(
+                "Falling back to local filter for routing headers",
+                extra={"cutoff": cutoff},
+            )
+            rows = await self._fetch_with_candidate_resources(resource_candidates=resources)
+            normalized_cutoff = self._parse_datetime_value(last_modified_after)
+            if normalized_cutoff is None:
+                return rows
+            filtered_rows: List[Dict[str, Any]] = []
+            for row in rows:
+                modified_at = self._extract_last_modified(row)
+                if modified_at is not None and modified_at > normalized_cutoff:
+                    filtered_rows.append(row)
+            return filtered_rows
+
+    async def get_production_bom_headers(
+        self,
+        *,
+        last_modified_after: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve ProductionBOMHeader records, optionally filtered by Last Modified Date.
+        """
+        resources = ["BOMHeader", "ProductionBOMHeader", "ProductionBOMHeaders"]
+        if not last_modified_after:
+            return await self._fetch_with_candidate_resources(resource_candidates=resources)
+
+        cutoff = self._format_odata_datetime(last_modified_after)
+        cutoff_date = cutoff[:10]
+        clauses = [
+            f"Last_Date_Modified gt {cutoff_date}",
+            f"Last_Modified_Date gt {cutoff}",
+            f"LastModifiedDate gt {cutoff}",
+            f"SystemModifiedAt gt {cutoff}",
+        ]
+        try:
+            return await self._fetch_with_candidate_resources(
+                resource_candidates=resources,
+                filter_clauses=clauses,
+            )
+        except ERPError:
+            logger.warning(
+                "Falling back to local filter for production BOM headers",
+                extra={"cutoff": cutoff},
+            )
+            rows = await self._fetch_with_candidate_resources(resource_candidates=resources)
+            normalized_cutoff = self._parse_datetime_value(last_modified_after)
+            if normalized_cutoff is None:
+                return rows
+            filtered_rows: List[Dict[str, Any]] = []
+            for row in rows:
+                modified_at = self._extract_last_modified(row)
+                if modified_at is not None and modified_at > normalized_cutoff:
+                    filtered_rows.append(row)
+            return filtered_rows
+
+    async def get_routing_lines(self, routing_no: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve RoutingLines rows (full table or filtered by routing number).
+        """
+        resources = ["RoutingLines", "BomRoutingLines"]
+        if not routing_no:
+            return await self._fetch_with_candidate_resources(resource_candidates=resources)
+
+        sanitized = routing_no.replace("'", "''")
+        clauses = [
+            f"Routing_No eq '{sanitized}'",
+            f"RoutingNo eq '{sanitized}'",
+            f"No eq '{sanitized}'",
+        ]
+        try:
+            return await self._fetch_with_candidate_resources(
+                resource_candidates=resources,
+                filter_clauses=clauses,
+            )
+        except ERPError:
+            return await self.get_bom_routing_lines(routing_no)
+
+    async def get_production_bom_lines(self, production_bom_no: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve ProductionBOMLines rows (full table or filtered by production BOM number).
+        """
+        resources = ["ProductionBOMLines", "BOMComponentLines"]
+        if not production_bom_no:
+            return await self._fetch_with_candidate_resources(resource_candidates=resources)
+
+        sanitized = production_bom_no.replace("'", "''")
+        clauses = [
+            f"Production_BOM_No eq '{sanitized}'",
+            f"ProductionBOMNo eq '{sanitized}'",
+            f"No eq '{sanitized}'",
+        ]
+        try:
+            return await self._fetch_with_candidate_resources(
+                resource_candidates=resources,
+                filter_clauses=clauses,
+            )
+        except ERPError:
+            return await self.get_bom_component_lines(production_bom_no)
     
     async def get_bin_contents(
         self,

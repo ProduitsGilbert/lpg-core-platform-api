@@ -339,6 +339,39 @@ class CustomerGeocodeCache:
                 self._refresh(customer_no, address, address_hash, cache_key)
             )
 
+    async def mark_cached_without_geocode(self, customer_no: str, address: str) -> None:
+        """
+        Seed cache with a fresh entry but without triggering Google geocoding.
+
+        Useful to quickly rebuild cache keys after reset while deferring expensive
+        address lookups.
+        """
+        if not customer_no or not address:
+            return
+
+        address_hash = self._hash_address(address)
+        cache_key = f"{customer_no}:{address_hash}"
+
+        existing: Optional[_CacheEntry] = None
+        async with self._lock:
+            existing = self._cache.get(cache_key)
+            if existing and existing.address_hash == address_hash:
+                return
+
+        if not existing and self._persist_enabled and self._db_path:
+            loaded = await asyncio.to_thread(self._load_entry_from_storage_sync, cache_key)
+            if loaded and loaded.address_hash == address_hash:
+                async with self._lock:
+                    self._cache[cache_key] = loaded
+                return
+
+        entry = _CacheEntry(address_hash=address_hash, updated_at=datetime.now(timezone.utc), geocode=None)
+        async with self._lock:
+            self._cache[cache_key] = entry
+
+        if self._persist_enabled and self._db_path:
+            await asyncio.to_thread(self._persist_entry_sync, customer_no, cache_key, entry)
+
     async def _refresh(
         self,
         customer_no: str,
@@ -459,4 +492,3 @@ customer_geocode_cache = CustomerGeocodeCache(
     persist_enabled=settings.google_geocode_persist_enabled,
     db_path=settings.google_geocode_cache_db_path,
 )
-

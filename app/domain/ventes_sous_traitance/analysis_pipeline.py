@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 import re
+from typing import Any
 
 from app.adapters.ai_client import AIClient
 from app.domain.ventes_sous_traitance.machine_config import (
@@ -221,6 +221,9 @@ class VentesSousTraitanceAnalysisPipeline:
                 "Identify and quantify features using the provided taxonomy. "
                 "Estimate drilled holes, threaded holes, high precision features "
                 "(very tight tolerance or 3-digit precision), and number of machined faces. "
+                "Set number_of_setups to the count of machining setups only (do not count post-machining treatments). "
+                "If drawing mentions treatment, paint, plating, coating, or hardening after machining, add it in "
+                "additional_operations using concise operation names. "
                 "Use valid JSON only; keep unknown values null."
             ),
             image_inputs=page_image_data_urls,
@@ -259,19 +262,33 @@ class VentesSousTraitanceAnalysisPipeline:
                 }
             ]
         }
+        part_summary = step4.get("part_summary") if isinstance(step4, dict) and isinstance(step4.get("part_summary"), dict) else {}
+        additional_operations = step4.get("additional_operations") if isinstance(step4, dict) else None
         payload = {
             "step1_metadata": step1,
             "step2_classification": step2,
             "step3_complexity": step3,
             "step4_feature_details": step4,
             "machine_groups": machine_context,
+            "routing_constraints": {
+                "max_machining_setups": part_summary.get("number_of_setups"),
+                "requires_4th_or_5th_axis": part_summary.get("requires_4th_or_5th_axis"),
+                "post_machining_operations": additional_operations if isinstance(additional_operations, list) else [],
+                "rules": [
+                    "Treat max_machining_setups as hard limit for machining/setup-bearing operations.",
+                    "If requires_4th_or_5th_axis is false, do not include any 4th/5th-axis operations.",
+                    "Post-machining treatments (paint/plating/hardening/heat-treat) must be explicit final routing steps.",
+                ],
+            },
         }
         return self._ai.extract_structured_data(
             str(payload),
             schema,
             context=(
                 "Step 5 routing generation. Produce 1 to 3 realistic routing scenarios with "
-                "ordered steps and setup/cycle/handling/inspection times in minutes."
+                "ordered steps and setup/cycle/handling/inspection times in minutes. "
+                "Respect max_machining_setups as a hard ceiling for machining steps. "
+                "When post-machining treatments are required, represent each as its own routing step near the end."
             ),
         )
 

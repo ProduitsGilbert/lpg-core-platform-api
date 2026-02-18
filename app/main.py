@@ -8,7 +8,10 @@ routers, exception handlers, and lifecycle events.
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 import asyncio
+import datetime as dt
 import logging
+import os
+import fcntl
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -29,6 +32,7 @@ from app.domain.kpi.payables_invoice_stats_jobs import refresh_payables_invoice_
 from app.domain.finance.ar_jobs import refresh_ar_payment_stats
 from app.domain.finance.ar_cache_jobs import refresh_ar_open_invoices_cache
 from app.domain.finance.cashflow_jobs import refresh_cashflow_projection_default_window
+from app.domain.erp.production_costing_snapshot_jobs import refresh_production_costing_snapshot
 from app.db import get_db_session
 from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
@@ -44,9 +48,39 @@ logger = logging.getLogger(__name__)
 # Initialize scheduler if enabled
 scheduler = None
 geocode_warmup_task: asyncio.Task | None = None
+_scheduler_lock_fd: int | None = None
 if settings.enable_scheduler:
     jobstores = {"default": MemoryJobStore()}
     scheduler = AsyncIOScheduler(jobstores=jobstores, timezone=settings.scheduler_timezone)
+
+
+def _acquire_scheduler_process_lock() -> bool:
+    """Ensure only one worker process starts APScheduler."""
+    global _scheduler_lock_fd
+    if _scheduler_lock_fd is not None:
+        return True
+
+    lock_path = "/tmp/lpg-core-platform-api.scheduler.lock"
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return False
+
+    _scheduler_lock_fd = fd
+    return True
+
+
+def _release_scheduler_process_lock() -> None:
+    global _scheduler_lock_fd
+    if _scheduler_lock_fd is None:
+        return
+    try:
+        fcntl.flock(_scheduler_lock_fd, fcntl.LOCK_UN)
+    finally:
+        os.close(_scheduler_lock_fd)
+        _scheduler_lock_fd = None
 
 
 @asynccontextmanager
@@ -104,7 +138,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             logger.info("Database connection verified")
     
     # Start scheduler if enabled
-    if scheduler and settings.enable_scheduler:
+    if scheduler and settings.enable_scheduler and _acquire_scheduler_process_lock():
         # Add cleanup jobs
         scheduler.add_job(
             cleanup_expired_idempotency_keys,
@@ -194,9 +228,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             name="Refresh cashflow projection default cache",
             replace_existing=True,
         )
+
+        scheduler.add_job(
+            refresh_production_costing_snapshot,
+            "cron",
+            hour=settings.production_costing_refresh_hour,
+            minute=settings.production_costing_refresh_minute,
+            id="production_costing_snapshot_refresh",
+            name="Refresh ERP production costing snapshots",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=172800,
+        )
+
+        # Catch up immediately after startup/redeploy to avoid waiting until next daily slot.
+        scheduler.add_job(
+            refresh_production_costing_snapshot,
+            "date",
+            run_date=dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=30),
+            id="production_costing_snapshot_startup_catchup",
+            name="Catch up ERP production costing snapshots after startup",
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
         
         scheduler.start()
         logger.info("APScheduler started with cleanup jobs")
+    elif scheduler and settings.enable_scheduler:
+        logger.info("Skipping APScheduler startup in this worker (lock held by another process)")
 
     if settings.google_geocode_persist_enabled:
         logger.info("Loading geocode cache from disk")
@@ -220,6 +281,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     if scheduler and scheduler.running:
         scheduler.shutdown()
         logger.info("APScheduler stopped")
+    _release_scheduler_process_lock()
 
     if geocode_warmup_task and not geocode_warmup_task.done():
         geocode_warmup_task.cancel()
