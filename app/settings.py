@@ -671,6 +671,16 @@ class Settings(BaseSettings):
         description="Base URL for ElekNet API endpoint"
     )
 
+    eleknet_xpa_url: Optional[str] = Field(
+        default=None,
+        description="Explicit ElekNet xPA endpoint URL (overrides base URL for price/availability)"
+    )
+
+    eleknet_order_url: Optional[str] = Field(
+        default=None,
+        description="Explicit ElekNet order endpoint URL (overrides base URL for order submissions)"
+    )
+
     eleknet_username: Optional[str] = Field(
         default=None,
         description="Username for ElekNet API authentication"
@@ -1010,7 +1020,7 @@ class Settings(BaseSettings):
             raise ValueError("ERP base URL must start with http:// or https://")
         return v
 
-    @field_validator("eleknet_base_url")
+    @field_validator("eleknet_base_url", "eleknet_xpa_url", "eleknet_order_url")
     @classmethod
     def validate_eleknet_url(cls, v: Optional[str]) -> Optional[str]:
         """Validate ElekNet base URL format when configured."""

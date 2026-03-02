@@ -25,6 +25,8 @@ class ElekNetClient:
         self,
         *,
         base_url: str | None = None,
+        xpa_url: str | None = None,
+        order_url: str | None = None,
         username: str | None = None,
         password: str | None = None,
         timeout_s: int | None = None,
@@ -33,6 +35,8 @@ class ElekNetClient:
         async_client: httpx.AsyncClient | None = None,
     ):
         self.base_url = (base_url if base_url is not None else settings.eleknet_base_url) or ""
+        self.xpa_url = (xpa_url if xpa_url is not None else settings.eleknet_xpa_url) or ""
+        self.order_url = (order_url if order_url is not None else settings.eleknet_order_url) or ""
         self.username = username if username is not None else settings.eleknet_username
         self.password = password if password is not None else settings.eleknet_password
         self.timeout_s = timeout_s if timeout_s is not None else settings.eleknet_timeout_s
@@ -54,7 +58,11 @@ class ElekNetClient:
 
     def _ensure_configured(self) -> None:
         missing_fields = []
-        if not self.base_url.strip():
+        if not (
+            self.base_url.strip()
+            or self.xpa_url.strip()
+            or self.order_url.strip()
+        ):
             missing_fields.append("ELEKNET_BASE_URL")
         if not (self.username or "").strip():
             missing_fields.append("ELEKNET_USERNAME")
@@ -67,13 +75,19 @@ class ElekNetClient:
 
     async def _post_form(self, field_name: str, xml_payload: str) -> str:
         self._ensure_configured()
+        target_url = self._resolve_target_url(field_name)
+        if not target_url:
+            raise ElekNetConfigurationError(
+                "Missing ElekNet endpoint URL for request type "
+                f"{field_name}. Configure ELEKNET_BASE_URL or specific endpoint URLs."
+            )
         retries = max(0, int(self.max_network_retries))
 
         for attempt in range(retries + 1):
             try:
                 async with self._get_client() as client:
                     response = await client.post(
-                        self.base_url.strip(),
+                        target_url,
                         data={field_name: xml_payload},
                         headers={"Content-Type": "application/x-www-form-urlencoded"},
                     )
@@ -86,7 +100,9 @@ class ElekNetClient:
                 if attempt < retries:
                     await asyncio.sleep(0.2)
                     continue
-                raise ElekNetGatewayError("Could not connect to ElekNet") from exc
+                raise ElekNetGatewayError(
+                    f"Could not connect to ElekNet endpoint {target_url}"
+                ) from exc
 
             if response.status_code >= 400:
                 raise ElekNetUpstreamError(
@@ -96,6 +112,13 @@ class ElekNetClient:
             return response.text
 
         raise ElekNetGatewayError("Failed to complete ElekNet request")
+
+    def _resolve_target_url(self, field_name: str) -> str:
+        if field_name == "xPA":
+            return (self.xpa_url.strip() or self.base_url.strip())
+        if field_name == "xmlOrder":
+            return (self.order_url.strip() or self.base_url.strip())
+        return self.base_url.strip()
 
     @asynccontextmanager
     async def _get_client(self) -> AsyncIterator[httpx.AsyncClient]:
