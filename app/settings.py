@@ -665,6 +665,48 @@ class Settings(BaseSettings):
         description="Maximum retry attempts for Sandvik API requests"
     )
 
+    # ElekNet / Lumen EDI-style API Configuration
+    eleknet_base_url: Optional[str] = Field(
+        default=None,
+        description="Base URL for ElekNet API endpoint"
+    )
+
+    eleknet_username: Optional[str] = Field(
+        default=None,
+        description="Username for ElekNet API authentication"
+    )
+
+    eleknet_password: Optional[str] = Field(
+        default=None,
+        description="Password for ElekNet API authentication"
+    )
+
+    eleknet_timeout_s: int = Field(
+        default=20,
+        ge=1,
+        le=120,
+        description="Timeout for ElekNet API requests in seconds"
+    )
+
+    eleknet_verify_tls: bool = Field(
+        default=True,
+        description="Verify TLS certificates when calling ElekNet"
+    )
+
+    eleknet_max_network_retries: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="Maximum retries for transient ElekNet network failures"
+    )
+
+    eleknet_max_concurrency: int = Field(
+        default=8,
+        ge=1,
+        le=64,
+        description="Maximum concurrent requests sent to ElekNet"
+    )
+
     # Application Configuration
     app_name: str = Field(
         default="LPG Core Platform API",
@@ -967,6 +1009,22 @@ class Settings(BaseSettings):
         if v and not v.startswith(("http://", "https://")):
             raise ValueError("ERP base URL must start with http:// or https://")
         return v
+
+    @field_validator("eleknet_base_url")
+    @classmethod
+    def validate_eleknet_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate ElekNet base URL format when configured."""
+        if v is None:
+            return v
+
+        normalized = v.strip()
+        if not normalized:
+            return None
+
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("ElekNet base URL must start with http:// or https://")
+
+        return normalized
 
     @field_validator("xai_reasoning_effort", mode="before")
     @classmethod
