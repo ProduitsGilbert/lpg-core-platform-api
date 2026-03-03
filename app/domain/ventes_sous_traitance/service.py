@@ -67,6 +67,14 @@ _TREATMENT_PATTERNS: tuple[tuple[re.Pattern[str], tuple[str, str]], ...] = (
 )
 
 _AXIS_REGEX = re.compile(r"\b(4(?:th)?[\s-]*axis|5(?:th)?[\s-]*axis|4x|5x|trunnion|rotary)\b", re.IGNORECASE)
+_POST_CNC_SUPPORT_PATTERNS: tuple[tuple[re.Pattern[str], tuple[str, str]], ...] = (
+    (re.compile(r"\b(deburr(?:ing)?|deburring|deburrage|edge[\s-]*break)\b", re.IGNORECASE), ("OP_DEBURR", "Deburring")),
+    (re.compile(r"\b(quality[\s-]*control|quality[\s-]*check|final[\s-]*inspect(?:ion)?|inspection|dimensional[\s-]*check|cmm)\b", re.IGNORECASE), ("OP_QC", "Quality control")),
+)
+_CNC_STEP_REGEX = re.compile(
+    r"\b(cnc|machin(?:e|ing)|mill(?:ing)?|drill(?:ing)?|bore|boring|ream(?:ing)?|tap(?:ping)?|thread(?:ing)?|face(?:ing)?|turn(?:ing)?|lathe|rough(?:ing)?|finish(?:ing)?)\b",
+    re.IGNORECASE,
+)
 _MISSING_MATERIAL_MARKERS = {"", "unknown", "n/a", "n a", "na", "none", "null", "tbd", "to be defined"}
 
 
@@ -400,7 +408,7 @@ class VentesSousTraitanceService:
         setups = part_summary.get("number_of_setups")
         if setups is not None:
             try:
-                normalized_setups = max(1, int(str(setups)))
+                normalized_setups = min(3, max(1, int(str(setups))))
                 part_summary["number_of_setups"] = normalized_setups
             except (TypeError, ValueError):
                 part_summary["number_of_setups"] = None
@@ -460,6 +468,7 @@ class VentesSousTraitanceService:
 
             self._sanitize_axis_constraints(steps, requires_axis=requires_axis, assumptions=assumptions)
             steps = self._enforce_setup_limit(steps, max_setups=max_setups, assumptions=assumptions)
+            steps = self._append_default_post_cnc_steps(steps)
             steps = self._append_missing_treatment_steps(steps, treatment_operations=treatment_operations)
 
             scenario["assumptions"] = assumptions
@@ -474,25 +483,84 @@ class VentesSousTraitanceService:
         max_setups: int | None,
         assumptions: list[str],
     ) -> list[dict[str, Any]]:
-        machining_steps = [step for step in steps if not VentesSousTraitanceService._is_post_machining_step(step)]
-        treatment_steps = [step for step in steps if VentesSousTraitanceService._is_post_machining_step(step)]
+        effective_max_setups = max_setups if max_setups is not None else 3
+        cnc_steps = [step for step in steps if VentesSousTraitanceService._is_cnc_machining_step(step)]
+        if len(cnc_steps) <= effective_max_setups:
+            return steps
 
-        if max_setups is not None and len(machining_steps) > max_setups:
-            overflow = machining_steps[max_setups:]
-            machining_steps = machining_steps[:max_setups]
-            if machining_steps:
-                overflow_text = "; ".join(
-                    str(step.get("description") or step.get("operation_code") or "operation").strip()
-                    for step in overflow
-                ).strip()
-                if overflow_text:
-                    last_description = str(machining_steps[-1].get("description") or "Machining setup").strip()
-                    machining_steps[-1]["description"] = f"{last_description} (includes: {overflow_text[:280]})"
-            assumptions.append(
-                f"Collapsed {len(overflow)} extra machining steps to respect number_of_setups={max_setups}."
+        overflow = cnc_steps[effective_max_setups:]
+        overflow_text = "; ".join(
+            str(step.get("description") or step.get("operation_code") or "operation").strip()
+            for step in overflow
+        ).strip()
+        kept_cnc = 0
+        normalized: list[dict[str, Any]] = []
+        for step in steps:
+            if not VentesSousTraitanceService._is_cnc_machining_step(step):
+                normalized.append(step)
+                continue
+            kept_cnc += 1
+            if kept_cnc > effective_max_setups:
+                continue
+            if kept_cnc == effective_max_setups and overflow_text:
+                last_description = str(step.get("description") or "CNC setup").strip()
+                step["description"] = f"{last_description} (includes: {overflow_text[:280]})"
+            normalized.append(step)
+
+        assumptions.append(
+            f"Collapsed {len(overflow)} extra CNC setup steps to respect number_of_setups={effective_max_setups}."
+        )
+        return normalized
+
+    @staticmethod
+    def _append_default_post_cnc_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not any(VentesSousTraitanceService._is_cnc_machining_step(step) for step in steps):
+            return steps
+
+        existing_codes: set[str] = set()
+        for step in steps:
+            combined = f"{step.get('operation_code') or ''} {step.get('description') or ''}".strip()
+            support_operation = VentesSousTraitanceService._classify_post_cnc_support_operation(combined)
+            if support_operation:
+                existing_codes.add(support_operation[0])
+
+        inserts: list[dict[str, Any]] = []
+        if "OP_DEBURR" not in existing_codes:
+            inserts.append(
+                {
+                    "operation_code": "OP_DEBURR",
+                    "description": "Deburring after CNC machining",
+                    "machine_group_id": "BENCH_FINISHING",
+                    "setup_time_min": 0,
+                    "cycle_time_min": 0,
+                    "handling_time_min": 0,
+                    "inspection_time_min": 0,
+                    "time_confidence": 0.45,
+                }
             )
+        if "OP_QC" not in existing_codes:
+            inserts.append(
+                {
+                    "operation_code": "OP_QC",
+                    "description": "Quality control after CNC machining",
+                    "machine_group_id": "QUALITY_CONTROL",
+                    "setup_time_min": 0,
+                    "cycle_time_min": 0,
+                    "handling_time_min": 0,
+                    "inspection_time_min": 0,
+                    "time_confidence": 0.45,
+                }
+            )
+        if not inserts:
+            return steps
 
-        return machining_steps + treatment_steps
+        normalized = list(steps)
+        insert_index = next(
+            (idx for idx, step in enumerate(normalized) if VentesSousTraitanceService._is_treatment_step(step)),
+            len(normalized),
+        )
+        normalized[insert_index:insert_index] = inserts
+        return normalized
 
     @staticmethod
     def _append_missing_treatment_steps(
@@ -906,9 +974,34 @@ class VentesSousTraitanceService:
         return None
 
     @staticmethod
-    def _is_post_machining_step(step: dict[str, Any]) -> bool:
+    def _classify_post_cnc_support_operation(text: str) -> tuple[str, str] | None:
+        for pattern, operation in _POST_CNC_SUPPORT_PATTERNS:
+            if pattern.search(text):
+                return operation
+        return None
+
+    @staticmethod
+    def _is_treatment_step(step: dict[str, Any]) -> bool:
         combined = f"{step.get('operation_code') or ''} {step.get('description') or ''}".strip()
         return VentesSousTraitanceService._classify_treatment_operation(combined) is not None
+
+    @staticmethod
+    def _is_post_machining_step(step: dict[str, Any]) -> bool:
+        combined = f"{step.get('operation_code') or ''} {step.get('description') or ''}".strip()
+        return (
+            VentesSousTraitanceService._classify_treatment_operation(combined) is not None
+            or VentesSousTraitanceService._classify_post_cnc_support_operation(combined) is not None
+        )
+
+    @staticmethod
+    def _is_cnc_machining_step(step: dict[str, Any]) -> bool:
+        combined = f"{step.get('operation_code') or ''} {step.get('description') or ''}".strip()
+        machine_group = str(step.get("machine_group_id") or "").strip().upper()
+        if VentesSousTraitanceService._is_post_machining_step(step):
+            return False
+        if "CNC" in machine_group:
+            return True
+        return _CNC_STEP_REGEX.search(combined) is not None
 
     @staticmethod
     def _material_context_text(

@@ -221,7 +221,8 @@ class VentesSousTraitanceAnalysisPipeline:
                 "Identify and quantify features using the provided taxonomy. "
                 "Estimate drilled holes, threaded holes, high precision features "
                 "(very tight tolerance or 3-digit precision), and number of machined faces. "
-                "Set number_of_setups to the count of machining setups only (do not count post-machining treatments). "
+                "Set number_of_setups to CNC machining-center setup count only (integer 1 to 3). "
+                "Do not count cutting, welding, deburring, quality control, inspection, or treatments in number_of_setups. "
                 "If drawing mentions treatment, paint, plating, coating, or hardening after machining, add it in "
                 "additional_operations using concise operation names. "
                 "Use valid JSON only; keep unknown values null."
@@ -275,8 +276,12 @@ class VentesSousTraitanceAnalysisPipeline:
                 "requires_4th_or_5th_axis": part_summary.get("requires_4th_or_5th_axis"),
                 "post_machining_operations": additional_operations if isinstance(additional_operations, list) else [],
                 "rules": [
-                    "Treat max_machining_setups as hard limit for machining/setup-bearing operations.",
+                    "A routing step is one machine center/station setup, not an individual feature.",
+                    "Do not create routing steps for each hole/face/thread/chamfer; those are feature-level details within a setup.",
+                    "Treat max_machining_setups as hard limit for CNC machining-center setups only (1 to 3).",
                     "If requires_4th_or_5th_axis is false, do not include any 4th/5th-axis operations.",
+                    "Use machine_group_id values from machine_groups and keep them compatible with process family/capabilities.",
+                    "For CNC-focused parts, include deburring and quality control after the last CNC setup unless already explicit.",
                     "Post-machining treatments (paint/plating/hardening/heat-treat) must be explicit final routing steps.",
                 ],
             },
@@ -287,7 +292,12 @@ class VentesSousTraitanceAnalysisPipeline:
             context=(
                 "Step 5 routing generation. Produce 1 to 3 realistic routing scenarios with "
                 "ordered steps and setup/cycle/handling/inspection times in minutes. "
-                "Respect max_machining_setups as a hard ceiling for machining steps. "
+                "A routing step represents a machine center/station setup, not per-feature machining actions. "
+                "Respect max_machining_setups as hard ceiling for CNC setups only and keep CNC setups between 1 and 3. "
+                "Group feature operations (holes/facing/threads/chamfers) into the appropriate CNC setup descriptions. "
+                "Keep non-CNC centers explicit when needed (for example cutting, welding, heat treatment). "
+                "Use only machine_group_id values present in machine_groups. "
+                "Default to deburring then quality control after CNC when not already present. "
                 "When post-machining treatments are required, represent each as its own routing step near the end."
             ),
         )

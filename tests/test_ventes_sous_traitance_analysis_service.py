@@ -132,10 +132,10 @@ def test_start_analysis_normalizes_routing_setups_and_treatment_steps() -> None:
                     "scenario_name": "Baseline",
                     "assumptions": [],
                     "steps": [
-                        {"operation_code": "OP_1", "description": "Setup 1 milling"},
-                        {"operation_code": "OP_2", "description": "Setup 2 drilling"},
-                        {"operation_code": "OP_3", "description": "Setup 3 finishing"},
-                        {"operation_code": "OP_4", "description": "4th-axis contouring"},
+                        {"operation_code": "OP_1", "description": "Setup 1 milling", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                        {"operation_code": "OP_2", "description": "Setup 2 drilling", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                        {"operation_code": "OP_3", "description": "Setup 3 finishing", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                        {"operation_code": "OP_4", "description": "4th-axis contouring", "machine_group_id": "CNC_BORING_LARGE_4AX"},
                     ],
                 }
             ]
@@ -148,12 +148,75 @@ def test_start_analysis_normalizes_routing_setups_and_treatment_steps() -> None:
     assert returned_run_id == run_id
     saved_payload = repository.save_generated_routings.call_args.kwargs["scenarios_payload"]
     steps = saved_payload["scenarios"][0]["steps"]
-    assert len(steps) == 3
-    assert "includes:" in str(steps[1]["description"])
-    assert steps[-1]["operation_code"] == "OP_HEAT_TREAT"
+    cnc_steps = [step for step in steps if str(step.get("machine_group_id") or "").upper().startswith("CNC_")]
+    assert len(cnc_steps) == 2
+    assert "includes:" in str(cnc_steps[-1]["description"])
+    assert any(str(step.get("operation_code")) == "OP_DEBURR" for step in steps)
+    assert any(str(step.get("operation_code")) == "OP_QC" for step in steps)
+    heat_idx = next(i for i, step in enumerate(steps) if str(step.get("operation_code")) == "OP_HEAT_TREAT")
+    deburr_idx = next(i for i, step in enumerate(steps) if str(step.get("operation_code")) == "OP_DEBURR")
+    qc_idx = next(i for i, step in enumerate(steps) if str(step.get("operation_code")) == "OP_QC")
+    assert deburr_idx < heat_idx
+    assert qc_idx < heat_idx
     assumptions = saved_payload["scenarios"][0]["assumptions"]
     assert any("number_of_setups=2" in item for item in assumptions)
     assert any("requires_4th_or_5th_axis=false" in item for item in assumptions)
+
+
+def test_start_analysis_keeps_cutting_welding_steps_while_limiting_cnc_setups() -> None:
+    quote_id = uuid4()
+    run_id = uuid4()
+    part_id = uuid4()
+
+    repository = MagicMock()
+    repository.create_analysis_run.return_value = run_id
+    repository.upsert_part_from_analysis.return_value = part_id
+    repository.save_generated_routings.return_value = []
+
+    pipeline = MagicMock()
+    pipeline.run.return_value = {
+        "step1_metadata": {"confidence": 0.8},
+        "step2_classification": {"shape_class": "prismatic", "confidence": 0.7},
+        "step3_complexity": {"complexity_score": 3, "confidence": 0.7},
+        "step4_feature_details": {
+            "part_summary": {
+                "number_of_setups": 2,
+                "requires_4th_or_5th_axis": False,
+            },
+            "additional_operations": [],
+            "general_notes": [],
+        },
+        "step5_routings": {
+            "scenarios": [
+                {
+                    "scenario_name": "Baseline",
+                    "assumptions": [],
+                    "steps": [
+                        {"operation_code": "OP_CUT", "description": "Raw material cutting", "machine_group_id": "PLASMA_TABLE_LARGE"},
+                        {"operation_code": "OP_WELD", "description": "Welding fixture tabs", "machine_group_id": "WELD_FAB_STANDARD"},
+                        {"operation_code": "OP_CNC_1", "description": "CNC setup 1 roughing", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                        {"operation_code": "OP_CNC_2", "description": "CNC setup 2 finish + drilling", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                        {"operation_code": "OP_CNC_3", "description": "CNC setup 3 extra hole cycle", "machine_group_id": "CNC_BORING_LARGE_4AX"},
+                    ],
+                }
+            ]
+        },
+    }
+
+    service = VentesSousTraitanceService(repository=repository, analysis_pipeline=pipeline)
+    returned_run_id = service.start_analysis_from_text(quote_id, source_text="DOC TEXT")
+
+    assert returned_run_id == run_id
+    saved_payload = repository.save_generated_routings.call_args.kwargs["scenarios_payload"]
+    steps = saved_payload["scenarios"][0]["steps"]
+    operation_codes = [str(step.get("operation_code")) for step in steps]
+    assert operation_codes[0] == "OP_CUT"
+    assert operation_codes[1] == "OP_WELD"
+    assert operation_codes.count("OP_CNC_1") == 1
+    assert operation_codes.count("OP_CNC_2") == 1
+    assert "OP_CNC_3" not in operation_codes
+    assert "OP_DEBURR" in operation_codes
+    assert "OP_QC" in operation_codes
 
 
 class _StubItemAttributeService:
