@@ -11,6 +11,7 @@ import json
 import logfire
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Form, Query
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.settings import settings
 from app.adapters.ocr.openai_ocr_client import OpenAIOCRClient
@@ -467,11 +468,12 @@ async def extract_carrier_statement(
                 max_pages=max_pages,
             )
 
-            result = ocr_service.extract_carrier_account_statement(
-                file_content=file_content,
-                filename=file.filename,
-                carrier=normalized_carrier,
-                additional_instructions=additional_instructions,
+            result = await run_in_threadpool(
+                ocr_service.extract_carrier_account_statement,
+                file_content,
+                file.filename,
+                normalized_carrier,
+                additional_instructions,
                 max_pages=max_pages,
             )
 

@@ -5,6 +5,7 @@ This service handles the business logic for extracting structured data
 from documents using AI/LLM models.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Optional
 from decimal import Decimal, ROUND_HALF_UP
 import io
@@ -30,6 +31,7 @@ class OCRService:
     This service orchestrates document extraction using AI/LLM models
     to convert unstructured documents into structured data.
     """
+    _CARRIER_STATEMENT_PARALLEL_WORKERS = 3
     
     def __init__(self, ocr_client: OCRClientProtocol):
         """
@@ -738,8 +740,8 @@ class OCRService:
                         processed_pages = min(processed_pages, max_pages)
 
                     page_ranges = self._build_pdf_page_ranges(processed_pages, chunk_pages=1)
-                    chunk_results: list[CarrierAccountStatementExtraction] = []
                     total_chunks = len(page_ranges)
+                    chunk_inputs: list[tuple[int, int, int, str, bytes, str]] = []
                     for chunk_index, (start_page, end_page) in enumerate(page_ranges, start=1):
                         chunk_instructions = self._build_carrier_statement_chunk_instructions(
                             base_instructions=carrier_guidance,
@@ -758,6 +760,46 @@ class OCRService:
                             if start_page == end_page
                             else f"{extraction_filename.rsplit('.', 1)[0]}-pages-{start_page}-{end_page}.pdf"
                         )
+                        chunk_inputs.append(
+                            (
+                                chunk_index,
+                                start_page,
+                                end_page,
+                                chunk_instructions,
+                                chunk_pdf,
+                                chunk_filename,
+                            )
+                        )
+
+                    def _extract_chunk(
+                        chunk_input: tuple[int, int, int, str, bytes, str]
+                    ) -> tuple[int, CarrierAccountStatementExtraction]:
+                        (
+                            chunk_index,
+                            start_page,
+                            end_page,
+                            chunk_instructions,
+                            chunk_pdf,
+                            chunk_filename,
+                        ) = chunk_input
+                        chunk_start_time = time.time()
+
+                        def _failed_chunk(message: str) -> tuple[int, CarrierAccountStatementExtraction]:
+                            return (
+                                start_page,
+                                CarrierAccountStatementExtraction(
+                                    carrier=normalized_carrier,
+                                    account_number=None,
+                                    invoice_number=None,
+                                    invoice_date=None,
+                                    due_date=None,
+                                    currency="CAD",
+                                    amount_due=None,
+                                    processed_pages=(end_page - start_page + 1),
+                                    shipments=[],
+                                    notes=message,
+                                ),
+                            )
 
                         try:
                             chunk_model = self.ocr_client.extract_generic_document(
@@ -781,13 +823,24 @@ class OCRService:
                                 max_pages=(end_page - start_page + 1),
                             )
                             if not chunk_text.strip():
-                                raise
-                            chunk_model = self.ocr_client.extract_generic_text(
-                                document_text=chunk_text,
-                                document_type=f"{normalized_carrier}_{document_type}",
-                                output_model=CarrierAccountStatementExtraction,
-                                additional_instructions=chunk_instructions,
-                            )
+                                return _failed_chunk(
+                                    "Chunk "
+                                    f"{chunk_index}/{total_chunks} (pages {start_page}-{end_page}) failed: "
+                                    "vision extraction failed and no text was available for fallback."
+                                )
+                            try:
+                                chunk_model = self.ocr_client.extract_generic_text(
+                                    document_text=chunk_text,
+                                    document_type=f"{normalized_carrier}_{document_type}",
+                                    output_model=CarrierAccountStatementExtraction,
+                                    additional_instructions=chunk_instructions,
+                                )
+                            except Exception as text_exc:
+                                return _failed_chunk(
+                                    "Chunk "
+                                    f"{chunk_index}/{total_chunks} (pages {start_page}-{end_page}) failed after "
+                                    f"text fallback: {text_exc}"
+                                )
 
                         if start_page == end_page:
                             normalized_shipments = [
@@ -797,7 +850,69 @@ class OCRService:
                                 for shipment in chunk_model.shipments
                             ]
                             chunk_model = chunk_model.model_copy(update={"shipments": normalized_shipments})
-                        chunk_results.append(chunk_model)
+                        chunk_processing_time = int((time.time() - chunk_start_time) * 1000)
+                        logfire.info(
+                            "Carrier statement chunk extraction completed",
+                            chunk_index=chunk_index,
+                            total_chunks=total_chunks,
+                            start_page=start_page,
+                            end_page=end_page,
+                            processing_time_ms=chunk_processing_time,
+                            shipments_count=len(chunk_model.shipments),
+                        )
+                        return start_page, chunk_model
+
+                    chunk_results_with_pages: list[tuple[int, CarrierAccountStatementExtraction]] = []
+                    if not chunk_inputs:
+                        raise ValueError("Carrier statement PDF contains no pages")
+                    max_workers = min(
+                        len(chunk_inputs),
+                        self._CARRIER_STATEMENT_PARALLEL_WORKERS,
+                    )
+                    if max_workers <= 1:
+                        chunk_results_with_pages = [_extract_chunk(chunk_inputs[0])]
+                    else:
+                        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                            future_to_chunk = {
+                                executor.submit(_extract_chunk, chunk_input): chunk_input
+                                for chunk_input in chunk_inputs
+                            }
+                            for future in as_completed(future_to_chunk):
+                                try:
+                                    chunk_results_with_pages.append(future.result())
+                                except Exception as chunk_exc:
+                                    chunk_index, start_page, end_page, *_ = future_to_chunk[future]
+                                    logfire.error(
+                                        "Carrier statement chunk crashed unexpectedly",
+                                        chunk_index=chunk_index,
+                                        start_page=start_page,
+                                        end_page=end_page,
+                                        error=str(chunk_exc),
+                                    )
+                                    chunk_results_with_pages.append(
+                                        (
+                                            start_page,
+                                            CarrierAccountStatementExtraction(
+                                                carrier=normalized_carrier,
+                                                account_number=None,
+                                                invoice_number=None,
+                                                invoice_date=None,
+                                                due_date=None,
+                                                currency="CAD",
+                                                amount_due=None,
+                                                processed_pages=(end_page - start_page + 1),
+                                                shipments=[],
+                                                notes=(
+                                                    "Chunk "
+                                                    f"{chunk_index}/{total_chunks} (pages {start_page}-{end_page}) "
+                                                    f"crashed unexpectedly: {chunk_exc}"
+                                                ),
+                                            ),
+                                        )
+                                    )
+
+                    chunk_results_with_pages.sort(key=lambda item: item[0])
+                    chunk_results = [chunk_result for _, chunk_result in chunk_results_with_pages]
 
                     extracted_model = self._merge_carrier_statement_chunk_results(
                         carrier=normalized_carrier,
@@ -1239,6 +1354,7 @@ class OCRService:
             scope_line,
             "Each shipment transaction starts with shipment date and tracking number and is separated by a full-width horizontal line.",
             "For each shipment, capture: shipment date, tracking number, shipped-from address block, shipped-to address block, piece count, billed weight, service description, full detailed charge lines, shipment total, Ref 1, Ref 2, manifest number, and billing notes.",
+            "For each shipment, return all fee lines as separate charges (variable count), compute subtotal before tax, return tax lines separately, and return tax totals including TPS/GST/TVH and TVQ/QST when present.",
             "For Purolator French statements, map labels: 'Date d'expedition', 'No d'envoi', 'Expedie de', 'Expedie a', 'Nbre de pieces', 'Poids facture', 'Description du service', 'QTE/Tarif par unite', 'Total des frais', 'REF. 1', and 'REF. 2'.",
             "Preserve tracking numbers and references as strings exactly as shown (including leading zeros or mixed letters).",
             "Return addresses as complete multiline blocks merged into a single string with newline separators.",

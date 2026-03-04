@@ -244,6 +244,27 @@ def _extract_line_no(record: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _extract_document_line_no(record: Dict[str, Any]) -> Optional[str]:
+    for key in ("Line_No", "LineNo"):
+        value = record.get(key)
+        if value is not None and str(value).strip() != "":
+            return str(value)
+    return None
+
+
+def _line_matches_transport_selector(record: Dict[str, Any], selector: str) -> bool:
+    """Match either account/item No fields or explicit document line number."""
+    normalized_selector = (selector or "").strip()
+    if not normalized_selector:
+        return False
+
+    candidates = [
+        _extract_line_no(record),
+        _extract_document_line_no(record),
+    ]
+    return any(candidate is not None and candidate.strip() == normalized_selector for candidate in candidates)
+
+
 def _coerce_decimal(value: Any) -> Optional[Decimal]:
     if value is None:
         return None
@@ -633,35 +654,42 @@ async def get_posted_sales_invoices_by_tracking(
             )
 
         matches: List[Dict[str, Any]] = []
+        total_transport_charge_amount_excl_tax = Decimal("0")
+        transport_totals_by_currency: Dict[str, Decimal] = {}
         for header in headers:
             invoice_no = _extract_invoice_no(header)
             if not invoice_no:
                 continue
             lines = await _fetch_posted_sales_invoice_lines(service, invoice_no)
 
-            transport_line = next(
-                (
-                    line
-                    for line in lines
-                    if _extract_line_no(line) == transport_line_no
-                ),
-                None,
-            )
+            transport_lines = [
+                line
+                for line in lines
+                if _line_matches_transport_selector(line, transport_line_no)
+            ]
 
-            transport_amount_excl_tax = (
-                _first_decimal(
-                    transport_line or {},
+            transport_amount_values: List[Decimal] = []
+            for transport_line in transport_lines:
+                amount_value = _first_decimal(
+                    transport_line,
                     [
                         "Line_Amount_Excl_Tax",
                         "LineAmountExclTax",
                         "Line_Amount_Excluding_VAT",
+                        "LineAmount",
                         "Line_Amount",
                         "Amount",
+                        "Amount_Excl_Tax",
                     ],
                 )
-                if transport_line
-                else None
-            )
+                if amount_value is not None:
+                    transport_amount_values.append(amount_value)
+
+            transport_amount_excl_tax: Optional[Decimal]
+            if transport_lines:
+                transport_amount_excl_tax = sum(transport_amount_values, Decimal("0"))
+            else:
+                transport_amount_excl_tax = None
 
             sales_order_amount_excl_tax = _first_decimal(
                 header,
@@ -680,6 +708,15 @@ async def get_posted_sales_invoices_by_tracking(
                     "Amount_Incl_Tax",
                 ],
             )
+            invoice_currency = header.get("Currency_Code") or header.get("CurrencyCode")
+
+            if transport_amount_excl_tax is not None:
+                total_transport_charge_amount_excl_tax += transport_amount_excl_tax
+                if invoice_currency:
+                    transport_totals_by_currency[invoice_currency] = (
+                        transport_totals_by_currency.get(invoice_currency, Decimal("0"))
+                        + transport_amount_excl_tax
+                    )
 
             matches.append(
                 {
@@ -696,16 +733,18 @@ async def get_posted_sales_invoices_by_tracking(
                             if sales_order_amount_incl_tax is not None
                             else None
                         ),
-                        "currency_code": header.get("Currency_Code") or header.get("CurrencyCode"),
+                        "currency_code": invoice_currency,
                     },
                     "transport_charge": {
                         "line_no": transport_line_no,
+                        "matched_lines_count": len(transport_lines),
                         "amount_excl_tax": (
                             float(transport_amount_excl_tax)
                             if transport_amount_excl_tax is not None
                             else None
                         ),
-                        "line": transport_line,
+                        "line": transport_lines[0] if transport_lines else None,
+                        "lines": transport_lines,
                     },
                     "header": header,
                     "lines": lines,
@@ -715,6 +754,11 @@ async def get_posted_sales_invoices_by_tracking(
     return {
         "tracking_number": normalized_tracking,
         "matches_count": len(matches),
+        "total_transport_charge_amount_excl_tax": float(total_transport_charge_amount_excl_tax),
+        "total_transport_charge_by_currency": {
+            currency: float(amount)
+            for currency, amount in transport_totals_by_currency.items()
+        },
         "matches": matches,
     }
 

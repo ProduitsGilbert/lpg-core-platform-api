@@ -5,6 +5,7 @@ These models define the structure of extracted data from various document types.
 """
 
 import re
+import unicodedata
 from typing import Any, List, Optional, Literal
 from datetime import date, datetime
 from decimal import Decimal
@@ -231,6 +232,26 @@ class CarrierStatementShipment(BaseModel):
         default_factory=list,
         description="Detailed charge lines including fuel surcharge, taxes, and other fees",
     )
+    subtotal_before_tax: Optional[Decimal] = Field(
+        None,
+        description="Sum of non-tax fee lines before taxes",
+    )
+    tax_lines: List[CarrierStatementCharge] = Field(
+        default_factory=list,
+        description="Tax-only charge lines (for example TPS, TVQ, TVH)",
+    )
+    tax_total: Optional[Decimal] = Field(
+        None,
+        description="Total tax amount (sum of tax lines)",
+    )
+    tax_tps: Optional[Decimal] = Field(
+        None,
+        description="TPS/GST/TVH tax amount when present",
+    )
+    tax_tvq: Optional[Decimal] = Field(
+        None,
+        description="TVQ/QST tax amount when present",
+    )
     total_charges: Decimal = Field(..., description="Total charges for this shipment")
     ref_1: Optional[str] = Field(None, description="Reference 1 value")
     ref_2: Optional[str] = Field(None, description="Reference 2 value")
@@ -267,6 +288,74 @@ class CarrierStatementShipment(BaseModel):
             data["billed_weight_unit"] = unit.upper()
 
         return data
+
+    @staticmethod
+    def _normalize_charge_description(value: Optional[str]) -> str:
+        if not value:
+            return ""
+        normalized = unicodedata.normalize("NFKD", value)
+        ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+        upper_text = ascii_text.upper()
+        upper_text = re.sub(r"[^A-Z0-9]+", " ", upper_text)
+        return re.sub(r"\s+", " ", upper_text).strip()
+
+    @classmethod
+    def _is_tax_description(cls, description: Optional[str]) -> bool:
+        normalized = cls._normalize_charge_description(description)
+        if not normalized:
+            return False
+        tax_markers = (" TPS ", " TVQ ", " GST ", " QST ", " TVH ", " HST ", " TAXE ", " TAX ")
+        wrapped = f" {normalized} "
+        return any(marker in wrapped for marker in tax_markers)
+
+    @classmethod
+    def _is_tps_description(cls, description: Optional[str]) -> bool:
+        normalized = cls._normalize_charge_description(description)
+        wrapped = f" {normalized} "
+        return any(marker in wrapped for marker in (" TPS ", " GST ", " TVH ", " HST "))
+
+    @classmethod
+    def _is_tvq_description(cls, description: Optional[str]) -> bool:
+        normalized = cls._normalize_charge_description(description)
+        wrapped = f" {normalized} "
+        return any(marker in wrapped for marker in (" TVQ ", " QST "))
+
+    @model_validator(mode="after")
+    def _derive_fee_tax_totals(self) -> "CarrierStatementShipment":
+        if not self.charges:
+            return self
+
+        non_tax_total = Decimal("0")
+        tax_total = Decimal("0")
+        tps_total = Decimal("0")
+        tvq_total = Decimal("0")
+        computed_tax_lines: list[CarrierStatementCharge] = []
+
+        for charge in self.charges:
+            amount = charge.amount
+            if amount is None:
+                continue
+            if self._is_tax_description(charge.description):
+                tax_total += amount
+                computed_tax_lines.append(charge)
+                if self._is_tps_description(charge.description):
+                    tps_total += amount
+                if self._is_tvq_description(charge.description):
+                    tvq_total += amount
+            else:
+                non_tax_total += amount
+
+        if self.subtotal_before_tax is None:
+            self.subtotal_before_tax = non_tax_total
+        if self.tax_total is None:
+            self.tax_total = tax_total
+        if not self.tax_lines and computed_tax_lines:
+            self.tax_lines = computed_tax_lines
+        if self.tax_tps is None and tps_total != Decimal("0"):
+            self.tax_tps = tps_total
+        if self.tax_tvq is None and tvq_total != Decimal("0"):
+            self.tax_tvq = tvq_total
+        return self
 
 
 class CarrierAccountStatementExtraction(BaseModel):
@@ -330,6 +419,18 @@ class CarrierStatementStoredRecord(BaseModel):
     due_date: Optional[date] = Field(None, description="Payment due date")
     currency: str = Field(..., description="Statement currency")
     amount_due: Optional[Decimal] = Field(None, description="Statement amount due")
+    sales_invoice_number: Optional[str] = Field(
+        None,
+        description="Matched sales invoice number (for example INV036928)",
+    )
+    sales_transport_charge_line_amount: Optional[Decimal] = Field(
+        None,
+        description="Matched sales order transport charge line amount",
+    )
+    sales_total_amount_incl_vat: Optional[Decimal] = Field(
+        None,
+        description="Matched sales order total amount including VAT",
+    )
     shipment_date: date = Field(..., description="Shipment date")
     tracking_number: str = Field(..., description="Tracking number")
     shipped_from_address: str = Field(..., description="Origin address block")
@@ -339,6 +440,11 @@ class CarrierStatementStoredRecord(BaseModel):
     billed_weight_unit: Optional[str] = Field(None, description="Billed weight unit")
     service_description: Optional[str] = Field(None, description="Service description")
     charges: List[CarrierStatementCharge] = Field(default_factory=list, description="Charge lines")
+    subtotal_before_tax: Optional[Decimal] = Field(None, description="Sum of non-tax fee lines")
+    tax_lines: List[CarrierStatementCharge] = Field(default_factory=list, description="Tax-only charge lines")
+    tax_total: Optional[Decimal] = Field(None, description="Total tax amount")
+    tax_tps: Optional[Decimal] = Field(None, description="TPS/GST/TVH amount")
+    tax_tvq: Optional[Decimal] = Field(None, description="TVQ/QST amount")
     total_charges: Decimal = Field(..., description="Shipment total charges")
     ref_1: Optional[str] = Field(None, description="Reference 1")
     ref_2: Optional[str] = Field(None, description="Reference 2")
@@ -382,6 +488,19 @@ class CarrierStatementUpdateRequest(BaseModel):
         description="Updated status text",
     )
     matched: Optional[bool] = Field(default=None, description="Updated match flag")
+    sales_invoice_number: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Matched sales invoice number (for example INV036928)",
+    )
+    sales_transport_charge_line_amount: Optional[Decimal] = Field(
+        default=None,
+        description="Matched sales order transport charge line amount",
+    )
+    sales_total_amount_incl_vat: Optional[Decimal] = Field(
+        default=None,
+        description="Matched sales order total amount including VAT",
+    )
 
 
 class SupplierInvoiceExtraction(InvoiceExtraction):

@@ -30,8 +30,15 @@ class ToolPredictionFeatureRepository:
         if not self._engine:
             return {}
 
+        location_patterns = _inventory_location_patterns(machine_center)
+        location_where_sql, location_params = _build_like_filter_sql(
+            column="CurrentLocation",
+            patterns=location_patterns,
+            param_prefix="loc",
+        )
+
         query_primary = text(
-            """
+            f"""
             WITH latest AS (
               SELECT
                   ToolId,
@@ -45,7 +52,7 @@ class ToolPredictionFeatureRepository:
                     ORDER BY SnapshotTimestamp DESC
                   ) AS rn
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE CurrentLocation LIKE :machine_like
+              WHERE {location_where_sql}
             )
             SELECT
                 UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
@@ -62,7 +69,7 @@ class ToolPredictionFeatureRepository:
         )
 
         query_fallback = text(
-            """
+            f"""
             WITH latest AS (
               SELECT
                   ToolId,
@@ -76,7 +83,7 @@ class ToolPredictionFeatureRepository:
                     ORDER BY SnapshotDate DESC
                   ) AS rn
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE CurrentLocation LIKE :machine_like
+              WHERE {location_where_sql}
             )
             SELECT
                 UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
@@ -95,7 +102,7 @@ class ToolPredictionFeatureRepository:
         rows = self._query_with_fallback(
             query_primary,
             query_fallback,
-            params={"machine_like": f"{machine_center}%"},
+            params=location_params,
             error_message="Unable to query tool prediction inventory metrics",
         )
 
@@ -123,15 +130,22 @@ class ToolPredictionFeatureRepository:
         if not self._engine:
             return {}
 
+        machine_patterns = _usage_machine_patterns(machine_center)
+        machine_where_sql, machine_params = _build_like_filter_sql(
+            column="cnc_machine",
+            patterns=machine_patterns,
+            param_prefix="machine",
+        )
+
         query = text(
-            """
+            f"""
             SELECT
                 UPPER(LTRIM(RTRIM(tool_id))) AS tool_id,
                 DATEDIFF(hour, MAX([timestamp]), :t0) AS time_since_last_use_hours,
                 SUM(CASE WHEN [timestamp] >= DATEADD(hour, -24, :t0) AND [timestamp] < :t0 THEN 1 ELSE 0 END) AS uses_last_24h,
                 SUM(CASE WHEN [timestamp] >= DATEADD(day, -7, :t0) AND [timestamp] < :t0 THEN 1 ELSE 0 END) AS uses_last_7d
             FROM [Cedule].[dbo].[ToolingTasks]
-            WHERE cnc_machine LIKE :machine_like
+            WHERE {machine_where_sql}
             GROUP BY UPPER(LTRIM(RTRIM(tool_id)));
             """
         )
@@ -140,10 +154,7 @@ class ToolPredictionFeatureRepository:
             with self._engine.connect() as connection:
                 rows = connection.execute(
                     query,
-                    {
-                        "t0": t0,
-                        "machine_like": f"{machine_center}%",
-                    },
+                    {"t0": t0, **machine_params},
                 ).mappings().all()
         except SQLAlchemyError as exc:
             logger.error(
@@ -174,15 +185,22 @@ class ToolPredictionFeatureRepository:
         if not self._engine:
             return {}
 
+        location_patterns = _inventory_location_patterns(machine_center)
+        location_where_sql, location_params = _build_like_filter_sql(
+            column="CurrentLocation",
+            patterns=location_patterns,
+            param_prefix="loc",
+        )
+
         query_snapshot_date = text(
-            """
+            f"""
             WITH daily AS (
               SELECT
                   UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
                   CAST(SnapshotDate AS date) AS d,
                   SUM(CAST(RemainingLifeTime AS FLOAT)) AS total_remaining_life
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE CurrentLocation LIKE :machine_like
+              WHERE {location_where_sql}
                 AND SnapshotDate >= DATEADD(day, -8, CAST(:t0 AS date))
                 AND SnapshotDate <= CAST(:t0 AS date)
               GROUP BY UPPER(LTRIM(RTRIM(ToolId))), CAST(SnapshotDate AS date)
@@ -211,14 +229,14 @@ class ToolPredictionFeatureRepository:
         )
 
         query_snapshot_timestamp = text(
-            """
+            f"""
             WITH daily AS (
               SELECT
                   UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
                   CAST(SnapshotTimestamp AS date) AS d,
                   SUM(CAST(RemainingLifeTime AS FLOAT)) AS total_remaining_life
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE CurrentLocation LIKE :machine_like
+              WHERE {location_where_sql}
                 AND SnapshotTimestamp >= DATEADD(day, -8, CAST(:t0 AS date))
                 AND SnapshotTimestamp < DATEADD(day, 1, CAST(:t0 AS date))
               GROUP BY UPPER(LTRIM(RTRIM(ToolId))), CAST(SnapshotTimestamp AS date)
@@ -251,7 +269,7 @@ class ToolPredictionFeatureRepository:
             query_snapshot_timestamp,
             params={
                 "t0": t0,
-                "machine_like": f"{machine_center}%",
+                **location_params,
             },
             error_message="Unable to query tool prediction wear metrics",
         )
@@ -316,3 +334,67 @@ def _safe_int(value: Any) -> int:
         return int(float(value))
     except (TypeError, ValueError):
         return 0
+
+
+def _inventory_location_patterns(machine_center: str) -> list[str]:
+    center = (machine_center or "").strip()
+    center_upper = center.upper()
+    patterns = [f"{center}%"] if center else ["%"]
+
+    # Fastems2 inventory is usually tracked in MC magazines/spindles and Gts robot storage.
+    if center_upper in {"NHX5500", "FASTEMS2", "FASTEM2"}:
+        patterns.extend(
+            [
+                "MC%.Magazine.%",
+                "MC%.Special.Spindle%",
+                "Gts Robot.Storage.%",
+                "Gts Robot.%",
+            ]
+        )
+
+    # Preserve order while deduplicating.
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for pattern in patterns:
+        if pattern in seen:
+            continue
+        seen.add(pattern)
+        deduped.append(pattern)
+    return deduped
+
+
+def _usage_machine_patterns(machine_center: str) -> list[str]:
+    center = (machine_center or "").strip()
+    center_upper = center.upper()
+    patterns = [f"{center}%"] if center else ["%"]
+
+    # Fastems2 tooling tasks often use cnc_machine='Fastem2'.
+    if center_upper in {"NHX5500", "FASTEMS2", "FASTEM2"}:
+        patterns.extend(["Fastem2%", "FASTEM2%", "NHX5500%"])
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for pattern in patterns:
+        if pattern in seen:
+            continue
+        seen.add(pattern)
+        deduped.append(pattern)
+    return deduped
+
+
+def _build_like_filter_sql(
+    *,
+    column: str,
+    patterns: list[str],
+    param_prefix: str,
+) -> tuple[str, dict[str, str]]:
+    if not patterns:
+        return "1=1", {}
+
+    clauses: list[str] = []
+    params: dict[str, str] = {}
+    for index, pattern in enumerate(patterns):
+        param_name = f"{param_prefix}_{index}"
+        clauses.append(f"{column} LIKE :{param_name}")
+        params[param_name] = pattern
+    return " OR ".join(clauses), params

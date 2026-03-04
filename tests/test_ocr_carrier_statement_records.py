@@ -61,6 +61,11 @@ class _InMemoryCarrierStatementRepository:
                 "billed_weight_unit": shipment.billed_weight_unit,
                 "service_description": shipment.service_description,
                 "charges": shipment.charges,
+                "subtotal_before_tax": shipment.subtotal_before_tax,
+                "tax_lines": shipment.tax_lines,
+                "tax_total": shipment.tax_total,
+                "tax_tps": shipment.tax_tps,
+                "tax_tvq": shipment.tax_tvq,
                 "total_charges": shipment.total_charges,
                 "ref_1": shipment.ref_1,
                 "ref_2": shipment.ref_2,
@@ -199,6 +204,8 @@ def test_save_carrier_statement_records():
     assert payload["data"]["inserted_count"] == 1
     assert payload["data"]["updated_count"] == 0
     assert payload["data"]["records"][0]["tracking_number"] == "49996570740"
+    assert payload["data"]["records"][0]["subtotal_before_tax"] == "58.19"
+    assert payload["data"]["records"][0]["tax_total"] == "0"
 
 
 def test_save_carrier_statement_records_normalizes_weight_with_unit():
@@ -244,7 +251,14 @@ def test_update_carrier_statement_record():
 
     response = client.patch(
         f"/api/v1/ocr/documents/carrier-statements/records/{saved_id}",
-        json={"status": "matched_po", "matched": True, "workflow_type": "purchase"},
+        json={
+            "status": "matched_po",
+            "matched": True,
+            "workflow_type": "purchase",
+            "sales_invoice_number": "INV036928",
+            "sales_transport_charge_line_amount": "58.19",
+            "sales_total_amount_incl_vat": "2251.06",
+        },
     )
 
     assert response.status_code == 200
@@ -253,3 +267,33 @@ def test_update_carrier_statement_record():
     assert payload["status"] == "matched_po"
     assert payload["matched"] is True
     assert payload["workflow_type"] == "purchase"
+    assert payload["sales_invoice_number"] == "INV036928"
+    assert payload["sales_transport_charge_line_amount"] == "58.19"
+    assert payload["sales_total_amount_incl_vat"] == "2251.06"
+
+
+def test_save_carrier_statement_records_extracts_tps_tvq_breakdown():
+    repository = _InMemoryCarrierStatementRepository()
+    client = TestClient(_make_test_app(repository))
+    payload = _sample_save_payload()
+    payload["extracted_data"]["shipments"][0]["charges"] = [
+        {"description": "Purolator Routier", "amount": "10.51"},
+        {"description": "Port du", "amount": "0.81"},
+        {"description": "Supplement de carburant", "amount": "2.31"},
+        {"description": "TPS", "amount": "0.68"},
+        {"description": "TVQ", "amount": "1.36"},
+    ]
+    payload["extracted_data"]["shipments"][0]["total_charges"] = "15.67"
+
+    response = client.post(
+        "/api/v1/ocr/documents/carrier-statements/records",
+        json=payload,
+    )
+
+    assert response.status_code == 200
+    saved = response.json()["data"]["records"][0]
+    assert saved["subtotal_before_tax"] == "13.63"
+    assert saved["tax_total"] == "2.04"
+    assert saved["tax_tps"] == "0.68"
+    assert saved["tax_tvq"] == "1.36"
+    assert len(saved["tax_lines"]) == 2

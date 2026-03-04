@@ -43,6 +43,9 @@ Base API prefix:
   - `matched`
   - `status`
   - `workflow_type`
+  - `sales_invoice_number` (example: `INV036928`)
+  - `sales_transport_charge_line_amount` (transport charge line amount)
+  - `sales_total_amount_incl_vat` (sales order total incl. VAT)
 
 ## Important response shapes
 
@@ -140,7 +143,8 @@ export default function CarrierStatementPage() {
       const form = new FormData();
       form.append("file", file);
       form.append("carrier", "purolator");
-      form.append("max_pages", "10");
+      // Optional page cap for testing only:
+      // form.append("max_pages", "10");
 
       const res = await fetch(`${API}/carrier-statements/extract`, {
         method: "POST",

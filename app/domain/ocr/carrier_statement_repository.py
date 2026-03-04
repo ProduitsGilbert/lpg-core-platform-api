@@ -91,6 +91,11 @@ class CarrierStatementRepository:
                 billed_weight_unit = :billed_weight_unit,
                 service_description = :service_description,
                 charges_json = :charges_json,
+                subtotal_before_tax = :subtotal_before_tax,
+                tax_lines_json = :tax_lines_json,
+                tax_total = :tax_total,
+                tax_tps = :tax_tps,
+                tax_tvq = :tax_tvq,
                 total_charges = :total_charges,
                 ref_1 = :ref_1,
                 ref_2 = :ref_2,
@@ -120,6 +125,11 @@ class CarrierStatementRepository:
                 billed_weight_unit,
                 service_description,
                 charges_json,
+                subtotal_before_tax,
+                tax_lines_json,
+                tax_total,
+                tax_tps,
+                tax_tvq,
                 total_charges,
                 ref_1,
                 ref_2,
@@ -150,6 +160,11 @@ class CarrierStatementRepository:
                 :billed_weight_unit,
                 :service_description,
                 :charges_json,
+                :subtotal_before_tax,
+                :tax_lines_json,
+                :tax_total,
+                :tax_tps,
+                :tax_tvq,
                 :total_charges,
                 :ref_1,
                 :ref_2,
@@ -178,6 +193,10 @@ class CarrierStatementRepository:
                         [charge.model_dump(mode="json") for charge in shipment.charges],
                         ensure_ascii=False,
                     )
+                    tax_lines_json = json.dumps(
+                        [charge.model_dump(mode="json") for charge in shipment.tax_lines],
+                        ensure_ascii=False,
+                    )
                     shipment_payload_json = json.dumps(shipment.model_dump(mode="json"), ensure_ascii=False)
                     merge_row = connection.execute(
                         merge_stmt,
@@ -202,6 +221,11 @@ class CarrierStatementRepository:
                             "billed_weight_unit": shipment.billed_weight_unit,
                             "service_description": shipment.service_description,
                             "charges_json": charges_json,
+                            "subtotal_before_tax": shipment.subtotal_before_tax,
+                            "tax_lines_json": tax_lines_json,
+                            "tax_total": shipment.tax_total,
+                            "tax_tps": shipment.tax_tps,
+                            "tax_tvq": shipment.tax_tvq,
                             "total_charges": shipment.total_charges,
                             "ref_1": shipment.ref_1,
                             "ref_2": shipment.ref_2,
@@ -402,9 +426,11 @@ class CarrierStatementRepository:
     @staticmethod
     def _map_row(row: dict) -> CarrierStatementStoredRecord:
         charges_payload = row.get("charges_json")
+        tax_lines_payload = row.get("tax_lines_json")
         shipment_payload = row.get("shipment_payload_json")
 
         charges: list[CarrierStatementCharge] = []
+        tax_lines: list[CarrierStatementCharge] = []
         if isinstance(charges_payload, str) and charges_payload.strip():
             try:
                 parsed = json.loads(charges_payload)
@@ -412,6 +438,14 @@ class CarrierStatementRepository:
                     charges = [CarrierStatementCharge.model_validate(item) for item in parsed]
             except (json.JSONDecodeError, TypeError, ValueError):
                 charges = []
+
+        if isinstance(tax_lines_payload, str) and tax_lines_payload.strip():
+            try:
+                parsed_tax_lines = json.loads(tax_lines_payload)
+                if isinstance(parsed_tax_lines, list):
+                    tax_lines = [CarrierStatementCharge.model_validate(item) for item in parsed_tax_lines]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                tax_lines = []
 
         shipment_payload_data = None
         if isinstance(shipment_payload, str) and shipment_payload.strip():
@@ -435,6 +469,9 @@ class CarrierStatementRepository:
             due_date=row.get("due_date"),
             currency=str(row.get("currency") or "CAD"),
             amount_due=row.get("amount_due"),
+            sales_invoice_number=row.get("sales_invoice_number"),
+            sales_transport_charge_line_amount=row.get("sales_transport_charge_line_amount"),
+            sales_total_amount_incl_vat=row.get("sales_total_amount_incl_vat"),
             shipment_date=row.get("shipment_date"),
             tracking_number=str(row.get("tracking_number") or ""),
             shipped_from_address=str(row.get("shipped_from_address") or ""),
@@ -444,6 +481,11 @@ class CarrierStatementRepository:
             billed_weight_unit=row.get("billed_weight_unit"),
             service_description=row.get("service_description"),
             charges=charges,
+            subtotal_before_tax=row.get("subtotal_before_tax"),
+            tax_lines=tax_lines,
+            tax_total=row.get("tax_total"),
+            tax_tps=row.get("tax_tps"),
+            tax_tvq=row.get("tax_tvq"),
             total_charges=row.get("total_charges"),
             ref_1=row.get("ref_1"),
             ref_2=row.get("ref_2"),
