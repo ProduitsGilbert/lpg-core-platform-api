@@ -18,6 +18,7 @@ from app.domain.erp.models import (
     CustomerSummaryResponse,
     GeocodedLocation,
     PostedSalesInvoiceCommentCreate,
+    PurchaseInvoiceCreateRequest,
     VendorContactResponse,
 )
 from app.domain.erp.vendor_contact_service import VendorContactService
@@ -86,6 +87,31 @@ async def _fetch_with_handling(
                 }
             },
         ) from exc
+
+
+def _sanitize_odata_string(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _extract_system_id(record: Dict[str, Any], resource: str) -> str:
+    system_id = (
+        record.get("SystemId")
+        or record.get("systemId")
+        or record.get("Id")
+        or record.get("id")
+    )
+    if not system_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "error": {
+                    "code": "BC_INVALID_RESPONSE",
+                    "message": "Business Central response is missing SystemId",
+                    "resource": resource,
+                }
+            },
+        )
+    return str(system_id)
 
 
 async def _fetch_ship_to_addresses(
@@ -345,6 +371,183 @@ async def create_posted_sales_invoice_comment(
             logger.error(
                 "Business Central request failed",
                 extra={"resource": resource, "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_UNAVAILABLE",
+                        "message": "Business Central service unreachable",
+                    }
+                },
+            ) from exc
+
+
+@router.get(
+    "/purchase-invoices",
+    response_model=List[Dict[str, Any]],
+    summary="List purchase invoices",
+    description="Retrieve purchase invoice headers with optional filtering by invoice number and vendor number.",
+)
+async def list_purchase_invoices(
+    no: Optional[str] = Query(
+        default=None,
+        description="Filter by purchase invoice number (No).",
+    ),
+    vendor_no: Optional[str] = Query(
+        default=None,
+        description="Filter by vendor number (Buy_from_Vendor_No).",
+    ),
+    top: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="Limit the number of records returned.",
+    ),
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> List[Dict[str, Any]]:
+    with logfire.span("bc_api.list_purchase_invoices", no=no, vendor_no=vendor_no, top=top):
+        query_parts: List[str] = []
+        filters: List[str] = []
+        if no:
+            filters.append(f"No eq '{_sanitize_odata_string(no)}'")
+        if vendor_no:
+            filters.append(f"Buy_from_Vendor_No eq '{_sanitize_odata_string(vendor_no)}'")
+        if filters:
+            query_parts.append(f"$filter={' and '.join(filters)}")
+        if top is not None:
+            query_parts.append(f"$top={int(top)}")
+
+        resource = "PurchaseInvoices"
+        if query_parts:
+            resource = f"{resource}?{'&'.join(query_parts)}"
+
+        return await _fetch_with_handling(
+            resource=resource,
+            filter_field=None,
+            filter_value=None,
+            top=None,
+            service=service,
+        )
+
+
+@router.get(
+    "/purchase-invoices/{invoice_no}/lines",
+    response_model=List[Dict[str, Any]],
+    summary="List purchase invoice lines",
+    description="Retrieve lines for a purchase invoice using PurchaseInvoiceLines.",
+)
+async def list_purchase_invoice_lines(
+    invoice_no: str,
+    top: Optional[int] = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="Limit the number of records returned.",
+    ),
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> List[Dict[str, Any]]:
+    with logfire.span("bc_api.list_purchase_invoice_lines", invoice_no=invoice_no, top=top):
+        resource = (
+            "PurchaseInvoiceLines?"
+            f"$filter=Document_No eq '{_sanitize_odata_string(invoice_no)}'"
+        )
+        if top is not None:
+            resource = f"{resource}&$top={int(top)}"
+
+        return await _fetch_with_handling(
+            resource=resource,
+            filter_field=None,
+            filter_value=None,
+            top=None,
+            service=service,
+        )
+
+
+@router.post(
+    "/purchase-invoices",
+    response_model=Dict[str, Any],
+    summary="Create purchase invoice",
+    description=(
+        "Create a purchase invoice by first creating an empty header, patching header fields, "
+        "then creating one or more purchase invoice lines."
+    ),
+)
+async def create_purchase_invoice(
+    payload: PurchaseInvoiceCreateRequest,
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> Dict[str, Any]:
+    header_resource = "PurchaseInvoices"
+    line_resource = "PurchaseInvoiceLines"
+    with logfire.span(
+        "bc_api.create_purchase_invoice",
+        vendor_no=payload.vendor_no,
+        line_count=len(payload.lines),
+    ):
+        try:
+            created_header = await service.create_record(header_resource, {})
+            system_id = _extract_system_id(created_header, header_resource)
+            header_payload = {
+                "Buy_from_Vendor_No": payload.vendor_no,
+                "Vendor_Invoice_No": payload.vendor_invoice_no,
+                "Posting_Date": payload.posting_date.isoformat(),
+                "Due_Date": payload.due_date.isoformat(),
+            }
+            updated_header = await service.update_record(
+                header_resource,
+                system_id,
+                header_payload,
+                etag=created_header.get("@odata.etag"),
+            )
+            invoice_no = str(updated_header.get("No") or created_header.get("No") or "")
+            if not invoice_no:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail={
+                        "error": {
+                            "code": "BC_INVALID_RESPONSE",
+                            "message": "Business Central did not return purchase invoice number",
+                            "resource": header_resource,
+                        }
+                    },
+                )
+
+            created_lines: List[Dict[str, Any]] = []
+            for line in payload.lines:
+                line_payload = {
+                    "Document_No": invoice_no,
+                    "Type": line.line_type.value,
+                    "No": line.no,
+                    "Quantity": float(line.quantity),
+                    "Direct_Unit_Cost_Excl_Tax": float(line.direct_unit_cost_excl_tax),
+                }
+                created_lines.append(await service.create_record(line_resource, line_payload))
+
+            return {
+                "invoice_no": invoice_no,
+                "header": updated_header,
+                "lines": created_lines,
+            }
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else status.HTTP_502_BAD_GATEWAY
+            logger.error(
+                "Business Central returned HTTP error",
+                extra={"resource": header_resource, "status_code": status_code},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_ERROR",
+                        "message": "Business Central request failed",
+                        "upstream_status": status_code,
+                    }
+                },
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.error(
+                "Business Central request failed",
+                extra={"resource": header_resource, "error": str(exc)},
             )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,

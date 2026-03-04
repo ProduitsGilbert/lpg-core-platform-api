@@ -1,10 +1,11 @@
 """
 Domain models for ERP entities
 """
+from enum import Enum
 from typing import Optional, List, Any, Dict
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 # Item models
 class ItemResponse(BaseModel):
@@ -363,6 +364,52 @@ class PostedSalesInvoiceCommentCreate(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class PurchaseInvoiceLineType(str, Enum):
+    """Supported Business Central purchase invoice line types."""
+
+    ITEM = "Item"
+    GL_ACCOUNT = "G/L Account"
+
+
+class PurchaseInvoiceLineCreate(BaseModel):
+    """Request line used when creating a purchase invoice."""
+
+    line_type: PurchaseInvoiceLineType = Field(
+        ...,
+        description="Business Central line Type (Item or G/L Account).",
+    )
+    no: str = Field(..., min_length=1, description="Item No or G/L Account No.")
+    quantity: Decimal = Field(..., description="Line quantity.")
+    direct_unit_cost_excl_tax: Decimal = Field(
+        ...,
+        description="Direct unit cost excluding tax.",
+    )
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class PurchaseInvoiceCreateRequest(BaseModel):
+    """Request payload for creating a purchase invoice with lines."""
+
+    vendor_no: str = Field(..., min_length=1, description="Vendor No.")
+    vendor_invoice_no: str = Field(..., min_length=1, description="Vendor invoice reference number.")
+    posting_date: date = Field(..., description="Posting date (YYYY-MM-DD).")
+    due_date: date = Field(..., description="Due date (YYYY-MM-DD).")
+    lines: List[PurchaseInvoiceLineCreate] = Field(
+        ...,
+        min_length=1,
+        description="One or more purchase invoice lines.",
+    )
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "PurchaseInvoiceCreateRequest":
+        if self.due_date < self.posting_date:
+            raise ValueError("due_date must be on or after posting_date")
+        return self
 
 
 class BusinessCentralRecordCreate(BaseModel):
