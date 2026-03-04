@@ -249,7 +249,8 @@ class OCRClientProtocol(Protocol):
         filename: str,
         document_type: str,
         output_model: Type[BaseModel],
-        additional_instructions: Optional[str] = None
+        additional_instructions: Optional[str] = None,
+        prefer_vision: bool = False,
     ) -> BaseModel:
         """
         Extract structured data from any document type using a custom model.
@@ -260,6 +261,7 @@ class OCRClientProtocol(Protocol):
             document_type: Type of document for prompt customization
             output_model: Pydantic model class defining expected output structure
             additional_instructions: Optional extra guidance for extraction
+            prefer_vision: When True, force vision/file parsing path instead of text fast-path
             
         Returns:
             Extracted data in the specified model format
@@ -270,7 +272,8 @@ class OCRClientProtocol(Protocol):
         self,
         document_text: str,
         document_type: str,
-        output_model: Type[BaseModel]
+        output_model: Type[BaseModel],
+        additional_instructions: Optional[str] = None,
     ) -> BaseModel:
         """
         Extract structured data from plain text (no vision/file upload) using a custom model.
@@ -279,6 +282,7 @@ class OCRClientProtocol(Protocol):
             document_text: Extracted text content to parse
             document_type: Type of document for prompt customization
             output_model: Pydantic model class defining expected output structure
+            additional_instructions: Optional extra guidance for extraction
 
         Returns:
             Extracted data in the specified model format

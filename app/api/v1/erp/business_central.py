@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -222,6 +223,170 @@ def _dimension_table_id(record: Dict[str, Any]) -> Optional[int]:
     return None
 
 
+def _normalize_tracking_number(tracking_number: str) -> str:
+    """Normalize tracking numbers received from scanners/copy-paste."""
+    return tracking_number.strip().lstrip(":")
+
+
+def _extract_invoice_no(record: Dict[str, Any]) -> Optional[str]:
+    for key in ("No", "Document_No", "DocumentNo"):
+        value = record.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _extract_line_no(record: Dict[str, Any]) -> Optional[str]:
+    for key in ("No", "No_", "Item_No", "ItemNo", "G_L_Account_No", "GL_Account_No"):
+        value = record.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _coerce_decimal(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
+def _first_decimal(record: Dict[str, Any], fields: List[str]) -> Optional[Decimal]:
+    for field in fields:
+        if field not in record:
+            continue
+        value = _coerce_decimal(record.get(field))
+        if value is not None:
+            return value
+    return None
+
+
+def _extract_package_tracking_no(record: Dict[str, Any]) -> Optional[str]:
+    for key in ("Package_Tracking_No", "PackageTrackingNo", "Package_Tracking_No_"):
+        value = record.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+async def _fetch_posted_sales_invoices_by_tracking(
+    service: BusinessCentralODataService,
+    tracking_number: str,
+) -> List[Dict[str, Any]]:
+    resource_candidates = ("PostedSalesInvoices", "PostedSalesInvoiceHeaders")
+    field_candidates = ("Package_Tracking_No", "PackageTrackingNo", "Package_Tracking_No_")
+
+    matches: List[Dict[str, Any]] = []
+    seen_invoice_nos: set[str] = set()
+    query_attempted = False
+
+    for resource in resource_candidates:
+        for field in field_candidates:
+            query_attempted = True
+            try:
+                rows = await service.fetch_collection(
+                    resource,
+                    filter_field=field,
+                    filter_value=tracking_number,
+                    top=None,
+                )
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response else None
+                # Continue trying alternate resource/field combinations when BC says unsupported resource/property.
+                if status_code in {400, 404}:
+                    continue
+                logger.error(
+                    "Business Central returned HTTP error",
+                    extra={"resource": resource, "status_code": status_code},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail={
+                        "error": {
+                            "code": "BC_UPSTREAM_ERROR",
+                            "message": "Business Central request failed",
+                            "upstream_status": status_code or status.HTTP_502_BAD_GATEWAY,
+                        }
+                    },
+                ) from exc
+            except httpx.RequestError as exc:
+                logger.error(
+                    "Business Central request failed",
+                    extra={"resource": resource, "error": str(exc)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail={
+                        "error": {
+                            "code": "BC_UPSTREAM_UNAVAILABLE",
+                            "message": "Business Central service unreachable",
+                        }
+                    },
+                ) from exc
+
+            for row in rows:
+                invoice_no = _extract_invoice_no(row)
+                if not invoice_no or invoice_no in seen_invoice_nos:
+                    continue
+                seen_invoice_nos.add(invoice_no)
+                matches.append(row)
+
+    if matches or query_attempted:
+        return matches
+    return []
+
+
+async def _fetch_posted_sales_invoice_lines(
+    service: BusinessCentralODataService,
+    invoice_no: str,
+) -> List[Dict[str, Any]]:
+    filter_field_candidates = ("Document_No", "DocumentNo")
+
+    for field in filter_field_candidates:
+        try:
+            return await service.fetch_collection(
+                "PostedSalesInvoiceLines",
+                filter_field=field,
+                filter_value=invoice_no,
+                top=None,
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response else None
+            if status_code in {400, 404}:
+                continue
+            logger.error(
+                "Business Central returned HTTP error",
+                extra={"resource": "PostedSalesInvoiceLines", "status_code": status_code},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_ERROR",
+                        "message": "Business Central request failed",
+                        "upstream_status": status_code or status.HTTP_502_BAD_GATEWAY,
+                    }
+                },
+            ) from exc
+        except httpx.RequestError as exc:
+            logger.error(
+                "Business Central request failed",
+                extra={"resource": "PostedSalesInvoiceLines", "error": str(exc)},
+            )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "error": {
+                        "code": "BC_UPSTREAM_UNAVAILABLE",
+                        "message": "Business Central service unreachable",
+                    }
+                },
+            ) from exc
+    return []
+
+
 async def _fetch_customer_division_map(
     customer_nos: set[str],
     service: BusinessCentralODataService,
@@ -412,6 +577,146 @@ async def list_posted_sales_invoice_comments(
                 service=service,
             )
     return records
+
+
+@router.get(
+    "/posted-sales-invoices/by-tracking",
+    response_model=Dict[str, Any],
+    summary="Get posted sales invoice by tracking number",
+    description=(
+        "Find posted sales invoices by Package_Tracking_No and return full invoice payload "
+        "including lines and the transport charge line amount (Line_Amount_Excl_Tax)."
+    ),
+)
+async def get_posted_sales_invoices_by_tracking(
+    tracking_number: str = Query(
+        ...,
+        min_length=1,
+        description="Carrier tracking number (Package_Tracking_No). Example: 335568694913.",
+    ),
+    transport_line_no: str = Query(
+        default="41800",
+        min_length=1,
+        description="Line No to extract transport charge from posted invoice lines.",
+    ),
+    service: BusinessCentralODataService = Depends(get_odata_service),
+) -> Dict[str, Any]:
+    normalized_tracking = _normalize_tracking_number(tracking_number)
+    if not normalized_tracking:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": {
+                    "code": "INVALID_TRACKING_NUMBER",
+                    "message": "tracking_number must not be empty",
+                }
+            },
+        )
+
+    with logfire.span(
+        "bc_api.get_posted_sales_invoices_by_tracking",
+        tracking_number=normalized_tracking,
+        transport_line_no=transport_line_no,
+    ):
+        headers = await _fetch_posted_sales_invoices_by_tracking(service, normalized_tracking)
+
+        if not headers:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "error": {
+                        "code": "BC_POSTED_SALES_INVOICE_NOT_FOUND",
+                        "message": "No posted sales invoice found for the provided tracking number",
+                        "tracking_number": normalized_tracking,
+                    }
+                },
+            )
+
+        matches: List[Dict[str, Any]] = []
+        for header in headers:
+            invoice_no = _extract_invoice_no(header)
+            if not invoice_no:
+                continue
+            lines = await _fetch_posted_sales_invoice_lines(service, invoice_no)
+
+            transport_line = next(
+                (
+                    line
+                    for line in lines
+                    if _extract_line_no(line) == transport_line_no
+                ),
+                None,
+            )
+
+            transport_amount_excl_tax = (
+                _first_decimal(
+                    transport_line or {},
+                    [
+                        "Line_Amount_Excl_Tax",
+                        "LineAmountExclTax",
+                        "Line_Amount_Excluding_VAT",
+                        "Line_Amount",
+                        "Amount",
+                    ],
+                )
+                if transport_line
+                else None
+            )
+
+            sales_order_amount_excl_tax = _first_decimal(
+                header,
+                [
+                    "Amount_Excl_Tax",
+                    "Amount_Excluding_VAT",
+                    "AmountExcludingVAT",
+                    "Amount",
+                ],
+            )
+            sales_order_amount_incl_tax = _first_decimal(
+                header,
+                [
+                    "Amount_Including_VAT",
+                    "AmountIncludingVAT",
+                    "Amount_Incl_Tax",
+                ],
+            )
+
+            matches.append(
+                {
+                    "invoice_no": invoice_no,
+                    "package_tracking_no": _extract_package_tracking_no(header),
+                    "sales_order_totals": {
+                        "amount_excl_tax": (
+                            float(sales_order_amount_excl_tax)
+                            if sales_order_amount_excl_tax is not None
+                            else None
+                        ),
+                        "amount_incl_tax": (
+                            float(sales_order_amount_incl_tax)
+                            if sales_order_amount_incl_tax is not None
+                            else None
+                        ),
+                        "currency_code": header.get("Currency_Code") or header.get("CurrencyCode"),
+                    },
+                    "transport_charge": {
+                        "line_no": transport_line_no,
+                        "amount_excl_tax": (
+                            float(transport_amount_excl_tax)
+                            if transport_amount_excl_tax is not None
+                            else None
+                        ),
+                        "line": transport_line,
+                    },
+                    "header": header,
+                    "lines": lines,
+                }
+            )
+
+    return {
+        "tracking_number": normalized_tracking,
+        "matches_count": len(matches),
+        "matches": matches,
+    }
 
 
 @router.post(

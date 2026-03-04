@@ -190,3 +190,39 @@ class PurchasingStatsResponse(BaseModel):
     po_timeline: List[PurchasingPoTimelinePoint]
     action_categories: List[PurchasingActionCategoryStats]
     total_action_updates: int = Field(ge=0)
+
+
+class ToolShortagePredictionItem(BaseModel):
+    snapshot_date: str
+    generated_at: datetime
+    work_center_no: str
+    machine_center: str
+    tool_id: str
+    total_required_use_time_seconds: int = Field(ge=0)
+    rows_count: int = Field(ge=0)
+    program_count: int = Field(ge=0)
+    total_remaining_life: float = Field(ge=0)
+    inventory_instances: int = Field(ge=0)
+    available_instances: int = Field(ge=0)
+    sister_count_total: int = Field(ge=0)
+    sister_count_available: int = Field(ge=0)
+    sister_count_machine: int = Field(ge=0)
+    time_since_last_use_hours: float = Field(ge=0)
+    uses_last_24h: int = Field(ge=0)
+    uses_last_7d: int = Field(ge=0)
+    wear_rate_24h: float = Field(ge=0)
+    wear_rate_7d: float = Field(ge=0)
+    tool_usage_minutes_90d: float = Field(ge=0)
+    future_usage_minutes_24h: float = Field(ge=0)
+    future_usage_minutes_48h: float = Field(ge=0)
+    future_usage_minutes_7d: float = Field(ge=0)
+    shortage_probability: Optional[float] = Field(default=None, ge=0, le=1)
+    shortage_label: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ToolShortagePredictionSnapshotResponse(BaseModel):
+    snapshot_date: str
+    machine_center: Optional[str] = None
+    total_tools: int = Field(ge=0)
+    predictions: List[ToolShortagePredictionItem]

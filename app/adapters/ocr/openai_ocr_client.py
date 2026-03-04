@@ -56,8 +56,8 @@ class OpenAIOCRClient(OCRClientProtocol):
             api_key: OpenAI API key
             model: Model to use for extraction (default: gpt-5-2025-08-07)
         """
-        # Cap request latency to keep OCR responsive.
-        self._default_timeout = 45.0
+        # Carrier statements can require longer generation windows, especially on fallback paths.
+        self._default_timeout = 120.0
         self.client = OpenAI(api_key=api_key, timeout=self._default_timeout) if api_key else None
         self.model = model
         self._enabled = bool(api_key)
@@ -273,6 +273,9 @@ class OpenAIOCRClient(OCRClientProtocol):
                 {"role": "user", "content": content},
             ],
             "response_format": {"type": "json_object"},
+            "temperature": 0,
+            # Carrier statement extraction can be verbose; avoid truncated JSON output.
+            "max_tokens": 12000,
         }
         if is_pdf:
             payload["plugins"] = [
@@ -624,8 +627,10 @@ class OpenAIOCRClient(OCRClientProtocol):
             except Exception as exc:
                 logfire.error("OpenRouter OCR request failed", error=str(exc))
                 if self._primary_provider == "openrouter":
-                    # Avoid hanging on OpenAI fallbacks when primary is OpenRouter.
-                    raise
+                    logfire.warn(
+                        "OpenRouter primary text OCR failed; falling back to OpenAI text OCR.",
+                        error=str(exc),
+                    )
 
         system_with_schema = f"{system_prompt}\n\n{self._schema_instructions(response_model)}"
         messages = [
@@ -802,6 +807,7 @@ class OpenAIOCRClient(OCRClientProtocol):
         document_type: str,
         output_model: Type[BaseModel],
         additional_instructions: Optional[str] = None,
+        prefer_vision: bool = False,
     ) -> BaseModel:
         """
         Extract structured data from any document type using a custom model.
@@ -811,6 +817,7 @@ class OpenAIOCRClient(OCRClientProtocol):
             filename: Name of the file
             document_type: Type of document for prompt customization
             output_model: Pydantic model class defining expected output structure
+            prefer_vision: When True, force vision/file parsing path for better OCR consistency
             
         Returns:
             Extracted data in the specified model format
@@ -845,7 +852,8 @@ class OpenAIOCRClient(OCRClientProtocol):
                         f"Extract all relevant information from this {document_type} document according to the specified structure."
                         f"{extra}"
                     ),
-                    response_model=output_model
+                    response_model=output_model,
+                    prefer_vision=prefer_vision,
                 )
 
                 processing_time = int((time.time() - start_time) * 1000)
@@ -873,7 +881,8 @@ class OpenAIOCRClient(OCRClientProtocol):
         self,
         document_text: str,
         document_type: str,
-        output_model: Type[BaseModel]
+        output_model: Type[BaseModel],
+        additional_instructions: Optional[str] = None,
     ) -> BaseModel:
         """
         Extract structured data from plain text using a custom model.
@@ -894,6 +903,9 @@ class OpenAIOCRClient(OCRClientProtocol):
                     field_descriptions.append(f"- {desc}")
 
                 fields_prompt = "\n".join(field_descriptions)
+                extra = ""
+                if additional_instructions and additional_instructions.strip():
+                    extra = f"\n\nAdditional instructions:\n{additional_instructions.strip()}"
 
                 extracted_data = self._extract_with_text(
                     document_category=document_type,
@@ -906,12 +918,12 @@ Guidelines:
 - Preserve the exact meaning of payment terms and timing.
 - For monetary amounts, extract decimal numbers without currency symbols.
 - For percent values, use numbers from 0 to 100.
-- If currency is present, return ISO 4217 codes (e.g., USD, CAD, EUR).""",
+- If currency is present, return ISO 4217 codes (e.g., USD, CAD, EUR).{extra}""",
                     user_prompt=f"""Extract the required structured data from this document text:
 
 --- BEGIN DOCUMENT TEXT ---
 {document_text}
---- END DOCUMENT TEXT ---""",
+--- END DOCUMENT TEXT ---{extra}""",
                     response_model=output_model
                 )
 

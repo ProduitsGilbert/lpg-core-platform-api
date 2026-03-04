@@ -150,6 +150,32 @@ class Settings(BaseSettings):
         description="ODBC driver to use for Windchill SQL connections",
     )
 
+    # Tool Prediction SQL Server (dedicated KPI snapshot database)
+    tool_prediction_db_dsn: Optional[str] = Field(
+        default=None,
+        description="Override MSSQL+pyodbc DSN for tool prediction database",
+    )
+    tool_prediction_sql_server: Optional[str] = Field(
+        default=None,
+        description="SQL Server host for tool prediction database (e.g., server\\instance)",
+    )
+    tool_prediction_sql_database: Optional[str] = Field(
+        default=None,
+        description="Tool prediction database name (defaults to Cedule database when empty)",
+    )
+    tool_prediction_sql_username: Optional[str] = Field(
+        default=None,
+        description="Tool prediction SQL username",
+    )
+    tool_prediction_sql_password: Optional[str] = Field(
+        default=None,
+        description="Tool prediction SQL password",
+    )
+    tool_prediction_sql_driver: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver to use for tool prediction SQL connections",
+    )
+
     fastems1_autopilot_db_dsn: Optional[str] = Field(
         default=None,
         description="Override MSSQL DSN for Fastems1 Autopilot tables (if different from DB_DSN)"
@@ -177,6 +203,8 @@ class Settings(BaseSettings):
         "bc_sql_driver",
         "windchill_db_dsn",
         "windchill_sql_driver",
+        "tool_prediction_db_dsn",
+        "tool_prediction_sql_driver",
         mode="before",
     )
     @classmethod
@@ -327,6 +355,10 @@ class Settings(BaseSettings):
         default="http://lpgadoc03:8585/fastems1",
         description="Base URL for NC program tool metadata"
     )
+    fastems2_nc_program_tool_base_url: Optional[str] = Field(
+        default="http://lpgadoc03:8585/fastems2",
+        description="Base URL for Fastems2 NC program tool metadata",
+    )
     fastems1_material_api_base_url: Optional[str] = Field(
         default="http://lpgadoc03:8585/fastems1",
         description="Base URL for Fastems1 material pallet inventory (dy_storage)"
@@ -348,6 +380,60 @@ class Settings(BaseSettings):
         default=None,
         ge=1,
         description="Optional cap on planned jobs per machine (None = plan everything)"
+    )
+    tooling_future_needs_cache_db_path: str = Field(
+        default="/app/data/tooling_future_needs_cache.sqlite",
+        description="SQLite path for persisted tooling future-needs daily cache",
+    )
+    tooling_future_needs_cache_retention_days: int = Field(
+        default=45,
+        ge=1,
+        description="Days to keep tooling future-needs cache history",
+    )
+    tooling_future_needs_default_work_centers: str = Field(
+        default="40253,40279",
+        description="Comma-separated default work centers to refresh for tooling future-needs cache",
+    )
+    tooling_usage_history_cache_db_path: str = Field(
+        default="/app/data/tooling_usage_history_cache.sqlite",
+        description="SQLite path for persisted tooling usage-history cache",
+    )
+    tooling_usage_history_cache_retention_days: int = Field(
+        default=45,
+        ge=1,
+        description="Days to keep tooling usage-history cache entries",
+    )
+    tooling_usage_history_default_work_centers: str = Field(
+        default="40253,40279",
+        description="Comma-separated work centers to refresh for tooling usage-history cache",
+    )
+    tooling_fastems2_work_centers: str = Field(
+        default="40279",
+        description="Comma-separated work centers that should use Fastems2 NC program tool API",
+    )
+    tooling_usage_history_default_machine_centers: str = Field(
+        default="DMC100,FASTEMS2",
+        description="Comma-separated machine centers to refresh for tooling usage-history cache",
+    )
+    tool_prediction_api_base_url: Optional[str] = Field(
+        default=None,
+        description="Base URL of external tool shortage prediction API",
+    )
+    tool_prediction_api_path: str = Field(
+        default="/predict/future-needs",
+        description="Path for tool shortage prediction endpoint",
+    )
+    tool_prediction_api_timeout_seconds: float = Field(
+        default=20.0,
+        ge=1.0,
+        le=120.0,
+        description="Timeout in seconds for tool shortage prediction endpoint calls",
+    )
+    tool_prediction_targets: str = Field(
+        default="40253:DMC100,40279:NHX5500",
+        description=(
+            "Comma-separated work_center_no:machine_center pairs used for daily tool shortage predictions"
+        ),
     )
 
     openai_api_key: Optional[str] = Field(
@@ -920,6 +1006,42 @@ class Settings(BaseSettings):
         ge=0,
         le=59,
         description="Minute (0-59) to run daily ERP production costing snapshot delta refresh",
+    )
+    tooling_future_needs_refresh_hour: int = Field(
+        default=5,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh tooling future-needs cache",
+    )
+    tooling_future_needs_refresh_minute: int = Field(
+        default=20,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh tooling future-needs cache",
+    )
+    tooling_usage_history_refresh_hour: int = Field(
+        default=5,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh tooling usage-history cache",
+    )
+    tooling_usage_history_refresh_minute: int = Field(
+        default=35,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh tooling usage-history cache",
+    )
+    tool_prediction_refresh_hour: int = Field(
+        default=5,
+        ge=0,
+        le=23,
+        description="Hour (0-23) to refresh daily tool shortage predictions",
+    )
+    tool_prediction_refresh_minute: int = Field(
+        default=50,
+        ge=0,
+        le=59,
+        description="Minute (0-59) to refresh daily tool shortage predictions",
     )
 
     production_costing_sync_max_concurrency: int = Field(

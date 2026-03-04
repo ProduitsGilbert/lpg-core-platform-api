@@ -45,6 +45,8 @@ services:
       - ./logs:/app/logs
       - ./cert:/app/certs:ro
       - geocode-cache:/app/data
+    extra_hosts:
+      - "lpgadoc03:host-gateway"
     networks:
       - lpg-network
     healthcheck:

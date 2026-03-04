@@ -4,10 +4,11 @@ Pydantic models for OCR document extraction.
 These models define the structure of extracted data from various document types.
 """
 
-from typing import List, Optional, Literal
-from datetime import date
+import re
+from typing import Any, List, Optional, Literal
+from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class PurchaseOrderLine(BaseModel):
@@ -198,6 +199,189 @@ class CustomerAccountStatementExtraction(BaseModel):
         ..., description="List of transactions affecting the account balance"
     )
     notes: Optional[str] = Field(None, description="Additional remarks or payment instructions")
+
+
+class CarrierStatementCharge(BaseModel):
+    """One charge line for a shipment on a carrier statement."""
+    description: str = Field(..., description="Charge description (service, surcharge, tax, or adjustment)")
+    quantity_rate: Optional[str] = Field(
+        None,
+        description="Raw quantity/rate text when shown on the statement (for example '1 x 22.07')",
+    )
+    amount: Optional[Decimal] = Field(None, description="Charge amount for this line")
+
+
+class CarrierStatementShipment(BaseModel):
+    """Shipment-level transaction found on a carrier statement."""
+    shipment_date: date = Field(..., description="Shipment date")
+    tracking_number: str = Field(..., description="Carrier tracking or shipment number")
+    shipped_from_address: str = Field(
+        ...,
+        description="Full multiline address block for 'Shipped from' (Expedie de)",
+    )
+    shipped_to_address: str = Field(
+        ...,
+        description="Full multiline address block for 'Shipped to' (Expedie a)",
+    )
+    piece_count: Optional[int] = Field(None, description="Number of pieces")
+    billed_weight: Optional[Decimal] = Field(None, description="Billed weight value")
+    billed_weight_unit: Optional[str] = Field(None, description="Billed weight unit (for example LB)")
+    service_description: Optional[str] = Field(None, description="Primary service description")
+    charges: List[CarrierStatementCharge] = Field(
+        default_factory=list,
+        description="Detailed charge lines including fuel surcharge, taxes, and other fees",
+    )
+    total_charges: Decimal = Field(..., description="Total charges for this shipment")
+    ref_1: Optional[str] = Field(None, description="Reference 1 value")
+    ref_2: Optional[str] = Field(None, description="Reference 2 value")
+    manifest_number: Optional[str] = Field(None, description="Manifest number")
+    billing_note: Optional[str] = Field(None, description="Billing note/remarque for this shipment")
+    source_page: Optional[int] = Field(None, description="Page number where the shipment appears")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_billed_weight_fields(cls, data: Any) -> Any:
+        """
+        Accept billed weight values like '25 LB' and split into numeric + unit.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        raw_weight = data.get("billed_weight")
+        if not isinstance(raw_weight, str):
+            return data
+
+        text = raw_weight.strip()
+        if not text:
+            return data
+
+        match = re.search(r"([0-9]+(?:[.,][0-9]+)?)\s*([A-Za-z]{1,10})?", text)
+        if not match:
+            return data
+
+        numeric = match.group(1).replace(",", ".")
+        unit = match.group(2)
+
+        data["billed_weight"] = numeric
+        if unit and not data.get("billed_weight_unit"):
+            data["billed_weight_unit"] = unit.upper()
+
+        return data
+
+
+class CarrierAccountStatementExtraction(BaseModel):
+    """Model for carrier account statements (Purolator first implementation)."""
+    carrier: str = Field(..., description="Carrier name (for example purolator)")
+    account_number: Optional[str] = Field(None, description="Carrier account number")
+    invoice_number: Optional[str] = Field(None, description="Statement or invoice number")
+    invoice_date: Optional[date] = Field(None, description="Invoice date")
+    due_date: Optional[date] = Field(None, description="Payment due date")
+    currency: str = Field(default="CAD", description="Currency used for billing")
+    amount_due: Optional[Decimal] = Field(None, description="Total amount due for the statement")
+    processed_pages: int = Field(
+        default=10,
+        description="Number of statement pages processed from the uploaded PDF",
+    )
+    shipments: List[CarrierStatementShipment] = Field(
+        ...,
+        description="Structured shipment transactions extracted from the statement",
+    )
+    notes: Optional[str] = Field(None, description="Additional statement-level notes")
+
+
+class CarrierStatementSaveRequest(BaseModel):
+    """Payload used to persist extracted carrier statement shipments."""
+    carrier: str = Field(..., description="Carrier name (for example purolator)")
+    workflow_type: Literal["purchase", "sales"] = Field(
+        default="sales",
+        description="Business workflow classification for this shipment record",
+    )
+    status: str = Field(
+        default="new",
+        min_length=1,
+        max_length=50,
+        description="Current matching/reconciliation status text",
+    )
+    matched: bool = Field(
+        default=False,
+        description="Whether this shipment has been matched to an internal document",
+    )
+    statement_filename: Optional[str] = Field(
+        default=None,
+        description="Source statement filename for traceability",
+    )
+    extracted_data: CarrierAccountStatementExtraction = Field(
+        ...,
+        description="Structured extraction output from the carrier statement endpoint",
+    )
+
+
+class CarrierStatementStoredRecord(BaseModel):
+    """Persisted carrier statement shipment row."""
+    id: int = Field(..., description="Database primary key")
+    carrier: str = Field(..., description="Carrier name")
+    workflow_type: Literal["purchase", "sales"] = Field(..., description="Workflow classification")
+    status: str = Field(..., description="Current matching/reconciliation status")
+    matched: bool = Field(..., description="Match flag")
+    statement_filename: Optional[str] = Field(None, description="Source statement filename")
+    account_number: Optional[str] = Field(None, description="Carrier account number")
+    invoice_number: Optional[str] = Field(None, description="Statement/invoice number")
+    invoice_date: Optional[date] = Field(None, description="Invoice date")
+    due_date: Optional[date] = Field(None, description="Payment due date")
+    currency: str = Field(..., description="Statement currency")
+    amount_due: Optional[Decimal] = Field(None, description="Statement amount due")
+    shipment_date: date = Field(..., description="Shipment date")
+    tracking_number: str = Field(..., description="Tracking number")
+    shipped_from_address: str = Field(..., description="Origin address block")
+    shipped_to_address: str = Field(..., description="Destination address block")
+    piece_count: Optional[int] = Field(None, description="Piece count")
+    billed_weight: Optional[Decimal] = Field(None, description="Billed weight")
+    billed_weight_unit: Optional[str] = Field(None, description="Billed weight unit")
+    service_description: Optional[str] = Field(None, description="Service description")
+    charges: List[CarrierStatementCharge] = Field(default_factory=list, description="Charge lines")
+    total_charges: Decimal = Field(..., description="Shipment total charges")
+    ref_1: Optional[str] = Field(None, description="Reference 1")
+    ref_2: Optional[str] = Field(None, description="Reference 2")
+    manifest_number: Optional[str] = Field(None, description="Manifest number")
+    billing_note: Optional[str] = Field(None, description="Billing note")
+    source_page: Optional[int] = Field(None, description="Source page in statement")
+    shipment_payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Raw shipment payload snapshot used for auditing/debugging",
+    )
+    created_at: datetime = Field(..., description="Record creation timestamp (UTC)")
+    updated_at: datetime = Field(..., description="Record update timestamp (UTC)")
+
+
+class CarrierStatementSaveResponse(BaseModel):
+    """Result of persisting a carrier statement extraction."""
+    inserted_count: int = Field(..., description="Number of inserted rows")
+    updated_count: int = Field(..., description="Number of updated rows")
+    records: List[CarrierStatementStoredRecord] = Field(
+        default_factory=list,
+        description="Inserted/updated records",
+    )
+
+
+class CarrierStatementListResponse(BaseModel):
+    """List response for persisted carrier statement rows."""
+    total: int = Field(..., description="Total records for applied filters")
+    items: List[CarrierStatementStoredRecord] = Field(default_factory=list, description="Current page of records")
+
+
+class CarrierStatementUpdateRequest(BaseModel):
+    """Mutable fields for updating a persisted carrier statement row."""
+    workflow_type: Optional[Literal["purchase", "sales"]] = Field(
+        default=None,
+        description="Updated workflow type",
+    )
+    status: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=50,
+        description="Updated status text",
+    )
+    matched: Optional[bool] = Field(default=None, description="Updated match flag")
 
 
 class SupplierInvoiceExtraction(InvoiceExtraction):

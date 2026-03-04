@@ -29,10 +29,13 @@ from app.domain.kpi.planner_daily_report_jobs import refresh_planner_kpi_cache
 from app.domain.kpi.jobs_snapshot_jobs import refresh_jobs_snapshot
 from app.domain.kpi.sales_stats_jobs import refresh_sales_stats_snapshot
 from app.domain.kpi.payables_invoice_stats_jobs import refresh_payables_invoice_stats_snapshot
+from app.domain.kpi.tool_prediction_jobs import refresh_tool_prediction_snapshot
 from app.domain.finance.ar_jobs import refresh_ar_payment_stats
 from app.domain.finance.ar_cache_jobs import refresh_ar_open_invoices_cache
 from app.domain.finance.cashflow_jobs import refresh_cashflow_projection_default_window
 from app.domain.erp.production_costing_snapshot_jobs import refresh_production_costing_snapshot
+from app.domain.tooling.future_needs_jobs import refresh_tooling_future_needs_cache
+from app.domain.tooling.usage_history_jobs import refresh_tooling_usage_history_cache
 from app.db import get_db_session
 from app.domain.erp.customer_geocode_cache import customer_geocode_cache
 
@@ -238,6 +241,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             name="Refresh ERP production costing snapshots",
             replace_existing=True,
             coalesce=True,
+            max_instances=1,
+            misfire_grace_time=172800,
+        )
+
+        scheduler.add_job(
+            refresh_tooling_future_needs_cache,
+            "cron",
+            hour=settings.tooling_future_needs_refresh_hour,
+            minute=settings.tooling_future_needs_refresh_minute,
+            id="tooling_future_needs_refresh",
+            name="Refresh tooling future-needs cache",
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=172800,
+        )
+
+        scheduler.add_job(
+            refresh_tooling_usage_history_cache,
+            "cron",
+            hour=settings.tooling_usage_history_refresh_hour,
+            minute=settings.tooling_usage_history_refresh_minute,
+            id="tooling_usage_history_refresh",
+            name="Refresh tooling usage-history cache",
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=172800,
+        )
+
+        scheduler.add_job(
+            refresh_tool_prediction_snapshot,
+            "cron",
+            hour=settings.tool_prediction_refresh_hour,
+            minute=settings.tool_prediction_refresh_minute,
+            id="tool_prediction_snapshot_refresh",
+            name="Refresh daily tool shortage predictions",
+            replace_existing=True,
             max_instances=1,
             misfire_grace_time=172800,
         )

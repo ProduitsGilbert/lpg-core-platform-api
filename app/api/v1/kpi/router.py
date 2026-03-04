@@ -19,6 +19,7 @@ from app.domain.kpi.models import (
     PurchasingStatsResponse,
     SalesStatsHistoryResponse,
     SalesStatsSnapshotResponse,
+    ToolShortagePredictionSnapshotResponse,
     PlannerDailyReportResponse,
     PlannerDailyWorkcenterHistoryResponse,
     WindchillCreatedDrawingsPerUser,
@@ -35,6 +36,10 @@ from app.domain.kpi.planner_daily_report_service import (
 )
 from app.domain.kpi.jobs_snapshot_service import JobsSnapshotService, parse_jobs_snapshot_date
 from app.domain.kpi.sales_stats_service import SalesStatsService, parse_snapshot_date
+from app.domain.kpi.tool_prediction_service import (
+    ToolPredictionKpiService,
+    parse_tool_prediction_date,
+)
 from app.domain.kpi.windchill_service import WindchillKpiService
 from app.errors import DatabaseError, ValidationException
 
@@ -59,6 +64,13 @@ def get_payables_invoice_stats_service() -> PayablesInvoiceStatsService:
 
 def get_purchasing_stats_service() -> PurchasingStatsService:
     return PurchasingStatsService()
+
+
+def get_tool_prediction_kpi_service() -> ToolPredictionKpiService:
+    service = ToolPredictionKpiService()
+    if not service.is_configured:
+        raise DatabaseError("Tool prediction database not configured")
+    return service
 
 
 @lru_cache(maxsize=1)
@@ -455,6 +467,65 @@ async def get_payables_invoice_stats(
     service: PayablesInvoiceStatsService = Depends(get_payables_invoice_stats_service),
 ) -> PayablesInvoiceStatsResponse:
     return await service.get_stats(refresh=refresh)
+
+
+@router.get(
+    "/tooling/shortage-predictions",
+    response_model=ToolShortagePredictionSnapshotResponse,
+    responses={
+        status.HTTP_200_OK: {"description": "Tool shortage predictions retrieved successfully"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Invalid date parameter"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "description": "Tool prediction database unavailable",
+            "model": ErrorResponse,
+        },
+    },
+    summary="Tool shortage predictions KPI",
+    description=(
+        "Return stored daily tool shortage predictions generated from tooling future-needs, "
+        "inventory and usage signals. Supports latest snapshot reads and on-demand refresh."
+    ),
+)
+async def get_tool_shortage_predictions(
+    date: Optional[str] = Query(
+        default=None,
+        description="Snapshot date (YYYY-MM-DD, 'today', or 'yesterday'). Defaults to latest available.",
+    ),
+    machine_center: Optional[str] = Query(
+        default=None,
+        description="Optional machine center filter (e.g., DMC100, NHX5500).",
+    ),
+    limit: int = Query(
+        default=200,
+        ge=1,
+        le=5000,
+        description="Max rows to return ordered by shortage probability descending.",
+    ),
+    refresh: bool = Query(
+        default=False,
+        description="When true, regenerate snapshot rows before returning data.",
+    ),
+    service: ToolPredictionKpiService = Depends(get_tool_prediction_kpi_service),
+) -> ToolShortagePredictionSnapshotResponse:
+    if refresh:
+        try:
+            refresh_date = parse_tool_prediction_date(date)
+        except ValueError as exc:
+            raise ValidationException(str(exc), field="date") from exc
+        await service.refresh_snapshot(snapshot_date=refresh_date, refresh_sources=True)
+
+    if date is None:
+        return await service.get_latest_snapshot(machine_center=machine_center, limit=limit)
+
+    try:
+        snapshot_date = parse_tool_prediction_date(date)
+    except ValueError as exc:
+        raise ValidationException(str(exc), field="date") from exc
+    return await service.get_snapshot(
+        snapshot_date=snapshot_date,
+        machine_center=machine_center,
+        limit=limit,
+    )
 
 
 @router.get(
