@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Any, Optional
 from decimal import Decimal, ROUND_HALF_UP
 import io
+import math
 import time
 import re
 import logfire
@@ -31,7 +32,9 @@ class OCRService:
     This service orchestrates document extraction using AI/LLM models
     to convert unstructured documents into structured data.
     """
-    _CARRIER_STATEMENT_PARALLEL_WORKERS = 3
+    _CARRIER_STATEMENT_PARALLEL_WORKERS = 4
+    _CARRIER_STATEMENT_MAX_CHUNK_PAGES = 6
+    _CARRIER_STATEMENT_TARGET_CHUNKS = 8
     
     def __init__(self, ocr_client: OCRClientProtocol):
         """
@@ -739,7 +742,8 @@ class OCRService:
                         extraction_filename = f"{filename.rsplit('.', 1)[0]}-first-{max_pages}.pdf"
                         processed_pages = min(processed_pages, max_pages)
 
-                    page_ranges = self._build_pdf_page_ranges(processed_pages, chunk_pages=1)
+                    chunk_pages = self._carrier_statement_chunk_pages(processed_pages)
+                    page_ranges = self._build_pdf_page_ranges(processed_pages, chunk_pages=chunk_pages)
                     total_chunks = len(page_ranges)
                     chunk_inputs: list[tuple[int, int, int, str, bytes, str]] = []
                     for chunk_index, (start_page, end_page) in enumerate(page_ranges, start=1):
@@ -808,7 +812,8 @@ class OCRService:
                                 document_type=f"{normalized_carrier}_{document_type}",
                                 output_model=CarrierAccountStatementExtraction,
                                 additional_instructions=chunk_instructions,
-                                prefer_vision=True,
+                                # Allow text fast-path on text-based PDFs to reduce latency.
+                                prefer_vision=False,
                             )
                         except Exception as chunk_exc:
                             logfire.warn(
@@ -842,14 +847,13 @@ class OCRService:
                                     f"text fallback: {text_exc}"
                                 )
 
-                        if start_page == end_page:
-                            normalized_shipments = [
-                                shipment
-                                if shipment.source_page is not None
-                                else shipment.model_copy(update={"source_page": start_page})
-                                for shipment in chunk_model.shipments
-                            ]
-                            chunk_model = chunk_model.model_copy(update={"shipments": normalized_shipments})
+                        normalized_shipments = [
+                            shipment
+                            if shipment.source_page is not None
+                            else shipment.model_copy(update={"source_page": start_page})
+                            for shipment in chunk_model.shipments
+                        ]
+                        chunk_model = chunk_model.model_copy(update={"shipments": normalized_shipments})
                         chunk_processing_time = int((time.time() - chunk_start_time) * 1000)
                         logfire.info(
                             "Carrier statement chunk extraction completed",
@@ -987,6 +991,16 @@ class OCRService:
             ranges.append((start_page, end_page))
             start_page = end_page + 1
         return ranges
+
+    @classmethod
+    def _carrier_statement_chunk_pages(cls, total_pages: int) -> int:
+        """
+        Compute adaptive chunk size to keep total OCR calls bounded for large statements.
+        """
+        if total_pages <= 0:
+            return 1
+        suggested = max(1, math.ceil(total_pages / cls._CARRIER_STATEMENT_TARGET_CHUNKS))
+        return min(cls._CARRIER_STATEMENT_MAX_CHUNK_PAGES, suggested)
 
     @staticmethod
     def _slice_pdf_pages(
