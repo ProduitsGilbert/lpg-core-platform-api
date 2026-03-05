@@ -152,7 +152,7 @@ async def extract_purchase_order(
     file: UploadFile = File(..., description="PDF or image file containing the purchase order"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """
     Extract structured data from a purchase order document.
     
@@ -221,7 +221,7 @@ async def extract_invoice(
     file: UploadFile = File(..., description="PDF or image file containing the invoice"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """
     Extract structured data from an invoice document.
     
@@ -291,7 +291,7 @@ async def extract_customer_payment_terms(
     file: UploadFile = File(..., description="PDF contract document containing customer payment terms"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service),
-):
+) -> JSONResponse:
     """
     Extract customer payment terms + total contract amount from a contract PDF.
 
@@ -340,7 +340,7 @@ async def extract_supplier_account_statement(
     file: UploadFile = File(..., description="PDF or image file containing the supplier account statement"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from supplier account statements."""
     with logfire.span('api_extract_supplier_account_statement'):
         try:
@@ -390,7 +390,7 @@ async def extract_customer_account_statement(
     file: UploadFile = File(..., description="PDF or image file containing the customer account statement"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from customer account statements."""
     with logfire.span('api_extract_customer_account_statement'):
         try:
@@ -444,7 +444,7 @@ async def extract_carrier_statement(
     ),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service),
-):
+) -> JSONResponse:
     """Extract structured shipment transactions from a carrier account statement."""
     with logfire.span('api_extract_carrier_statement'):
         try:
@@ -515,7 +515,7 @@ async def extract_carrier_statement(
 async def save_carrier_statement_records(
     request: CarrierStatementSaveRequest,
     repository: CarrierStatementRepository = Depends(get_carrier_statement_repository),
-):
+) -> JSONResponse:
     """Persist extracted carrier statement shipments for matching workflows."""
     with logfire.span("api_save_carrier_statement_records"):
         try:
@@ -555,7 +555,7 @@ async def list_carrier_statement_records(
     limit: int = Query(100, ge=1, le=500, description="Page size"),
     offset: int = Query(0, ge=0, description="Offset"),
     repository: CarrierStatementRepository = Depends(get_carrier_statement_repository),
-):
+) -> CarrierStatementListResponse:
     """List persisted carrier statement rows with filtering for reconciliation."""
     with logfire.span("api_list_carrier_statement_records"):
         try:
@@ -582,7 +582,7 @@ async def update_carrier_statement_record(
     record_id: int,
     request: CarrierStatementUpdateRequest,
     repository: CarrierStatementRepository = Depends(get_carrier_statement_repository),
-):
+) -> JSONResponse:
     """Update status/matched/workflow fields for a persisted carrier statement row."""
     with logfire.span("api_update_carrier_statement_record", record_id=record_id):
         try:
@@ -614,7 +614,7 @@ async def extract_supplier_invoice(
     file: UploadFile = File(..., description="PDF or image file containing the supplier invoice"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from supplier invoices."""
     with logfire.span('api_extract_supplier_invoice'):
         try:
@@ -663,7 +663,7 @@ async def extract_vendor_quote(
     file: UploadFile = File(..., description="PDF or image file containing the vendor quote"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from vendor quotes."""
     with logfire.span('api_extract_vendor_quote'):
         try:
@@ -713,7 +713,7 @@ async def extract_order_confirmation(
     file: UploadFile = File(..., description="PDF or image file containing the order confirmation"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from order confirmations."""
     with logfire.span('api_extract_order_confirmation'):
         try:
@@ -763,7 +763,7 @@ async def extract_shipping_bill(
     file: UploadFile = File(..., description="PDF or image file containing the shipping bill"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from shipping bills."""
     with logfire.span('api_extract_shipping_bill'):
         try:
@@ -812,7 +812,7 @@ async def extract_commercial_invoice(
     file: UploadFile = File(..., description="PDF or image file containing the commercial invoice"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """Extract structured data from commercial invoices."""
     with logfire.span('api_extract_commercial_invoice'):
         try:
@@ -861,7 +861,7 @@ async def extract_complex_document(
     file: UploadFile = File(..., description="PDF or image file containing a complex document"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service),
-):
+) -> JSONResponse:
     """
     Extract layout-aware content from complex documents, including text, tables, and figures.
     """
@@ -906,7 +906,7 @@ async def extract_custom_document(
     output_schema: str = Form(..., description="JSON schema defining expected output structure"),
     additional_instructions: Optional[str] = Form(None, description="Additional extraction instructions"),
     ocr_service: OCRService = Depends(get_ocr_service),
-):
+) -> JSONResponse:
     """
     Extract structured data from any document using a custom JSON schema.
     """
@@ -969,7 +969,7 @@ async def extract_batch_documents(
     files: list[UploadFile] = File(..., description="Multiple PDF or image files"),
     document_type: str = Form(..., description="Type of documents (e.g., purchase_order, supplier_invoice)"),
     ocr_service: OCRService = Depends(get_ocr_service)
-):
+) -> JSONResponse:
     """
     Extract structured data from multiple documents in batch.
     
@@ -1058,7 +1058,7 @@ async def extract_batch_documents(
 
 
 @router.get("/status")
-async def get_ocr_status(ocr_service: OCRService = Depends(get_ocr_service)):
+async def get_ocr_status(ocr_service: OCRService = Depends(get_ocr_service)) -> JSONResponse:
     """
     Check OCR service status and configuration.
     

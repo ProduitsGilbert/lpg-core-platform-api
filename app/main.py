@@ -6,7 +6,7 @@ routers, exception handlers, and lifecycle events.
 """
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 import asyncio
 import datetime as dt
 import logging
@@ -491,7 +491,7 @@ app.include_router(v1_router)
 
 # Root endpoint
 @app.get("/", include_in_schema=False)
-async def root():
+async def root() -> JSONResponse:
     """Root endpoint - redirects to health check."""
     return JSONResponse(
         content={
@@ -507,7 +507,7 @@ async def root():
 if settings.enable_scheduler and not settings.is_production:
     
     @app.get("/scheduler/jobs", include_in_schema=False)
-    async def get_scheduler_jobs():
+    async def get_scheduler_jobs() -> dict[str, Any]:
         """Get list of scheduled jobs."""
         if not scheduler:
             return {"error": "Scheduler not enabled"}
@@ -524,7 +524,7 @@ if settings.enable_scheduler and not settings.is_production:
         return {"jobs": jobs}
     
     @app.post("/scheduler/jobs/{job_id}/run", include_in_schema=False)
-    async def run_scheduler_job(job_id: str):
+    async def run_scheduler_job(job_id: str) -> dict[str, str]:
         """Manually trigger a scheduled job."""
         if not scheduler:
             return {"error": "Scheduler not enabled"}

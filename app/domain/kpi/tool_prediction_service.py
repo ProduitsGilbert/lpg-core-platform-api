@@ -307,8 +307,9 @@ def _normalize_snapshot_row(row: dict[str, Any]) -> dict[str, Any]:
     normalized["work_center_no"] = _clean_text(row.get("work_center_no")) or ""
     normalized["machine_center"] = _clean_machine_center(row.get("machine_center")) or ""
     normalized["tool_id"] = _clean_tool_id(row.get("tool_id")) or ""
-    normalized["shortage_probability"] = _safe_probability(row.get("shortage_probability"))
-    normalized["shortage_label"] = _clean_text(row.get("shortage_label"))
+    probability = _safe_probability(row.get("shortage_probability"))
+    normalized["shortage_probability"] = probability
+    normalized["shortage_label"] = _display_shortage_label(probability=probability)
     return normalized
 
 
@@ -368,3 +369,14 @@ def _safe_probability(value: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return max(0.0, min(probability, 1.0))
+
+
+def _display_shortage_label(*, probability: Optional[float]) -> Optional[str]:
+    if probability is None:
+        return None
+    # Dashboard display buckets: keep HIGH unchanged but loosen MEDIUM threshold.
+    if probability >= 0.7:
+        return "HIGH"
+    if probability >= 0.12:
+        return "MEDIUM"
+    return "LOW"

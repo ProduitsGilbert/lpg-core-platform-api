@@ -31,7 +31,7 @@ router = APIRouter(
     tags=["Finance"]
 )
 
-async def verify_finance_token(x_finance_token: str = Header(..., alias="X-Finance-Token")):
+async def verify_finance_token(x_finance_token: str = Header(..., alias="X-Finance-Token")) -> str:
     """
     Verify the finance authentication token.
     Requires header X-Finance-Token to match environment variable FINANCE_API_TOKEN.
@@ -107,7 +107,7 @@ async def get_cashflow_projection(
     ),
     token: str = Depends(verify_finance_token),
     svc: CashflowService = Depends(get_service)
-):
+) -> CashflowProjection:
     """
     Get cashflow projection for the specified period.
     Aggregates data from ERP (Sales, Purchasing, Jobs) and manual entries.
@@ -153,7 +153,7 @@ async def get_cashflow_projection(
 async def list_manual_entries(
     token: str = Depends(verify_finance_token),
     svc: CashflowService = Depends(get_service),
-):
+) -> List[ManualEntry]:
     """List all manual cashflow entries from [Cedule].[dbo].[Finance_Cashflow]."""
     # Directly using repository through service for consistent access path
     return svc.repo.get_all_entries()
@@ -163,7 +163,7 @@ async def create_manual_entry(
     entry: ManualEntryCreate,
     token: str = Depends(verify_finance_token),
     svc: CashflowService = Depends(get_service)
-):
+) -> ManualEntry:
     """Create a manual cashflow entry (one-time or periodic)."""
     created = svc.create_entry(entry)
     cashflow_projection_cache.invalidate_cache_date(date.today().isoformat())
@@ -175,7 +175,7 @@ async def update_manual_entry(
     entry_id: int = Path(..., description="Entry ID"),
     token: str = Depends(verify_finance_token),
     svc: CashflowService = Depends(get_service)
-):
+) -> ManualEntry:
     """Update a manual cashflow entry."""
     updated = svc.update_entry(entry_id, updates)
     if not updated:
@@ -188,7 +188,7 @@ async def delete_manual_entry(
     entry_id: int = Path(..., description="Entry ID"),
     token: str = Depends(verify_finance_token),
     svc: CashflowService = Depends(get_service)
-):
+) -> None:
     """Delete a manual cashflow entry."""
     success = svc.delete_entry(entry_id)
     if not success:

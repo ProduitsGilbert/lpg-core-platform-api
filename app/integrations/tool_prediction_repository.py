@@ -289,12 +289,18 @@ class ToolPredictionSnapshotRepository:
                 shortage_label,
                 prediction_payload_json,
                 predictor_response_json,
-                updated_at
+                updated_at,
+                (
+                    COALESCE(shortage_probability, 0.0)
+                    + CASE WHEN COALESCE(available_instances, 0) > 0 THEN 0.10 ELSE 0.0 END
+                    - CASE WHEN COALESCE(inventory_instances, 0) = 0 THEN 0.20 ELSE 0.0 END
+                ) AS blended_risk_score
             FROM {TOOL_PREDICTION_TABLE}
             WHERE snapshot_date = :snapshot_date
             {where_machine}
             ORDER BY
                 CASE WHEN shortage_probability IS NULL THEN 1 ELSE 0 END,
+                blended_risk_score DESC,
                 shortage_probability DESC,
                 total_required_use_time_seconds DESC,
                 tool_id ASC

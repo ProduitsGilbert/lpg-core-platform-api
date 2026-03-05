@@ -29,16 +29,10 @@ class ToolPredictionFeatureRepository:
     def list_inventory_metrics(self, *, machine_center: str) -> dict[str, dict[str, float | int]]:
         if not self._engine:
             return {}
-
-        location_patterns = _inventory_location_patterns(machine_center)
-        location_where_sql, location_params = _build_like_filter_sql(
-            column="CurrentLocation",
-            patterns=location_patterns,
-            param_prefix="loc",
-        )
+        _ = machine_center
 
         query_primary = text(
-            f"""
+            """
             WITH latest AS (
               SELECT
                   ToolId,
@@ -52,7 +46,6 @@ class ToolPredictionFeatureRepository:
                     ORDER BY SnapshotTimestamp DESC
                   ) AS rn
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE {location_where_sql}
             )
             SELECT
                 UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
@@ -69,7 +62,7 @@ class ToolPredictionFeatureRepository:
         )
 
         query_fallback = text(
-            f"""
+            """
             WITH latest AS (
               SELECT
                   ToolId,
@@ -83,7 +76,6 @@ class ToolPredictionFeatureRepository:
                     ORDER BY SnapshotDate DESC
                   ) AS rn
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE {location_where_sql}
             )
             SELECT
                 UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
@@ -102,7 +94,7 @@ class ToolPredictionFeatureRepository:
         rows = self._query_with_fallback(
             query_primary,
             query_fallback,
-            params=location_params,
+            params={},
             error_message="Unable to query tool prediction inventory metrics",
         )
 
@@ -184,24 +176,17 @@ class ToolPredictionFeatureRepository:
     ) -> dict[str, dict[str, float]]:
         if not self._engine:
             return {}
-
-        location_patterns = _inventory_location_patterns(machine_center)
-        location_where_sql, location_params = _build_like_filter_sql(
-            column="CurrentLocation",
-            patterns=location_patterns,
-            param_prefix="loc",
-        )
+        _ = machine_center
 
         query_snapshot_date = text(
-            f"""
+            """
             WITH daily AS (
               SELECT
                   UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
                   CAST(SnapshotDate AS date) AS d,
                   SUM(CAST(RemainingLifeTime AS FLOAT)) AS total_remaining_life
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE {location_where_sql}
-                AND SnapshotDate >= DATEADD(day, -8, CAST(:t0 AS date))
+              WHERE SnapshotDate >= DATEADD(day, -8, CAST(:t0 AS date))
                 AND SnapshotDate <= CAST(:t0 AS date)
               GROUP BY UPPER(LTRIM(RTRIM(ToolId))), CAST(SnapshotDate AS date)
             ),
@@ -229,15 +214,14 @@ class ToolPredictionFeatureRepository:
         )
 
         query_snapshot_timestamp = text(
-            f"""
+            """
             WITH daily AS (
               SELECT
                   UPPER(LTRIM(RTRIM(ToolId))) AS tool_id,
                   CAST(SnapshotTimestamp AS date) AS d,
                   SUM(CAST(RemainingLifeTime AS FLOAT)) AS total_remaining_life
               FROM [Cedule].[dbo].[ToolInstanceHistory]
-              WHERE {location_where_sql}
-                AND SnapshotTimestamp >= DATEADD(day, -8, CAST(:t0 AS date))
+              WHERE SnapshotTimestamp >= DATEADD(day, -8, CAST(:t0 AS date))
                 AND SnapshotTimestamp < DATEADD(day, 1, CAST(:t0 AS date))
               GROUP BY UPPER(LTRIM(RTRIM(ToolId))), CAST(SnapshotTimestamp AS date)
             ),
@@ -269,7 +253,6 @@ class ToolPredictionFeatureRepository:
             query_snapshot_timestamp,
             params={
                 "t0": t0,
-                **location_params,
             },
             error_message="Unable to query tool prediction wear metrics",
         )

@@ -27,7 +27,45 @@ logger = logging.getLogger(__name__)
 class CarrierStatementRepository:
     """Persistence repository for extracted carrier statement shipment records."""
 
-    _TABLE = "[Cedule].[dbo].[30_COMPTABILITÉ ET FINANCES_AP_Transport_Carrier_Statement_Transaction]"
+    _TABLE_DATABASE = "Cedule"
+    _TABLE_SCHEMA = "dbo"
+    _TABLE_NAME = "30_COMPTABILITÉ ET FINANCES_AP_Transport_Carrier_Statement_Transaction"
+    _TABLE = f"[{_TABLE_DATABASE}].[{_TABLE_SCHEMA}].[{_TABLE_NAME}]"
+    _MERGE_KEY_COLUMNS = ("carrier", "invoice_number", "shipment_date", "tracking_number")
+    _WRITE_COLUMNS = (
+        "carrier",
+        "workflow_type",
+        "status",
+        "matched",
+        "statement_filename",
+        "account_number",
+        "invoice_number",
+        "invoice_date",
+        "due_date",
+        "currency",
+        "amount_due",
+        "shipment_date",
+        "tracking_number",
+        "shipped_from_address",
+        "shipped_to_address",
+        "piece_count",
+        "billed_weight",
+        "billed_weight_unit",
+        "service_description",
+        "charges_json",
+        "subtotal_before_tax",
+        "tax_lines_json",
+        "tax_total",
+        "tax_tps",
+        "tax_tvq",
+        "total_charges",
+        "ref_1",
+        "ref_2",
+        "manifest_number",
+        "billing_note",
+        "source_page",
+        "shipment_payload_json",
+    )
     _GILBERT_ADDRESS_TOKENS = (
         "LES PRODUITS GILBERT",
         "1840",
@@ -60,127 +98,12 @@ class CarrierStatementRepository:
         records: list[CarrierStatementStoredRecord] = []
         statement = request.extracted_data
 
-        merge_stmt = text(
-            f"""
-            MERGE {self._TABLE} AS target
-            USING (
-                SELECT
-                    :carrier AS carrier,
-                    :invoice_number AS invoice_number,
-                    :shipment_date AS shipment_date,
-                    :tracking_number AS tracking_number
-            ) AS source
-            ON target.carrier = source.carrier
-               AND ISNULL(target.invoice_number, '') = ISNULL(source.invoice_number, '')
-               AND target.shipment_date = source.shipment_date
-               AND target.tracking_number = source.tracking_number
-            WHEN MATCHED THEN UPDATE SET
-                workflow_type = :workflow_type,
-                status = :status,
-                matched = :matched,
-                statement_filename = :statement_filename,
-                account_number = :account_number,
-                invoice_date = :invoice_date,
-                due_date = :due_date,
-                currency = :currency,
-                amount_due = :amount_due,
-                shipped_from_address = :shipped_from_address,
-                shipped_to_address = :shipped_to_address,
-                piece_count = :piece_count,
-                billed_weight = :billed_weight,
-                billed_weight_unit = :billed_weight_unit,
-                service_description = :service_description,
-                charges_json = :charges_json,
-                subtotal_before_tax = :subtotal_before_tax,
-                tax_lines_json = :tax_lines_json,
-                tax_total = :tax_total,
-                tax_tps = :tax_tps,
-                tax_tvq = :tax_tvq,
-                total_charges = :total_charges,
-                ref_1 = :ref_1,
-                ref_2 = :ref_2,
-                manifest_number = :manifest_number,
-                billing_note = :billing_note,
-                source_page = :source_page,
-                shipment_payload_json = :shipment_payload_json,
-                updated_at = SYSUTCDATETIME()
-            WHEN NOT MATCHED THEN INSERT (
-                carrier,
-                workflow_type,
-                status,
-                matched,
-                statement_filename,
-                account_number,
-                invoice_number,
-                invoice_date,
-                due_date,
-                currency,
-                amount_due,
-                shipment_date,
-                tracking_number,
-                shipped_from_address,
-                shipped_to_address,
-                piece_count,
-                billed_weight,
-                billed_weight_unit,
-                service_description,
-                charges_json,
-                subtotal_before_tax,
-                tax_lines_json,
-                tax_total,
-                tax_tps,
-                tax_tvq,
-                total_charges,
-                ref_1,
-                ref_2,
-                manifest_number,
-                billing_note,
-                source_page,
-                shipment_payload_json,
-                created_at,
-                updated_at
-            ) VALUES (
-                :carrier,
-                :workflow_type,
-                :status,
-                :matched,
-                :statement_filename,
-                :account_number,
-                :invoice_number,
-                :invoice_date,
-                :due_date,
-                :currency,
-                :amount_due,
-                :shipment_date,
-                :tracking_number,
-                :shipped_from_address,
-                :shipped_to_address,
-                :piece_count,
-                :billed_weight,
-                :billed_weight_unit,
-                :service_description,
-                :charges_json,
-                :subtotal_before_tax,
-                :tax_lines_json,
-                :tax_total,
-                :tax_tps,
-                :tax_tvq,
-                :total_charges,
-                :ref_1,
-                :ref_2,
-                :manifest_number,
-                :billing_note,
-                :source_page,
-                :shipment_payload_json,
-                SYSUTCDATETIME(),
-                SYSUTCDATETIME()
-            )
-            OUTPUT $action AS merge_action, inserted.id AS id;
-            """
-        )
-
         try:
             with self._engine.begin() as connection:
+                table_columns = self._get_table_columns(connection)
+                self._validate_required_columns(table_columns)
+                merge_stmt, merge_param_columns = self._build_merge_statement(table_columns)
+
                 for shipment in statement.shipments:
                     inferred_workflow_type = self.infer_workflow_type(
                         shipped_from_address=shipment.shipped_from_address,
@@ -198,43 +121,44 @@ class CarrierStatementRepository:
                         ensure_ascii=False,
                     )
                     shipment_payload_json = json.dumps(shipment.model_dump(mode="json"), ensure_ascii=False)
-                    merge_row = connection.execute(
-                        merge_stmt,
-                        {
-                            "carrier": carrier,
-                            "workflow_type": inferred_workflow_type,
-                            "status": request.status,
-                            "matched": 1 if request.matched else 0,
-                            "statement_filename": request.statement_filename,
-                            "account_number": statement.account_number,
-                            "invoice_number": statement.invoice_number,
-                            "invoice_date": statement.invoice_date,
-                            "due_date": statement.due_date,
-                            "currency": statement.currency,
-                            "amount_due": statement.amount_due,
-                            "shipment_date": shipment.shipment_date,
-                            "tracking_number": shipment.tracking_number,
-                            "shipped_from_address": shipment.shipped_from_address,
-                            "shipped_to_address": shipment.shipped_to_address,
-                            "piece_count": shipment.piece_count,
-                            "billed_weight": shipment.billed_weight,
-                            "billed_weight_unit": shipment.billed_weight_unit,
-                            "service_description": shipment.service_description,
-                            "charges_json": charges_json,
-                            "subtotal_before_tax": shipment.subtotal_before_tax,
-                            "tax_lines_json": tax_lines_json,
-                            "tax_total": shipment.tax_total,
-                            "tax_tps": shipment.tax_tps,
-                            "tax_tvq": shipment.tax_tvq,
-                            "total_charges": shipment.total_charges,
-                            "ref_1": shipment.ref_1,
-                            "ref_2": shipment.ref_2,
-                            "manifest_number": shipment.manifest_number,
-                            "billing_note": shipment.billing_note,
-                            "source_page": shipment.source_page,
-                            "shipment_payload_json": shipment_payload_json,
-                        },
-                    ).mappings().first()
+                    merge_values = {
+                        "carrier": carrier,
+                        "workflow_type": inferred_workflow_type,
+                        "status": request.status,
+                        "matched": 1 if request.matched else 0,
+                        "statement_filename": request.statement_filename,
+                        "account_number": statement.account_number,
+                        "invoice_number": statement.invoice_number,
+                        "invoice_date": statement.invoice_date,
+                        "due_date": statement.due_date,
+                        "currency": statement.currency,
+                        "amount_due": statement.amount_due,
+                        "shipment_date": shipment.shipment_date,
+                        "tracking_number": shipment.tracking_number,
+                        "shipped_from_address": shipment.shipped_from_address,
+                        "shipped_to_address": shipment.shipped_to_address,
+                        "piece_count": shipment.piece_count,
+                        "billed_weight": shipment.billed_weight,
+                        "billed_weight_unit": shipment.billed_weight_unit,
+                        "service_description": shipment.service_description,
+                        "charges_json": charges_json,
+                        "subtotal_before_tax": shipment.subtotal_before_tax,
+                        "tax_lines_json": tax_lines_json,
+                        "tax_total": shipment.tax_total,
+                        "tax_tps": shipment.tax_tps,
+                        "tax_tvq": shipment.tax_tvq,
+                        "total_charges": shipment.total_charges,
+                        "ref_1": shipment.ref_1,
+                        "ref_2": shipment.ref_2,
+                        "manifest_number": shipment.manifest_number,
+                        "billing_note": shipment.billing_note,
+                        "source_page": shipment.source_page,
+                        "shipment_payload_json": shipment_payload_json,
+                    }
+                    bound_values = {
+                        key: value for key, value in merge_values.items() if key in merge_param_columns
+                    }
+                    merge_row = connection.execute(merge_stmt, bound_values).mappings().first()
 
                     if not merge_row or not merge_row.get("id"):
                         continue
@@ -260,6 +184,85 @@ class CarrierStatementRepository:
         except SQLAlchemyError as exc:
             logger.error("Failed to save carrier statement extraction", exc_info=exc)
             raise DatabaseError("Unable to save carrier statement extraction") from exc
+
+    def _get_table_columns(self, connection) -> set[str]:
+        rows = connection.execute(
+            text(
+                f"""
+                SELECT LOWER(COLUMN_NAME) AS column_name
+                FROM [{self._TABLE_DATABASE}].INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = :table_schema
+                  AND TABLE_NAME = :table_name
+                """
+            ),
+            {
+                "table_schema": self._TABLE_SCHEMA,
+                "table_name": self._TABLE_NAME,
+            },
+        ).scalars()
+        return {str(column_name).lower() for column_name in rows if column_name}
+
+    def _validate_required_columns(self, table_columns: set[str]) -> None:
+        required_columns = set(self._MERGE_KEY_COLUMNS).union({"id"})
+        missing_required_columns = required_columns.difference(table_columns)
+        if missing_required_columns:
+            missing = ", ".join(sorted(missing_required_columns))
+            raise DatabaseError(
+                f"Carrier statement table is missing required columns: {missing}"
+            )
+
+    def _build_merge_statement(self, table_columns: set[str]) -> tuple[object, set[str]]:
+        update_columns = [
+            column
+            for column in self._WRITE_COLUMNS
+            if column in table_columns and column not in self._MERGE_KEY_COLUMNS
+        ]
+        insert_columns = [column for column in self._WRITE_COLUMNS if column in table_columns]
+
+        update_assignments = [f"{column} = :{column}" for column in update_columns]
+        if "updated_at" in table_columns:
+            update_assignments.append("updated_at = SYSUTCDATETIME()")
+        if not update_assignments:
+            # Keep MERGE valid even on minimal schemas.
+            update_assignments.append("tracking_number = source.tracking_number")
+
+        insert_values = [f":{column}" for column in insert_columns]
+        if "created_at" in table_columns:
+            insert_columns.append("created_at")
+            insert_values.append("SYSUTCDATETIME()")
+        if "updated_at" in table_columns:
+            insert_columns.append("updated_at")
+            insert_values.append("SYSUTCDATETIME()")
+
+        merge_sql = text(
+            f"""
+            MERGE {self._TABLE} AS target
+            USING (
+                SELECT
+                    :carrier AS carrier,
+                    :invoice_number AS invoice_number,
+                    :shipment_date AS shipment_date,
+                    :tracking_number AS tracking_number
+            ) AS source
+            ON target.carrier = source.carrier
+               AND ISNULL(target.invoice_number, '') = ISNULL(source.invoice_number, '')
+               AND target.shipment_date = source.shipment_date
+               AND target.tracking_number = source.tracking_number
+            WHEN MATCHED THEN UPDATE SET
+                {', '.join(update_assignments)}
+            WHEN NOT MATCHED THEN INSERT (
+                {', '.join(insert_columns)}
+            ) VALUES (
+                {', '.join(insert_values)}
+            )
+            OUTPUT $action AS merge_action, inserted.id AS id;
+            """
+        )
+
+        bind_columns = set(update_columns).union(set(self._MERGE_KEY_COLUMNS), set(insert_columns))
+        bind_columns.discard("created_at")
+        bind_columns.discard("updated_at")
+        return merge_sql, bind_columns
 
     @classmethod
     def infer_workflow_type(
